@@ -11,6 +11,7 @@ package graphbuild
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"rohy/backend/autograph"
@@ -42,6 +43,10 @@ type RuleOutcome struct {
 	Removed   int    `json:"removed"`
 	Truncated bool   `json:"truncated"`
 	Dropped   int    `json:"dropped"`
+	// GraphDiscarded reports that this rule matched nothing, so the graph it would have
+	// filled was removed rather than left behind empty. GraphID still names the graph that
+	// briefly existed, so a caller can tell "removed the empty graph 7" from "never had one".
+	GraphDiscarded bool `json:"graph_discarded"`
 }
 
 // Result is the outcome of a whole run: one entry per rule, plus the size of the dataset
@@ -76,16 +81,34 @@ type Reporter interface {
 	Progress(Progress)
 }
 
-// Builder wires the three stores the workflow composes. It owns no state of its own.
+// Builder wires the stores the workflow composes. It owns no state of its own.
 type Builder struct {
 	store  *graphene.Store
 	graphs *graphreg.Store
 	rules  *rules.Registry
+	// layouts is optional. It is held so that discarding a rule's empty graph can also drop
+	// the canvas positions that graph accumulated, rather than orphaning them under an id
+	// nothing will ever look up again. A nil layouts still discards the graph; it just
+	// leaves the layout file behind.
+	layouts LayoutStore
+}
+
+// LayoutStore is the slice of the canvas-layout store this workflow needs. Declaring it as
+// an interface here keeps graphbuild from depending on the layout package for one call.
+type LayoutStore interface {
+	Delete(graphID uint64) error
 }
 
 // New constructs the workflow over the open stores.
 func New(store *graphene.Store, graphs *graphreg.Store, registry *rules.Registry) *Builder {
 	return &Builder{store: store, graphs: graphs, rules: registry}
+}
+
+// WithLayouts attaches the canvas-layout store, so a discarded empty graph also takes its
+// layout with it. Returns the builder for chaining at construction.
+func (b *Builder) WithLayouts(l LayoutStore) *Builder {
+	b.layouts = l
+	return b
 }
 
 // Run executes the request. The dataset is read once and shared by every rule, so N rules
@@ -230,7 +253,53 @@ func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, events []*graph
 	if err := flush(); err != nil {
 		return out, err
 	}
+
+	// A rule that matched nothing leaves no graph behind.
+	//
+	// Keeping it would fill the graph picker with empty entries — one per rule that did not
+	// fire on this dataset — and an empty graph is indistinguishable at a glance from one
+	// whose results have not loaded yet. "This rule found nothing" is better said by the
+	// run's outcome, which reports zero matches, than by an empty artefact the analyst has
+	// to open to learn the same thing.
+	//
+	// This is also what makes a rebuild symmetric: a rule that previously matched and now
+	// does not gets its graph cleared AND removed, rather than being left as a husk of a
+	// result that is no longer true.
+	if out.Relations == 0 {
+		discarded, err := b.discardEmptyGraph(graph.ID)
+		if err != nil {
+			return out, err
+		}
+		out.GraphDiscarded = discarded
+	}
 	return out, nil
+}
+
+// discardEmptyGraph removes a graph that a rule run left with no relations, along with its
+// canvas layout. It reports whether the graph was actually removed.
+//
+// Two refusals are deliberate and are not errors. The registry will not delete the last
+// remaining graph, because the application always needs somewhere to put a hand-drawn
+// relation; and a graph the user is currently looking at is left alone, since deleting the
+// active view underneath someone mid-investigation is worse than leaving an empty graph in
+// the list. In both cases the graph stays, empty — it has already been cleared, so it is
+// accurate, just not tidy.
+func (b *Builder) discardEmptyGraph(graphID uint64) (bool, error) {
+	if b.graphs.Active() == graphID {
+		return false, nil
+	}
+	if err := b.graphs.Delete(graphID); err != nil {
+		if errors.Is(err, graphreg.ErrLastGraph) || errors.Is(err, graphreg.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	// The registry entry is gone, so the layout is unreachable by any view. Failing to
+	// remove it costs a stale file, not correctness, so it does not fail the build.
+	if b.layouts != nil {
+		_ = b.layouts.Delete(graphID)
+	}
+	return true, nil
 }
 
 // selectRules resolves the requested ids, or returns every enabled rule when none are

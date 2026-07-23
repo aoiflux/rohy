@@ -56,14 +56,10 @@ func normalizeRecord(rec *velo.EventRecord) (*graphene.Event, error) {
 	}
 
 	ev.HashRaw = utils.HashString(ev.RawXML)
-	ev.HashNormalized = utils.HashFields(
-		ev.EventID,
-		ev.Timestamp.UTC().Format(consts.TimestampIndexLayout),
-		ev.Provider,
-		ev.Channel,
-		ev.Computer,
-		ev.User,
-	)
+	// Identity is owned by the schema, not by each normalizer: the rule has two branches
+	// and three parsers, and three copies of it would drift. SourceIdentifier is empty here
+	// and the sink recomputes once it is known.
+	ev.ComputeNormalizedHash()
 	return ev, nil
 }
 

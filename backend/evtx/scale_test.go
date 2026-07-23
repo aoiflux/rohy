@@ -83,7 +83,7 @@ func (s *countingSink) InsertEvents(events []*graphene.Event) ([]uint64, error) 
 
 func (s *countingSink) FindEventIDByHash(string) (uint64, bool, error) { return 0, false, nil }
 
-func (s *countingSink) IncrementDedupCounts(map[uint64]int) error { return nil }
+func (s *countingSink) IncrementDedupCounts(map[uint64]map[string]int) error { return nil }
 
 // peakHeapDelta runs fn while sampling live heap, returning peak-minus-baseline bytes.
 func peakHeapDelta(fn func()) uint64 {
@@ -212,7 +212,7 @@ func (s *cancelSink) FindEventIDByHash(h string) (uint64, bool, error) {
 	return s.store.FindEventIDByHash(h)
 }
 
-func (s *cancelSink) IncrementDedupCounts(deltas map[uint64]int) error {
+func (s *cancelSink) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 	return s.store.IncrementDedupCounts(deltas)
 }
 

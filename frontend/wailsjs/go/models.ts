@@ -448,6 +448,7 @@ export namespace graphbuild {
 	    outcomes: RuleOutcome[];
 	    events: number;
 	    skipped_undated: number;
+	    repaired_relations: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Result(source);
@@ -458,6 +459,7 @@ export namespace graphbuild {
 	        this.outcomes = this.convertValues(source["outcomes"], RuleOutcome);
 	        this.events = source["events"];
 	        this.skipped_undated = source["skipped_undated"];
+	        this.repaired_relations = source["repaired_relations"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -81,9 +81,14 @@ func TestIngestDBRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDedupCollapsesAcrossEVTXAndDB(t *testing.T) {
-	// The parity guarantee: the same event read from a .evtx file and from a .db must
-	// collapse into ONE canonical node, not two.
+func TestCrossSourceRecordsStaySeparateEvents(t *testing.T) {
+	// The provenance guarantee: the same moment recorded by TWO DIFFERENT sources stays two
+	// events, because two independent records of an event are two pieces of evidence and
+	// collapsing them would destroy exactly the corroboration a forensic reader is after.
+	//
+	// This inverts an earlier guarantee. Cross-source collapse used to be the parity rule
+	// here; identity now includes the source for a dated event, so the same record read
+	// from a .evtx file and from a .db is deliberately NOT one node.
 	store := graphene.OpenInMemory()
 	defer store.Close()
 
@@ -133,14 +138,27 @@ func TestDedupCollapsesAcrossEVTXAndDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after) != before {
-		t.Errorf("node count went %d → %d: the cross-source duplicate was not collapsed", before, len(after))
+	if len(after) != before+1 {
+		t.Errorf("node count went %d → %d, want %d: a second source is a second record, not a duplicate",
+			before, len(after), before+1)
 	}
-	// And the canonical node's occurrence count reflects the second sighting.
+	// The original keeps its own count: the .db sighting is a separate event, so nothing
+	// may have been folded into it.
 	for _, e := range after {
-		if e.ID == sample.ID && e.DeduplicationCount < 2 {
-			t.Errorf("dedup count = %d, want ≥2 after re-ingesting the same event from a .db", e.DeduplicationCount)
+		if e.ID == sample.ID && e.DeduplicationCount != 1 {
+			t.Errorf("dedup count = %d, want 1 — a different source must not increment this event",
+				e.DeduplicationCount)
 		}
+	}
+	// Each event records the source it actually came from, and only that one.
+	sources := map[string]bool{}
+	for _, e := range after {
+		for src := range e.SourceCounts {
+			sources[src] = true
+		}
+	}
+	if !sources["testdata/Security.evtx"] || !sources[path] {
+		t.Errorf("source breakdown lost a source: got %v", sources)
 	}
 }
 

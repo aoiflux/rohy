@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/utils"
 
 	"github.com/aoiflux/graphene/store"
 )
@@ -32,12 +33,78 @@ type Event struct {
 	HashNormalized string            `json:"hash_normalized"`
 	// SourceType classifies the event's origin (consts.SourceType*); SourceIdentifier
 	// is the concrete file path or channel it came from. DeduplicationCount is the
-	// number of occurrences collapsed into this canonical event (>= 1). None of these
-	// participate in HashNormalized, so the same event from different sources still
-	// collapses to one canonical node.
+	// number of occurrences collapsed into this canonical event (>= 1).
+	//
+	// SourceIdentifier DOES participate in HashNormalized for a dated event, so the same
+	// moment recorded by two different sources stays two events rather than collapsing —
+	// see ComputeNormalizedHash. It does not for an undated one.
 	SourceType         string `json:"source_type"`
 	SourceIdentifier   string `json:"source_identifier"`
 	DeduplicationCount int    `json:"deduplication_count"`
+	// SourceCounts records how many occurrences each source contributed, keyed by source
+	// identifier. DeduplicationCount is its sum and stays the number the filters use.
+	//
+	// The count alone cannot answer a question the analyst actually has: an event present
+	// in both an archived log and the live channel is corroborated by two independent
+	// records, and an event present in the live channel but ABSENT from an archive that
+	// should contain it is a finding in its own right. A single source_identifier — the
+	// first one seen — cannot express either.
+	SourceCounts map[string]int `json:"source_counts,omitempty"`
+}
+
+// ComputeNormalizedHash sets HashNormalized from the fields that decide whether two
+// records are the same occurrence. extraIdentity adds source-specific discriminators for
+// shapes whose substance is not in the standard fields (the message catalogue).
+//
+// The rule has two branches, because a timestamp is what makes an occurrence distinct:
+//
+//   - DATED events are identified by their timestamp AND their source. Two records from
+//     the same source at the same instant are the same record read twice — a re-ingested
+//     file, a resumed run. Two records from DIFFERENT sources are two independent pieces
+//     of evidence for the same moment, and collapsing them would destroy exactly the
+//     corroboration a forensic reader is looking for.
+//   - UNDATED events have nothing to tell occurrences apart with, so they collapse on
+//     their remaining fields, across sources. Source is excluded deliberately: without a
+//     timestamp there is no basis for calling two identical records distinct.
+//
+// Callers must set SourceIdentifier before calling this for a dated event, or the identity
+// will be computed against an empty source. Ingestion stamps source at the sink and
+// recomputes there, because that is the first point at which the source is known.
+func (e *Event) ComputeNormalizedHash(extraIdentity ...string) {
+	fields := []string{e.EventID, e.Provider, e.Channel, e.Computer, e.User}
+	if !e.Timestamp.IsZero() {
+		// Timestamp first, matching the previous field order, then source as the
+		// within-instant discriminator.
+		fields = []string{
+			e.EventID, timestampIndex(e.Timestamp),
+			e.Provider, e.Channel, e.Computer, e.User,
+			e.SourceIdentifier,
+		}
+	}
+	e.HashNormalized = utils.HashFields(append(fields, extraIdentity...)...)
+}
+
+// AddSourceOccurrence records one more occurrence of this event from the given source,
+// keeping DeduplicationCount equal to the sum of SourceCounts so the two can never
+// disagree about how many times the event was seen.
+func (e *Event) AddSourceOccurrence(source string, n int) {
+	if n <= 0 {
+		return
+	}
+	if e.SourceCounts == nil {
+		e.SourceCounts = map[string]int{}
+	}
+	e.SourceCounts[source] += n
+	e.DeduplicationCount += n
+}
+
+// ensureSourceCounts backfills the per-source breakdown for an event that predates it, so
+// the sum invariant holds for every event the store returns rather than only for new ones.
+func (e *Event) ensureSourceCounts() {
+	if len(e.SourceCounts) > 0 || e.DeduplicationCount <= 0 {
+		return
+	}
+	e.SourceCounts = map[string]int{e.SourceIdentifier: e.DeduplicationCount}
 }
 
 // Relation is a mapped relationship between two events, persisted as a graphene
@@ -129,6 +196,7 @@ func eventFromNode(n *store.Node) (*Event, error) {
 	if e.DeduplicationCount < consts.DefaultDeduplicationCount {
 		e.DeduplicationCount = consts.DefaultDeduplicationCount
 	}
+	e.ensureSourceCounts()
 	return &e, nil
 }
 

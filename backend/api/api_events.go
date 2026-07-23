@@ -287,11 +287,17 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 		// members as part of a collection; a single file is tagged as such. Each
 		// event records the concrete member path as its source identifier.
 		collection := len(req.Paths) > 1
-		for _, path := range req.Paths {
+		for i, path := range req.Paths {
 			if ctx.Err() != nil {
 				return
 			}
-			reporter := &ingestReporter{emitter: emitter, source: consts.SourceFile, path: path}
+			// Each file reports its own position in the request, so the UI can say "3 of 12"
+			// and size an overall bar. Ingest runs per file and so knows nothing about the
+			// others; this is the only layer that does.
+			reporter := &ingestReporter{
+				emitter: emitter, source: consts.SourceFile, path: path,
+				fileIndex: i + 1, fileTotal: len(req.Paths),
+			}
 			opts := evtx.Options{
 				Source:           consts.SourceFile,
 				Path:             path,

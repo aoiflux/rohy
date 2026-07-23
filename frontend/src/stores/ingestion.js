@@ -18,6 +18,30 @@ const EMPTY_PROGRESS = Object.freeze({
   records_undated: 0,
 });
 
+// EMPTY_TOTALS accumulates across the files of one request. Per-file progress resets on
+// every Started, so without this a folder ingest would keep re-displaying the current
+// file's counters as if they were the job's.
+const EMPTY_TOTALS = Object.freeze({
+  records_read: 0,
+  records_persisted: 0,
+  records_duplicate: 0,
+  records_skipped: 0,
+  records_undated: 0,
+});
+
+/** Adds one file's finished progress into the request's running totals. */
+function addTotals(totals, p) {
+  const base = totals || EMPTY_TOTALS;
+  if (!p) return { ...base };
+  return {
+    records_read: base.records_read + (p.records_read || 0),
+    records_persisted: base.records_persisted + (p.records_persisted || 0),
+    records_duplicate: base.records_duplicate + (p.records_duplicate || 0),
+    records_skipped: base.records_skipped + (p.records_skipped || 0),
+    records_undated: base.records_undated + (p.records_undated || 0),
+  };
+}
+
 function initialState() {
   return {
     state: INGEST_STATE.IDLE,
@@ -26,6 +50,14 @@ function initialState() {
     lifecycle: INGEST_LIFECYCLE.IDLE,
     progress: { ...EMPTY_PROGRESS },
     path: '',
+    // Position of the file being worked on within the whole request (1-based), and how many
+    // files the request covers. Both 0 for a live capture, which is not a file job.
+    fileIndex: 0,
+    fileTotal: 0,
+    // Totals for files already finished in this request; the file in flight is not counted
+    // here until it completes, so `totals + progress` is always the whole job without
+    // double counting.
+    doneTotals: { ...EMPTY_TOTALS },
     startedAt: 0,
     finishedAt: 0,
     lastError: null,
@@ -42,36 +74,65 @@ function create() {
     if (wired) return;
     wired = true;
     api.on(CHANNELS.INGEST_STARTED, (d) =>
-      update((s) => ({
-        ...s,
-        state: INGEST_STATE.RUNNING,
-        path: (d && d.path) || '',
-        startedAt: Date.now(),
-        finishedAt: 0,
-        lastError: null,
-        progress: { ...EMPTY_PROGRESS, chunks_total: (d && d.chunks_total) || 0 },
-      })),
+      update((s) => {
+        const idx = (d && d.file_index) || 0;
+        // A folder ingest fires Started once per file. Only the first one begins a new
+        // request: the rest continue it, so the accumulated totals and the start time must
+        // survive them or the job's own numbers would reset on every file.
+        const isFirst = idx <= 1;
+        return {
+          ...s,
+          state: INGEST_STATE.RUNNING,
+          path: (d && d.path) || '',
+          fileIndex: idx,
+          fileTotal: (d && d.file_total) || 0,
+          // Fold the PREVIOUS file's final numbers in here rather than at its completion.
+          // Completion leaves that file's summary in `progress`, so if it were folded there
+          // too, `doneTotals + progress` would count the last file twice.
+          doneTotals: isFirst ? { ...EMPTY_TOTALS } : addTotals(s.doneTotals, s.progress),
+          startedAt: isFirst ? Date.now() : s.startedAt,
+          finishedAt: 0,
+          lastError: null,
+          progress: { ...EMPTY_PROGRESS, chunks_total: (d && d.chunks_total) || 0 },
+        };
+      }),
     );
     api.on(CHANNELS.INGEST_PROGRESS, (p) => update((s) => ({ ...s, progress: p || s.progress })));
     api.on(CHANNELS.INGEST_COMPLETE, (sum) => {
-      update((s) => ({
-        ...s,
-        state: INGEST_STATE.COMPLETE,
-        finishedAt: Date.now(),
-        progress: (sum && sum.progress) || s.progress,
-      }));
+      let lastFile = true;
+      let jobUndated = 0;
+      update((s) => {
+        const p = (sum && sum.progress) || s.progress;
+        // Ingest completes PER FILE. Treating every one as the end of the job made a
+        // multi-file run flash "complete" after the first file and report only that file's
+        // counts. The run is finished only when the last file finishes.
+        lastFile = !s.fileTotal || s.fileIndex >= s.fileTotal;
+        // Not folded into doneTotals here: this file's summary stays in `progress`, and the
+        // next Started folds it in. jobTotals() is therefore always doneTotals + progress.
+        jobUndated = addTotals(s.doneTotals, p).records_undated;
+        return {
+          ...s,
+          state: lastFile ? INGEST_STATE.COMPLETE : INGEST_STATE.RUNNING,
+          finishedAt: lastFile ? Date.now() : 0,
+          progress: p,
+        };
+      });
       // Undated rows are stored but kept out of timeline analysis; say so at the moment
-      // they are ingested, so the counts never look like data went missing (P22).
-      const undated = (sum && sum.progress && sum.progress.records_undated) || 0;
-      if (undated > 0) snackbar.info(`${undated} ${UI.UNDATED_INGESTED_SUFFIX}`);
+      // they are ingested, so the counts never look like data went missing (P22). Said once
+      // for the whole job rather than once per file, or a folder would produce a burst of
+      // near-identical notices.
+      if (lastFile && jobUndated > 0) snackbar.info(`${jobUndated} ${UI.UNDATED_INGESTED_SUFFIX}`);
     });
     api.on(CHANNELS.INGEST_CANCELLED, (sum) =>
-      update((s) => ({
-        ...s,
-        state: INGEST_STATE.CANCELLED,
-        finishedAt: Date.now(),
-        progress: (sum && sum.progress) || s.progress,
-      })),
+      update((s) => {
+        const p = (sum && sum.progress) || s.progress;
+        return {
+          ...s,
+          state: INGEST_STATE.CANCELLED,
+          finishedAt: Date.now(),
+          progress: p,
+        };
+      }),
     );
     api.on(CHANNELS.INGEST_STATE, (s) =>
       update((prev) => ({ ...prev, lifecycle: s || INGEST_LIFECYCLE.IDLE })),
@@ -176,7 +237,46 @@ export const ingestion = create();
 
 // --- pure view helpers ---
 
-/** Fraction 0..1 of chunks parsed. */
+/**
+ * Fraction 0..1 across the WHOLE request, not just the file in flight.
+ *
+ * Files already finished count as complete, and the one in flight contributes its own
+ * fraction of a single file's worth. A single-file run reduces to that file's fraction, so
+ * callers do not need to special-case it. Returns null when the job cannot be sized —
+ * a live capture, or a source whose chunk count is unknown — so the bar can go
+ * indeterminate rather than invent a percentage.
+ */
+export function overallFraction(state) {
+  if (!state) return null;
+  const total = state.fileTotal || 0;
+  const current = progressFraction(state.progress);
+  if (total <= 1) {
+    return state.progress && state.progress.chunks_total ? current : null;
+  }
+  const done = Math.max(0, (state.fileIndex || 1) - 1);
+  // A file whose chunk total is unknown still counts as "in progress", contributing
+  // nothing rather than distorting the job's fraction.
+  const inFlight = state.progress && state.progress.chunks_total ? current : 0;
+  return Math.min(1, (done + inFlight) / total);
+}
+
+/** Files still to start after the one in flight. Zero when the job is a single file. */
+export function filesRemaining(state) {
+  if (!state || !state.fileTotal) return 0;
+  return Math.max(0, state.fileTotal - (state.fileIndex || 0));
+}
+
+/**
+ * Counts for the whole request: everything finished, plus the file in flight. This is what
+ * a folder ingest should display — per-file counters reset on every file and would
+ * otherwise look like the job kept starting over.
+ */
+export function jobTotals(state) {
+  if (!state) return { ...EMPTY_TOTALS };
+  return addTotals(state.doneTotals, state.progress);
+}
+
+/** Fraction 0..1 of chunks parsed, for the file currently being read. */
 export function progressFraction(progress) {
   if (!progress || !progress.chunks_total) return 0;
   return Math.min(1, progress.chunks_parsed / progress.chunks_total);

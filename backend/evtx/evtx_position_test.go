@@ -50,7 +50,7 @@ func (s *journalSink) InsertEvents(events []*graphene.Event) ([]uint64, error) {
 
 func (s *journalSink) FindEventIDByHash(string) (uint64, bool, error) { return 0, false, nil }
 
-func (s *journalSink) IncrementDedupCounts(map[uint64]int) error {
+func (s *journalSink) IncrementDedupCounts(map[uint64]map[string]int) error {
 	s.journal.add("inc")
 	return nil
 }

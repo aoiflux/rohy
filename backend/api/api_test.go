@@ -487,3 +487,67 @@ func TestStatsBinding(t *testing.T) {
 		t.Error("Stats reports zero events after ingest")
 	}
 }
+
+// TestMultiFileIngestReportsFilePosition pins the per-file position a folder or
+// multi-select ingest emits. Without it the UI can describe the file in front of it but
+// cannot say how far through the JOB it is, so an overall progress bar is impossible.
+func TestMultiFileIngestReportsFilePosition(t *testing.T) {
+	api, em, store := newEventsAPI(t)
+	_ = store
+
+	// The same fixture twice is a valid two-file request: the positions are what is under
+	// test, not the contents.
+	paths := []string{fixtureSecurity, fixtureSecurity}
+	if err := api.StartIngest(IngestRequest{Source: consts.SourceFile, Paths: paths}); err != nil {
+		t.Fatalf("StartIngest: %v", err)
+	}
+	for i := 0; i < 200 && em.count(consts.EventIngestComplete) < len(paths); i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := em.count(consts.EventIngestStarted); got != len(paths) {
+		t.Fatalf("Started events = %d, want %d (one per file)", got, len(paths))
+	}
+
+	em.mu.Lock()
+	started := append([]interface{}(nil), em.events[consts.EventIngestStarted]...)
+	em.mu.Unlock()
+
+	for i, raw := range started {
+		ev, ok := raw.(StartedEvent)
+		if !ok {
+			t.Fatalf("Started event %d is %T, want StartedEvent", i, raw)
+		}
+		if ev.FileTotal != len(paths) {
+			t.Errorf("file %d: FileTotal = %d, want %d", i, ev.FileTotal, len(paths))
+		}
+		// 1-based and in order, so "File 2 of 2" reads correctly rather than "File 1 of 2"
+		// twice or a zero-based "File 0".
+		if ev.FileIndex != i+1 {
+			t.Errorf("file %d: FileIndex = %d, want %d", i, ev.FileIndex, i+1)
+		}
+	}
+}
+
+// TestSingleFileIngestReportsOneOfOne keeps the single-file case uniform with the
+// multi-file one, so the UI needs no special case to size a job of one.
+func TestSingleFileIngestReportsOneOfOne(t *testing.T) {
+	api, em, _ := newEventsAPI(t)
+
+	if err := api.StartIngest(IngestRequest{Source: consts.SourceFile, Paths: []string{fixtureSecurity}}); err != nil {
+		t.Fatalf("StartIngest: %v", err)
+	}
+	if !em.waitFor(consts.EventIngestComplete, 10*time.Second) {
+		t.Fatal("ingestion did not complete in time")
+	}
+	raw, ok := em.last(consts.EventIngestStarted)
+	if !ok {
+		t.Fatal("no Started event captured")
+	}
+	ev, ok := raw.(StartedEvent)
+	if !ok {
+		t.Fatalf("Started event is %T, want StartedEvent", raw)
+	}
+	if ev.FileIndex != 1 || ev.FileTotal != 1 {
+		t.Errorf("single file reported as %d of %d, want 1 of 1", ev.FileIndex, ev.FileTotal)
+	}
+}

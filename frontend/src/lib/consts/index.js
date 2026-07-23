@@ -321,6 +321,15 @@ export const UI = Object.freeze({
   // Global ingestion indicator
   INGEST_BAR_HINT: 'Go to the Dashboard for ingestion controls',
   INGEST_BAR_STORED: 'stored',
+  // Multi-file (folder / multi-select) ingestion. FILE_OF is used as `File 3 of 12`, so a
+  // folder run can say how far through the JOB it is rather than only how far through the
+  // file in front of it.
+  INGEST_FILE_LABEL: 'File',
+  INGEST_FILE_OF: 'of',
+  INGEST_FILES_LEFT_SUFFIX: 'left',
+  INGEST_OVERALL: 'Overall',
+  INGEST_CURRENT_FILE: 'Current file',
+  INGEST_JOB_TOTALS: 'Job total',
   INGEST_STARTING: 'Starting…',
 
   // Timeline participation (P22/P23)

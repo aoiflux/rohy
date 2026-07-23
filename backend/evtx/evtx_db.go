@@ -116,19 +116,18 @@ func normalizeDBRow(row dbsource.Row, catalogue bool) *graphene.Event {
 		ev.RawXML = row.Message
 		ev.ParsedFields = map[string]string{consts.DBColMessageText: row.Message}
 		ev.HashRaw = utils.HashString(row.Message)
-		ev.HashNormalized = utils.HashFields(ev.EventID, ev.Provider, row.Message)
+		// A catalogue row's substance is its message, and it carries no timestamp, so the
+		// message is the discriminator that keeps two distinct entries from collapsing into
+		// one another under the undated rule.
+		ev.ComputeNormalizedHash(row.Message)
 		return ev
 	}
 
 	ev.HashRaw = utils.HashString(ev.RawXML)
-	ev.HashNormalized = utils.HashFields(
-		ev.EventID,
-		ev.Timestamp.UTC().Format(consts.TimestampIndexLayout),
-		ev.Provider,
-		ev.Channel,
-		ev.Computer,
-		ev.User,
-	)
+	// Identity is owned by the schema, not by each normalizer: the rule has two branches
+	// and three parsers, and three copies of it would drift. SourceIdentifier is empty here
+	// and the sink recomputes once it is known.
+	ev.ComputeNormalizedHash()
 	return ev
 }
 

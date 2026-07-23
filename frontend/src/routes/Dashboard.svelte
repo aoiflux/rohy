@@ -5,7 +5,15 @@
   import { onMount } from 'svelte';
   import { theme } from '../stores/theme.js';
   import { route } from '../stores/router.js';
-  import { ingestion, progressFraction, etaSeconds, recordsPerSecond } from '../stores/ingestion.js';
+  import {
+    ingestion,
+    progressFraction,
+    etaSeconds,
+    recordsPerSecond,
+    overallFraction,
+    filesRemaining,
+    jobTotals,
+  } from '../stores/ingestion.js';
   import { events } from '../stores/events.js';
   import { findings } from '../stores/findings.js';
   import * as api from '../lib/api/index.js';
@@ -79,6 +87,16 @@
 
   const running = $derived($ingestion.state === INGEST_STATE.RUNNING);
   const fraction = $derived(progressFraction($ingestion.progress));
+  // A folder or multi-select run is a JOB of many files. The dashboard shows both scales:
+  // how far through the whole job, and how far through the file being read right now.
+  const multi = $derived($ingestion.fileTotal > 1);
+  const overall = $derived(overallFraction($ingestion));
+  const remaining = $derived(filesRemaining($ingestion));
+  const totals = $derived(jobTotals($ingestion));
+  function fileName(path) {
+    if (!path) return '';
+    return String(path).split(/[\/]/).pop();
+  }
   const eta = $derived(etaSeconds($ingestion));
 
   // Pause/resume state comes from the backend (P8) — never inferred from progress.
@@ -383,6 +401,26 @@
         </span>
         {#if running && !paused}<span>{UI.LABEL_ETA}: <b>{fmtEta(eta)}</b></span>{/if}
       </div>
+      {#if multi}
+        <!-- Two bars, because a folder run has two honest answers to "how far along?".
+             The overall bar counts finished files plus the fraction of the one in flight,
+             so it never restarts from zero the way a per-file bar would. -->
+        <div class="filepos">
+          <span class="fp">
+            {UI.INGEST_FILE_LABEL}
+            <b>{$ingestion.fileIndex}</b>
+            {UI.INGEST_FILE_OF}
+            <b>{$ingestion.fileTotal}</b>
+          </span>
+          {#if $ingestion.path}
+            <span class="fname" title={$ingestion.path}>{fileName($ingestion.path)}</span>
+          {/if}
+          {#if remaining > 0}<span class="fleft">{remaining} {UI.INGEST_FILES_LEFT_SUFFIX}</span>{/if}
+        </div>
+        <div class="barlabel">{UI.INGEST_OVERALL}</div>
+        <div class="bar"><ProgressBar value={paused ? overall : overall} /></div>
+        <div class="barlabel">{UI.INGEST_CURRENT_FILE}</div>
+      {/if}
       <div class="bar">
         <!-- A paused run holds its bar still rather than animating an indeterminate one,
              which would read as "still working". -->
@@ -390,10 +428,10 @@
       </div>
       <div class="metrics">
         <div><span>{UI.METRIC_CHUNKS}</span><b>{fmt($ingestion.progress.chunks_parsed)} / {fmt($ingestion.progress.chunks_total)}</b></div>
-        <div><span>{UI.METRIC_READ}</span><b>{fmt($ingestion.progress.records_read)}</b></div>
-        <div><span>{UI.METRIC_PERSISTED}</span><b>{fmt($ingestion.progress.records_persisted)}</b></div>
-        <div><span>{UI.METRIC_DUPLICATE}</span><b>{fmt($ingestion.progress.records_duplicate)}</b></div>
-        <div><span>{UI.METRIC_SKIPPED}</span><b>{fmt($ingestion.progress.records_skipped)}</b></div>
+        <div><span>{UI.METRIC_READ}</span><b>{fmt(multi ? totals.records_read : $ingestion.progress.records_read)}</b></div>
+        <div><span>{UI.METRIC_PERSISTED}</span><b>{fmt(multi ? totals.records_persisted : $ingestion.progress.records_persisted)}</b></div>
+        <div><span>{UI.METRIC_DUPLICATE}</span><b>{fmt(multi ? totals.records_duplicate : $ingestion.progress.records_duplicate)}</b></div>
+        <div><span>{UI.METRIC_SKIPPED}</span><b>{fmt(multi ? totals.records_skipped : $ingestion.progress.records_skipped)}</b></div>
       </div>
       {#if $ingestion.finishedAt}
         <p class="finished">{UI.LABEL_FINISHED} {fmtTime($ingestion.finishedAt)}</p>
@@ -607,6 +645,39 @@
   }
   .bar {
     margin-bottom: var(--space-4);
+  }
+  /* Multi-file progress: the position line, then a labelled bar per scale. The labels are
+     what stop two stacked bars from being ambiguous — without them it is not obvious which
+     one is the job and which is the file. */
+  .filepos {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+    font-size: 0.85rem;
+    color: var(--md-on-surface-variant);
+  }
+  .filepos .fname {
+    font-family: var(--font-mono, monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 22rem;
+  }
+  .filepos .fp,
+  .filepos .fleft {
+    font-variant-numeric: tabular-nums;
+  }
+  .filepos .fleft {
+    margin-left: auto;
+  }
+  .barlabel {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--md-on-surface-variant);
+    margin-bottom: var(--space-1);
   }
   .metrics {
     display: grid;

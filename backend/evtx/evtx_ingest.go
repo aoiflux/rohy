@@ -17,7 +17,7 @@ import (
 type EventSink interface {
 	InsertEvents(events []*graphene.Event) ([]uint64, error)
 	FindEventIDByHash(hashNormalized string) (uint64, bool, error)
-	IncrementDedupCounts(deltas map[uint64]int) error
+	IncrementDedupCounts(deltas map[uint64]map[string]int) error
 }
 
 // PositionStore is the durable per-channel bookmark surface used by continuous live
@@ -43,6 +43,13 @@ type Progress struct {
 	// on a timeline, so they are excluded from timeline analysis — and this count is what
 	// lets the UI say so instead of hiding them silently (P22).
 	RecordsUndated int `json:"records_undated"`
+	// RecordsDivergent counts duplicates whose identity matched an existing event but whose
+	// RAW payload did not. Identity deliberately excludes the payload, so this is the one
+	// case where two records the rule cannot tell apart may not actually be the same record.
+	// It is reported rather than silently collapsed. Detected only within a batch, where the
+	// canonical is already in memory; catching it against already-persisted events would
+	// cost a fetch per duplicate.
+	RecordsDivergent int `json:"records_divergent"`
 }
 
 // Summary is the terminal state of an ingest run, carried on Completed/Cancelled.
@@ -265,7 +272,9 @@ func runSink(ctx context.Context, opts Options, sink EventSink, reporter Reporte
 	// on every flush. dbInc accumulates increments for canonicals already persisted
 	// (this run or a prior one), applied in bounded batches so no single write is large.
 	pendingByHash := make(map[string]*graphene.Event)
-	dbInc := make(map[uint64]int)
+	// dbInc is keyed node id -> source identifier -> count, so a duplicate is attributed to
+	// the source it actually came from rather than being folded into a bare total.
+	dbInc := make(map[uint64]map[string]int)
 
 	// Live capture bookmarks (P7). staged holds the highest record id seen per channel for
 	// chunks whose events have all been handed to the batch; a position is committed only
@@ -291,7 +300,7 @@ func runSink(ctx context.Context, opts Options, sink EventSink, reporter Reporte
 		if err := sink.IncrementDedupCounts(dbInc); err != nil {
 			return fmt.Errorf(consts.MsgPersistFailed, err)
 		}
-		dbInc = make(map[uint64]int)
+		dbInc = make(map[uint64]map[string]int)
 		commitPositions()
 		return nil
 	}
@@ -372,11 +381,26 @@ loop:
 				// single-goroutine sink rather than in the per-record normalizers.
 				ev.SourceType = opts.SourceType
 				ev.SourceIdentifier = opts.SourceIdentifier
+				// A DATED event is identified by its source as well as its instant, so the
+				// same moment recorded by two different logs stays two events. The
+				// normalizers cannot know the source, so identity is completed here — but
+				// only for dated events: an undated one excludes source by rule, and its
+				// normalizer may have added discriminators (a catalogue row's message) that
+				// this layer cannot see and must not drop.
+				if !ev.Timestamp.IsZero() {
+					ev.ComputeNormalizedHash()
+				}
 				if opts.Idempotent {
 					// Duplicate already in the current unflushed batch: bump its count.
 					if canon, ok := pendingByHash[ev.HashNormalized]; ok {
-						canon.DeduplicationCount++
+						canon.AddSourceOccurrence(ev.SourceIdentifier, 1)
 						p.RecordsDuplicate++
+						// Same identity but a different payload means two records the rule
+						// cannot tell apart are not in fact the same record. Rare, and
+						// reported rather than silently collapsed.
+						if ev.HashRaw != canon.HashRaw {
+							p.RecordsDivergent++
+						}
 						continue
 					}
 					// Duplicate of a canonical persisted earlier: defer a batched increment.
@@ -384,7 +408,10 @@ loop:
 						fatal = fmt.Errorf(consts.MsgPersistFailed, err)
 						break loop
 					} else if exists {
-						dbInc[id]++
+						if dbInc[id] == nil {
+							dbInc[id] = map[string]int{}
+						}
+						dbInc[id][ev.SourceIdentifier]++
 						p.RecordsDuplicate++
 						if len(dbInc) >= opts.BatchSize {
 							if err := flushInc(); err != nil {

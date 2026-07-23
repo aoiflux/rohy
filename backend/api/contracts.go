@@ -37,10 +37,18 @@ func (noopEmitter) Emit(string, interface{}) {}
 //	consts.EventPermissionWarn  → evtx.AccessDecision
 
 // StartedEvent announces the beginning of one file's ingestion.
+//
+// FileIndex/FileTotal place that file within the whole request. A folder or multi-select
+// ingest runs one evtx.Ingest per file, each with its own chunk total and its own
+// completion — so without this the UI can only ever describe the file in front of it, and
+// cannot say how much of the JOB is done. They are 1-based and equal (1, 1) for a single
+// file, so a caller can treat every run the same way.
 type StartedEvent struct {
 	Source      string `json:"source"`
 	Path        string `json:"path"`
 	ChunksTotal int    `json:"chunks_total"`
+	FileIndex   int    `json:"file_index"`
+	FileTotal   int    `json:"file_total"`
 }
 
 // ErrorEvent is the uniform error shape for every backend error surfaced to the
@@ -155,10 +163,18 @@ type ingestReporter struct {
 	emitter Emitter
 	source  string
 	path    string
+	// fileIndex/fileTotal position this file within the whole request (1-based). A live
+	// capture leaves them zero: it is not a file at all, and reporting it as "1 of 1" would
+	// invite a progress bar over something that has no end.
+	fileIndex int
+	fileTotal int
 }
 
 func (r *ingestReporter) Started(source string, chunksTotal int) {
-	r.emitter.Emit(consts.EventIngestStarted, StartedEvent{Source: source, Path: r.path, ChunksTotal: chunksTotal})
+	r.emitter.Emit(consts.EventIngestStarted, StartedEvent{
+		Source: source, Path: r.path, ChunksTotal: chunksTotal,
+		FileIndex: r.fileIndex, FileTotal: r.fileTotal,
+	})
 }
 func (r *ingestReporter) Progress(p evtx.Progress) {
 	r.emitter.Emit(consts.EventIngestProgress, p)

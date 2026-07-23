@@ -38,7 +38,7 @@ func (s *liveCancelSink) FindEventIDByHash(h string) (uint64, bool, error) {
 	return s.store.FindEventIDByHash(h)
 }
 
-func (s *liveCancelSink) IncrementDedupCounts(deltas map[uint64]int) error {
+func (s *liveCancelSink) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 	return s.store.IncrementDedupCounts(deltas)
 }
 

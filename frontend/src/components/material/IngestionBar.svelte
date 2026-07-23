@@ -6,7 +6,13 @@
   // anything was happening — the app looked idle while it was busy, which reads as "my
   // click did nothing".
   import { slide } from 'svelte/transition';
-  import { ingestion, progressFraction } from '../../stores/ingestion.js';
+  import {
+    ingestion,
+    progressFraction,
+    overallFraction,
+    filesRemaining,
+    jobTotals,
+  } from '../../stores/ingestion.js';
   import { route } from '../../stores/router.js';
   import { motion } from '../../lib/motion.js';
   import { UI, MOTION, ROUTES, INGEST_STATE, INGEST_LIFECYCLE } from '../../lib/consts/index.js';
@@ -16,11 +22,21 @@
   const paused = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.PAUSED);
   const stopping = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.STOPPING);
   const fraction = $derived(progressFraction($ingestion.progress));
+  // A multi-file request drives the bar from the WHOLE job, not the file in flight —
+  // otherwise the bar would restart from zero on every file and read as no progress at all.
+  const multi = $derived($ingestion.fileTotal > 1);
+  const overall = $derived(overallFraction($ingestion));
+  const remaining = $derived(filesRemaining($ingestion));
+  const totals = $derived(jobTotals($ingestion));
 
   // A run with no chunk total (live capture, or a source that cannot be sized up front)
   // gets an indeterminate sweep rather than a fake percentage. A paused run holds its bar
   // still, so "paused" never looks like "still working".
-  const value = $derived(paused ? fraction : $ingestion.progress.chunks_total ? fraction : null);
+  const value = $derived.by(() => {
+    if (multi) return overall;
+    if (paused) return fraction;
+    return $ingestion.progress.chunks_total ? fraction : null;
+  });
 
   function fileName(path) {
     if (!path) return '';
@@ -48,12 +64,23 @@
     title={UI.INGEST_BAR_HINT}
   >
     <span class="state">{label}</span>
+    {#if multi}
+      <span class="pos">
+        {UI.INGEST_FILE_LABEL}
+        {$ingestion.fileIndex}
+        {UI.INGEST_FILE_OF}
+        {$ingestion.fileTotal}
+      </span>
+    {/if}
     {#if $ingestion.path}
       <span class="file" title={$ingestion.path}>{fileName($ingestion.path)}</span>
     {/if}
     <span class="track"><ProgressBar {value} /></span>
+    {#if multi && remaining > 0}
+      <span class="left">{remaining} {UI.INGEST_FILES_LEFT_SUFFIX}</span>
+    {/if}
     <span class="counts">
-      {fmt($ingestion.progress.records_persisted)}
+      {fmt(multi ? totals.records_persisted : $ingestion.progress.records_persisted)}
       {UI.INGEST_BAR_STORED}
     </span>
   </button>
@@ -106,5 +133,13 @@
   .counts {
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+  }
+  /* File position and remaining count sit either side of the track. Both are fixed-width
+     numerals so the bar does not jitter sideways as the counts tick over. */
+  .pos,
+  .left {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
   }
 </style>

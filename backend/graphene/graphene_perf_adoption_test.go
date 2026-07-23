@@ -374,7 +374,9 @@ func TestIncrementDedupCountsBatched(t *testing.T) {
 
 	// A deleted id in the same map must not abort the increments that are still valid.
 	const goneID = 99999
-	if err := s.IncrementDedupCounts(map[uint64]int{ids[0]: 2, ids[1]: 5, goneID: 3}); err != nil {
+	if err := s.IncrementDedupCounts(map[uint64]map[string]int{
+		ids[0]: {"src-a": 2}, ids[1]: {"src-a": 5}, goneID: {"src-a": 3},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,5 +393,143 @@ func TestIncrementDedupCountsBatched(t *testing.T) {
 	}
 	if second.DeduplicationCount != consts.DefaultDeduplicationCount+5 {
 		t.Errorf("event 2 count = %d, want %d", second.DeduplicationCount, consts.DefaultDeduplicationCount+5)
+	}
+}
+
+// --- Duplicate identity policy (§26) ---
+//
+// Identity decides what counts as "the same occurrence", so these pin the rule itself
+// rather than any one code path that applies it.
+
+// TestDatedIdentityIncludesSource pins that the same instant from two different sources is
+// two events. Two independent records of one moment are two pieces of evidence, and
+// collapsing them destroys the corroboration that makes them worth having.
+func TestDatedIdentityIncludesSource(t *testing.T) {
+	ts := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	a := &Event{EventID: "4624", Timestamp: ts, Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "archive.evtx"}
+	b := &Event{EventID: "4624", Timestamp: ts, Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "live:Security"}
+	a.ComputeNormalizedHash()
+	b.ComputeNormalizedHash()
+	if a.HashNormalized == b.HashNormalized {
+		t.Error("same instant from two sources produced one identity; the two records would collapse")
+	}
+}
+
+// TestSameSourceSameInstantIsADuplicate pins the other half: within one source, an
+// identical instant is the same record read twice — a re-ingested file, a resumed run.
+func TestSameSourceSameInstantIsADuplicate(t *testing.T) {
+	ts := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	a := &Event{EventID: "4624", Timestamp: ts, Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "archive.evtx"}
+	b := &Event{EventID: "4624", Timestamp: ts, Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "archive.evtx"}
+	a.ComputeNormalizedHash()
+	b.ComputeNormalizedHash()
+	if a.HashNormalized != b.HashNormalized {
+		t.Error("the same record read twice from one source produced two identities")
+	}
+}
+
+// TestDifferentInstantsAreAlwaysSeparate pins the case the whole policy exists to protect:
+// a recurring event keeps every occurrence, with its own timestamp.
+func TestDifferentInstantsAreAlwaysSeparate(t *testing.T) {
+	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	a := &Event{EventID: "4625", Timestamp: base, Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "s"}
+	b := &Event{EventID: "4625", Timestamp: base.Add(time.Nanosecond), Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "s"}
+	a.ComputeNormalizedHash()
+	b.ComputeNormalizedHash()
+	if a.HashNormalized == b.HashNormalized {
+		t.Error("two occurrences one nanosecond apart collapsed; recurrence would be lost")
+	}
+}
+
+// TestUndatedIdentityExcludesSourceAndTime pins the undated branch: with no timestamp there
+// is no basis for calling two identical records distinct, so they collapse across sources.
+func TestUndatedIdentityExcludesSourceAndTime(t *testing.T) {
+	a := &Event{EventID: "4624", Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "one.db"}
+	b := &Event{EventID: "4624", Provider: "p", Channel: "c", Computer: "h", User: "u", SourceIdentifier: "two.db"}
+	a.ComputeNormalizedHash()
+	b.ComputeNormalizedHash()
+	if a.HashNormalized != b.HashNormalized {
+		t.Error("undated records from two sources did not collapse; source must not be part of an undated identity")
+	}
+}
+
+// TestUndatedIdentityHonoursExtraDiscriminators guards the catalogue shape, whose substance
+// is its message. Without the extra field every catalogue row for one provider would
+// collapse into a single event.
+func TestUndatedIdentityHonoursExtraDiscriminators(t *testing.T) {
+	a := &Event{EventID: "1", Provider: "p"}
+	b := &Event{EventID: "1", Provider: "p"}
+	a.ComputeNormalizedHash("logon succeeded")
+	b.ComputeNormalizedHash("logon failed")
+	if a.HashNormalized == b.HashNormalized {
+		t.Error("two catalogue messages collapsed into one identity")
+	}
+}
+
+// TestSourceCountsSumToDeduplicationCount pins the no-double-count invariant: the total and
+// the per-source breakdown are two views of one number and must never disagree.
+func TestSourceCountsSumToDeduplicationCount(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	e := mkEvent("4624", "p", "c", "u", base, "h1")
+	e.SourceIdentifier = "archive.evtx"
+	ids, err := s.InsertEvents([]*Event{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two more sightings from one source, three from another.
+	if err := s.IncrementDedupCounts(map[uint64]map[string]int{
+		ids[0]: {"archive.evtx": 2, "live:Security": 3},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetEvent(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := 0
+	for _, n := range got.SourceCounts {
+		sum += n
+	}
+	if sum != got.DeduplicationCount {
+		t.Errorf("source counts sum to %d but deduplication_count is %d — the two disagree", sum, got.DeduplicationCount)
+	}
+	// 1 original + 2 + 3.
+	if got.DeduplicationCount != 6 {
+		t.Errorf("deduplication_count = %d, want 6", got.DeduplicationCount)
+	}
+	if got.SourceCounts["archive.evtx"] != 3 {
+		t.Errorf("archive count = %d, want 3 (the original plus two)", got.SourceCounts["archive.evtx"])
+	}
+	if got.SourceCounts["live:Security"] != 3 {
+		t.Errorf("live count = %d, want 3", got.SourceCounts["live:Security"])
+	}
+}
+
+// TestSourceCountsBackfillForLegacyEvents keeps the invariant true for events written
+// before the breakdown existed, so a mixed store does not report a sum of zero against a
+// non-zero total.
+func TestSourceCountsBackfillForLegacyEvents(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	e := mkEvent("4624", "p", "c", "u", base, "h1")
+	e.SourceIdentifier = "archive.evtx"
+	e.DeduplicationCount = 4
+	e.SourceCounts = nil // as an event persisted before the breakdown existed would decode
+	ids, err := s.InsertEvents([]*Event{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetEvent(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceCounts["archive.evtx"] != 4 {
+		t.Errorf("backfilled count = %d, want 4 attributed to the recorded source", got.SourceCounts["archive.evtx"])
 	}
 }

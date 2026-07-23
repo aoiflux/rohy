@@ -269,6 +269,10 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 
 	nodes := make([]*store.Node, len(events))
 	for i, e := range events {
+		// Guarantee the per-source breakdown exists on everything persisted, whoever built
+		// the event. Doing it here rather than at each producer is what keeps the invariant
+		// "DeduplicationCount == sum(SourceCounts)" true for every stored event.
+		e.ensureSourceCounts()
 		n, err := e.toNode()
 		if err != nil {
 			return nil, err
@@ -417,12 +421,13 @@ func (s *Store) DeleteEvent(id uint64) error {
 // no single write becomes a large transaction (the ingestion sink flushes these in
 // bounded batches). Non-positive deltas and missing ids are skipped; the secondary
 // index is untouched because deduplication_count is not indexed.
-func (s *Store) IncrementDedupCounts(deltas map[uint64]int) error {
+func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 	defer s.bumpVersion() // occurrence counts drive the min-occurrences filter
 	g, err := s.graph()
 	if err != nil {
 		return err
 	}
+
 	// Read the whole set in one batched fetch rather than one point lookup per id, then
 	// commit every increment together. Applied one at a time this was a durable write per
 	// event, which on a duplicate-heavy ingest is the dominant cost of the dedup pass.
@@ -430,8 +435,8 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]int) error {
 	// Iteration order over the map is deliberately not fixed: these are independent
 	// per-node increments, so the order they are buffered in cannot change the result.
 	ids := make([]store.NodeID, 0, len(deltas))
-	for id, delta := range deltas {
-		if delta > 0 {
+	for id, bySource := range deltas {
+		if len(bySource) > 0 {
 			ids = append(ids, store.NodeID(id))
 		}
 	}
@@ -452,15 +457,20 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]int) error {
 		if err != nil {
 			return err
 		}
-		e.DeduplicationCount += deltas[uint64(n.ID)]
+		// Attribute each occurrence to the source it came from. AddSourceOccurrence keeps
+		// DeduplicationCount as the sum, so the total and the breakdown cannot drift apart
+		// and no occurrence is counted twice.
+		for source, delta := range deltas[uint64(n.ID)] {
+			e.AddSourceOccurrence(source, delta)
+		}
 		updated, err := e.toNode()
 		if err != nil {
 			return err
 		}
 		updated.ID = n.ID
-		// deduplication_count is not an indexed key, so no index entry needs replacing
-		// alongside the record — which is what lets these updates live in a transaction,
-		// since index registration is not part of a commit.
+		// deduplication_count and source_counts are not indexed keys, so no index entry
+		// needs replacing alongside the record — which is what lets these updates live in a
+		// transaction, since index registration is not part of a commit.
 		tx.UpdateNode(updated)
 	}
 	return tx.Commit()

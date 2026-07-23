@@ -11,19 +11,24 @@ import (
 
 // dedupEvent builds a minimal event with a controlled normalized hash, mirroring what
 // the normalizers produce (DeduplicationCount seeded to the canonical default).
-func dedupEvent(hash string) *graphene.Event {
-	return &graphene.Event{
-		EventID:            "1",
+// dedupEvent builds an event whose identity is driven by a REAL field (the event id),
+// not by a hand-set hash. The sink derives identity itself for a dated event — it has to,
+// because the source is only known there — so a fixture that distinguished two events by
+// assigning them different hashes would have those hashes overwritten and collapse into one.
+func dedupEvent(kind string) *graphene.Event {
+	e := &graphene.Event{
+		EventID:            kind,
 		Timestamp:          time.Unix(0, 0).UTC(),
 		Provider:           "P",
 		Channel:            consts.ChannelApplication,
 		Computer:           "H",
 		User:               "u",
 		RawXML:             "<E/>",
-		HashRaw:            "raw-" + hash,
-		HashNormalized:     hash,
+		HashRaw:            "raw-" + kind,
 		DeduplicationCount: consts.DefaultDeduplicationCount,
 	}
+	e.ComputeNormalizedHash()
+	return e
 }
 
 // countByHash returns each canonical event's deduplication_count keyed by hash.
@@ -35,7 +40,9 @@ func countByHash(t *testing.T, s *graphene.Store) map[string]int {
 	}
 	out := make(map[string]int)
 	for _, e := range events {
-		out[e.HashNormalized] = e.DeduplicationCount
+		// Keyed by event id: identity is derived now, so the hash is not a label the test
+		// can choose.
+		out[e.EventID] = e.DeduplicationCount
 	}
 	return out
 }

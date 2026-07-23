@@ -96,7 +96,7 @@ func NewApp() (*App, error) {
 		Events:      api.NewEventsAPI(store, positions, findingStore),
 		Graph:       api.NewGraphAPI(store, layoutStore, registry),
 		Rules:       api.NewRulesAPI(ruleReg),
-		Build:       api.NewBuildAPI(graphbuild.New(store, registry, ruleReg)),
+		Build:       api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
 		Findings:    api.NewFindingsAPI(findingStore, store),
 		System:      api.NewSystemAPI(),
 	}, nil

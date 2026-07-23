@@ -53,7 +53,7 @@ func TestIndexesVerifyAfterEveryWritePath(t *testing.T) {
 	}
 	check("UpdateRelation")
 
-	if err := s.IncrementDedupCounts(map[uint64]int{ids[0]: 2}); err != nil {
+	if err := s.IncrementDedupCounts(map[uint64]map[string]int{ids[0]: {"src-a": 2}}); err != nil {
 		t.Fatal(err)
 	}
 	check("IncrementDedupCounts")

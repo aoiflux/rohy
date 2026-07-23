@@ -416,3 +416,124 @@ func TestRunRecoversFromAnInterruptedPreviousBuild(t *testing.T) {
 		t.Errorf("event adjacency reports %d relation(s), want 1 — an orphaned edge outlived the rebuild", len(adj))
 	}
 }
+
+// TestRuleMatchingNothingLeavesNoGraph pins that a rule which fires on nothing does not
+// leave an empty graph behind. An empty graph is noise in the picker and, worse, looks the
+// same at a glance as one whose contents have not loaded — "this rule found nothing" is the
+// run outcome's job to say, not an artefact's.
+func TestRuleMatchingNothingLeavesNoGraph(t *testing.T) {
+	b, store, graphs, _ := harness(t, map[string]string{
+		"nomatch.json": `{"name":"Never Matches","sequence":["9999","9998"]}`,
+	})
+	seed(t, store, "HOST-A", "4625", "4624")
+
+	before := len(graphs.List())
+	res, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Outcomes) != 1 {
+		t.Fatalf("got %d outcomes, want 1", len(res.Outcomes))
+	}
+	out := res.Outcomes[0]
+	if out.Relations != 0 {
+		t.Fatalf("rule produced %d relations; the fixture was supposed to match nothing", out.Relations)
+	}
+	if !out.GraphDiscarded {
+		t.Errorf("GraphDiscarded = false; an empty graph was left behind")
+	}
+	if got := len(graphs.List()); got != before {
+		t.Errorf("graph count went %d → %d; the empty graph was not removed", before, got)
+	}
+}
+
+// TestRebuildDiscardsAGraphThatStopsMatching covers the asymmetry a rebuild could otherwise
+// leave: a rule that matched before and no longer does must lose its graph, not keep a husk
+// of a result that is no longer true.
+func TestRebuildDiscardsAGraphThatStopsMatching(t *testing.T) {
+	b, store, graphs, _ := harness(t, map[string]string{
+		"chain.json": `{"name":"Logon Chain","sequence":["4625","4624"]}`,
+	})
+	ids := seed(t, store, "HOST-A", "4625", "4624")
+
+	first, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Outcomes[0].Relations != 1 {
+		t.Fatalf("first run produced %d relations, want 1", first.Outcomes[0].Relations)
+	}
+	if first.Outcomes[0].GraphDiscarded {
+		t.Fatal("a graph with relations was discarded")
+	}
+	graphID := first.Outcomes[0].GraphID
+	withGraph := len(graphs.List())
+
+	// Remove the evidence the rule depended on, then rebuild.
+	if err := store.DeleteEvent(ids[1]); err != nil {
+		t.Fatal(err)
+	}
+	second, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Outcomes[0].Relations != 0 {
+		t.Fatalf("rebuild produced %d relations, want 0", second.Outcomes[0].Relations)
+	}
+	if !second.Outcomes[0].GraphDiscarded {
+		t.Errorf("GraphDiscarded = false; the stale graph survived a rebuild that matched nothing")
+	}
+	if got := len(graphs.List()); got != withGraph-1 {
+		t.Errorf("graph count %d → %d, want one fewer", withGraph, got)
+	}
+	// Nothing may be left pointing at the removed graph.
+	rels, err := store.RelationsByGraph(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rels) != 0 {
+		t.Errorf("%d relation(s) still scoped to the discarded graph", len(rels))
+	}
+}
+
+// TestActiveGraphIsNeverDiscarded guards the one case where leaving an empty graph is the
+// better behaviour: deleting the view someone is looking at, mid-investigation, is worse
+// than a tidy picker.
+func TestActiveGraphIsNeverDiscarded(t *testing.T) {
+	b, store, graphs, _ := harness(t, map[string]string{
+		"chain.json": `{"name":"Logon Chain","sequence":["4625","4624"]}`,
+	})
+	ids := seed(t, store, "HOST-A", "4625", "4624")
+
+	// Build a graph that actually matches, then make it the one being looked at.
+	first, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphID := first.Outcomes[0].GraphID
+	if err := graphs.SetActive(graphID); err != nil {
+		t.Fatal(err)
+	}
+	before := len(graphs.List())
+
+	// Remove the evidence so the rebuild matches nothing. The graph is now empty AND active.
+	if err := store.DeleteEvent(ids[1]); err != nil {
+		t.Fatal(err)
+	}
+	final, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Outcomes[0].Relations != 0 {
+		t.Fatalf("rebuild produced %d relations, want 0", final.Outcomes[0].Relations)
+	}
+	if final.Outcomes[0].GraphDiscarded {
+		t.Errorf("the active graph was discarded out from under the user")
+	}
+	if got := len(graphs.List()); got != before {
+		t.Errorf("graph count went %d → %d; the active graph was removed", before, got)
+	}
+	if graphs.Active() != graphID {
+		t.Errorf("active graph changed from %d to %d", graphID, graphs.Active())
+	}
+}
