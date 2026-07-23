@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Privileged Logon Then Scheduled Task Created",
+  "description": "Special privileges are assigned to a logon (4672) and a scheduled task is created (4698) — a frequent persistence mechanism.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4672", "4698"],
+  "labels": ["creates scheduled task"]
+}

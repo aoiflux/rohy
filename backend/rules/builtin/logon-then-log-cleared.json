@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Logon Then Security Log Cleared",
+  "description": "A logon (4624) followed by the security audit log being cleared (1102) — clearing the log is rare and a strong anti-forensic signal.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4624", "1102"],
+  "labels": ["clears audit log"]
+}

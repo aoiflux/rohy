@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Failed Logons Then Account Lockout",
+  "description": "Repeated failed logon attempts (4625) followed by an account lockout (4740) — a guessing attempt that tripped the lockout threshold.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4625", "4625", "4740"],
+  "labels": ["", "locks out"]
+}

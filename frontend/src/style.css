@@ -1,0 +1,56 @@
+/* Global reset + base. Colours come from theme tokens applied on :root by the theme
+   store (applyTheme). No colour literals here except a neutral pre-hydration bg. */
+
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  src: local(''), url('assets/fonts/nunito-v16-latin-regular.woff2') format('woff2');
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--color-background, #000);
+  color: var(--color-on-background, #e6edf3);
+  font-family: var(--font-sans, 'Nunito', system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* App owns scrolling; prevent horizontal overflow from wide content. */
+html {
+  overflow-x: hidden;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Wails frameless window: the OS treats "drag" regions as window-move handles and
+   swallows their clicks. Mark every interactive control as explicitly non-draggable so
+   clicks always land (fixes dead buttons — e.g. the permission screen's Continue). */
+button,
+input,
+select,
+textarea,
+a,
+label,
+[role='button'],
+[role='menuitem'],
+[role='menuitemcheckbox'] {
+  --wails-draggable: no-drag;
+}

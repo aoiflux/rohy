@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Privileged Logon Then Service Installed",
+  "description": "Special privileges are assigned to a logon (4672) and a new service is installed (7045) — a common persistence and lateral-movement footprint.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4672", "7045"],
+  "labels": ["installs service"]
+}

@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Account Created Then Added To Group",
+  "description": "A user account is created (4720) and then added to a security-enabled local group (4732) — the standard shape of persistence via a new privileged account.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4720", "4732"],
+  "labels": ["added to group"]
+}

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="rohy">
+  <title>rohy</title>
+  <!--
+    Standalone copy of the in-app mark (components/material/Logo.svelte) for README and
+    packaging use. The in-app version inherits theme tokens; this one carries fixed colours
+    chosen to stay legible on both light and dark backgrounds, since a static file cannot
+    know what it is being rendered on.
+  -->
+  <path d="M32.5 32.5 L42 42" stroke="#1e6fd0" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <circle cx="20" cy="20" r="15" fill="#0d1b2a" fill-opacity="0.06"/>
+  <circle cx="20" cy="20" r="15" fill="none" stroke="#1e6fd0" stroke-width="3.5"/>
+  <g stroke="#42a5f5" stroke-width="1.8" stroke-linecap="round">
+    <line x1="14" y1="15" x2="26" y2="14"/>
+    <line x1="26" y1="14" x2="20" y2="26"/>
+    <line x1="14" y1="15" x2="20" y2="26"/>
+  </g>
+  <g fill="#42a5f5">
+    <circle cx="14" cy="15" r="3.2"/>
+    <circle cx="26" cy="14" r="3.2"/>
+    <circle cx="20" cy="26" r="3.2"/>
+  </g>
+</svg>
