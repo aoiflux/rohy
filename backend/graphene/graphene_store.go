@@ -140,6 +140,119 @@ func (s *Store) Compact() error {
 	return g.Compact()
 }
 
+// VerifyIndexes cross-checks the store's indexes against the records they describe and
+// reports the first inconsistency found.
+//
+// It is a RECOVERY and TEST tool, not a startup step. Verification is proportional to the
+// whole store, and a structurally damaged index section is already rejected while the file
+// is parsed, so running it on every open would tax every launch to re-prove something that
+// is almost always true. The trigger points are: the test suite (where it is the assertion
+// that a write path left the index truthful), and an explicit user-initiated check on a
+// store suspected of damage.
+//
+// What it CANNOT check is whether an indexed value still matches the record's properties —
+// those values are written by this package in its own encoding and are opaque to the
+// storage layer. Guarding that is what the update path's atomic indexed writes are for.
+func (s *Store) VerifyIndexes() error {
+	g, err := s.graph()
+	if err != nil {
+		return err
+	}
+	return g.VerifyIndexes()
+}
+
+// RebuildIndexes recomputes everything the store can derive from its records — label
+// postings and adjacency — and drops property entries whose entity is gone.
+//
+// It repairs STRUCTURE, not CONTENT: it cannot restore a property entry whose value was
+// never registered, because the value is this package's encoding of a field the storage
+// layer cannot read. A store that lost property entries (for example, a crash between a
+// batch commit and its index registration) is repaired by re-running the work that
+// registers them, not by this call.
+func (s *Store) RebuildIndexes() error {
+	g, err := s.graph()
+	if err != nil {
+		return err
+	}
+	return g.RebuildIndexes()
+}
+
+// RepairRelationIndex re-registers index entries for relations whose entries are missing,
+// and returns how many it repaired.
+//
+// This is the recovery for the one gap every batched write path has: a record commit and
+// its index registration are separate steps, because registration is not part of a commit.
+// A crash in between leaves an edge that exists but is invisible to every graph-scoped
+// query, since those resolve through the graph_id index — while adjacency still shows it,
+// because adjacency reads incident edges directly. The result is an event displaying a
+// relation that belongs to no graph and that clearing the graph cannot remove.
+//
+// Structural verification does not catch this. A property entry that was never written is
+// not damage to the index's structure — the edge and its adjacency agree — so
+// VerifyIndexes passes and RebuildIndexes cannot help, because neither can re-derive a
+// caller-encoded value it never saw. Repair therefore has to come from this package, which
+// is the only thing that knows how a relation encodes its own index entries.
+//
+// It works by walking edges, which does not depend on the index being correct, and
+// comparing what it finds against what the index reports for each graph. It is idempotent:
+// on a healthy store it registers nothing and returns zero, which is what makes it safe to
+// offer as a maintenance action rather than a last resort.
+func (s *Store) RepairRelationIndex() (int, error) {
+	g, err := s.graph()
+	if err != nil {
+		return 0, err
+	}
+
+	// Walk every relation edge directly. This is the authoritative set: it is derived from
+	// adjacency, not from the property index whose truthfulness is in question.
+	edgeIDs, err := g.EdgesByType(consts.EdgeRelation)
+	if err != nil {
+		return 0, err
+	}
+	if len(edgeIDs) == 0 {
+		return 0, nil
+	}
+
+	byGraph := make(map[uint64][]*Relation)
+	for _, id := range edgeIDs {
+		ed, err := g.GetEdge(id)
+		if err != nil {
+			return 0, err
+		}
+		r, err := relationFromEdge(ed)
+		if err != nil {
+			return 0, err
+		}
+		byGraph[r.GraphID] = append(byGraph[r.GraphID], r)
+	}
+
+	repaired := 0
+	for graphID, rels := range byGraph {
+		// What the index currently believes belongs to this graph.
+		indexed, err := g.EdgesWithProperties(map[string][]byte{consts.PropGraphID: graphIDValue(graphID)})
+		if err != nil {
+			return repaired, err
+		}
+		known := make(map[uint64]bool, len(indexed))
+		for _, ed := range indexed {
+			known[uint64(ed.ID)] = true
+		}
+		for _, r := range rels {
+			if known[r.ID] {
+				continue
+			}
+			if err := g.IndexEdgeProperties(store.EdgeID(r.ID), r.indexValues()); err != nil {
+				return repaired, err
+			}
+			repaired++
+		}
+	}
+	if repaired > 0 {
+		s.bumpVersion() // relations became visible; any cached ordering is now stale
+	}
+	return repaired, nil
+}
+
 // InsertEvents persists a batch of events and registers their secondary indexes.
 // It mutates each event's ID with the graphene-assigned node id and returns the
 // assigned ids in input order. Batches are kept small by the caller so that no

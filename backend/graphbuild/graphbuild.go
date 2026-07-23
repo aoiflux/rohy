@@ -53,6 +53,11 @@ type Result struct {
 	// no timestamp and so cannot take part in time-ordered correlation. Reported so a run
 	// that "missed" events can explain itself instead of looking arbitrary (P23.5).
 	SkippedUndated int `json:"skipped_undated"`
+	// RepairedRelations is how many relations this run had to re-index before it could
+	// start, because a previous run was interrupted between committing its edges and
+	// registering their index entries. Normally zero. A non-zero value is not an error, but
+	// it does mean a previous build did not finish, so it is surfaced rather than absorbed.
+	RepairedRelations int `json:"repaired_relations"`
 }
 
 // Progress reports how far a run has got, so a long build can show movement rather than
@@ -103,6 +108,21 @@ func (b *Builder) RunWithProgress(ctx context.Context, req Request, now time.Tim
 	}
 	if len(selected) == 0 {
 		return res, nil
+	}
+
+	// Repair any relation whose index entries never got registered, before clearing
+	// anything. This is the recovery point for a build interrupted between committing its
+	// edges and indexing them: such a relation is invisible to graph-scoped queries, so the
+	// clear below would step straight past it and the rebuild would silently add a second
+	// copy alongside it. Repairing first makes the previous run's leftovers visible, which
+	// is what keeps the rebuild genuinely idempotent across a crash.
+	//
+	// It runs ONCE per build rather than per rule, so its cost is amortized across the whole
+	// run, and it does nothing at all on a healthy store. A failure to repair is not worth
+	// failing the build over — it costs idempotency in a rare case, not correctness of the
+	// relations about to be written — so it is reported and the run continues.
+	if repaired, err := b.store.RepairRelationIndex(); err == nil {
+		res.RepairedRelations = repaired
 	}
 
 	// Read the dataset once. Offset/limit are cleared: a build always evaluates the whole

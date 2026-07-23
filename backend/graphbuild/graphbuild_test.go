@@ -349,3 +349,70 @@ func TestRunWithNoRulesIsANoOp(t *testing.T) {
 		t.Errorf("graphs = %d, want just the default", got)
 	}
 }
+
+// TestRunRecoversFromAnInterruptedPreviousBuild covers R-8.3: a build that died between
+// committing its edges and registering their index entries leaves relations that
+// graph-scoped queries cannot see. Without recovery the next run's clear would step past
+// them and the rebuild would add a second copy alongside, so a graph that looked correct
+// would quietly hold every relation twice.
+//
+// The interruption is reproduced rather than simulated with a real crash: an edge is
+// committed with its index entries deliberately omitted, which is exactly the state the
+// crash window produces.
+func TestRunRecoversFromAnInterruptedPreviousBuild(t *testing.T) {
+	b, store, _, _ := harness(t, map[string]string{
+		"chain.json": `{"name":"Logon Chain","sequence":["4625","4624"]}`,
+	})
+	ids := seed(t, store, "HOST-A", "4625", "4624")
+
+	first, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphID := first.Outcomes[0].GraphID
+	if first.RepairedRelations != 0 {
+		t.Errorf("a clean first run repaired %d relation(s), want 0", first.RepairedRelations)
+	}
+
+	// Reproduce the crash window: a relation committed into this graph whose index entries
+	// were never registered.
+	if err := store.InsertRelationWithoutIndexForTesting(&graphene.Relation{
+		From: ids[0], To: ids[1], GraphID: graphID,
+		RelationType: consts.RelationCorrelation, CreatedBy: consts.CreatedBySystem,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// It is invisible to the graph, which is what makes it dangerous.
+	before, err := store.RelationsByGraph(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("graph reports %d relation(s) before the rerun, want 1 — the orphan should be invisible", len(before))
+	}
+
+	second, err := b.Run(context.Background(), Request{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RepairedRelations != 1 {
+		t.Errorf("rerun repaired %d relation(s), want 1", second.RepairedRelations)
+	}
+
+	// The rebuild must converge on the correct graph, not accumulate the orphan.
+	rels, err := store.RelationsByGraph(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rels) != 1 {
+		t.Errorf("relations after recovering rerun = %d, want 1 — the orphan was not folded into the rebuild", len(rels))
+	}
+	// And nothing may survive that only adjacency can see.
+	adj, err := store.RelationsOf(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adj) != 1 {
+		t.Errorf("event adjacency reports %d relation(s), want 1 — an orphaned edge outlived the rebuild", len(adj))
+	}
+}

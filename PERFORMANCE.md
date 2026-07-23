@@ -415,6 +415,85 @@ recommended shape.
 | All 9 keys, none declared _(current)_    | ~0.77 s |
 | All 9 keys, `timestamp` declared ordered | ~7.98 s |
 
+**Store memory** — resident bytes per event, disk backend, after ingest:
+
+| RawXML per event  | Resident per event |
+| ----------------- | ------------------ |
+| 64 B              | ~1 682 B           |
+| 512 B _(typical)_ | **~2 052 B**       |
+| 4 096 B           | ~7 796 B           |
+
+Extrapolating the typical figure: **1M events ≈ 1.9 GB, 10M events ≈ 19.1 GB.**
+
+Two things follow, and both matter for capacity planning:
+
+- The **fixed floor is ~1.7 kB per event** — index plus topology, independent of
+  payload. Indexing fewer keys is the only lever on it.
+- The store **retains node property blobs in memory, RawXML included.** Memory
+  grows with record size (4.6× for a 64× larger record), even though RawXML is
+  read only when an analyst opens a single event.
+
+⚠️ **This is the binding constraint on the "100 GB+ EVTX" target.** A corpus
+that size is far more than 10M events and does not fit in memory under the
+current schema. Closing that gap means not holding RawXML resident — a schema
+change, not a tuning change.
+
+> **Fixture warning, learned the hard way.** The first version of this
+> measurement used NUL bytes as RawXML filler and reported ~4 356 B/event with
+> an apparent 14× record sensitivity. JSON escapes each NUL to a six-character
+> sequence, so the figure described the fixture, not the store. **Synthetic
+> payloads must be representative of real data**, or the measurement measures
+> the generator.
+
+---
+
+## 12a. Consistency and recovery
+
+Performance work created the one durable correctness hazard in this layer, so it
+belongs here rather than in a separate document.
+
+### The commit/index gap
+
+A record commit and its index registration are **two separate steps** — index
+registration is not part of a commit. A crash between them does not simply lose
+the relation. It leaves an edge that is:
+
+- **committed and visible to adjacency**, which reads incident edges directly;
+- **invisible to every graph-scoped query**, which resolves through `graph_id`;
+- **unremovable by the graph clear**, which finds targets through that same
+  index.
+
+So an event shows a relation belonging to no graph, permanently, and the next
+build adds a second copy alongside it.
+
+### What does and does not detect it
+
+| Tool                  | On this failure                                                                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VerifyIndexes`       | **Passes.** An entry that was never written is not structural damage — the edge and its adjacency agree.                                           |
+| `RebuildIndexes`      | **Cannot help.** It re-derives only what the storage layer can see; indexed values are this package's encoding and are opaque to it.               |
+| `RepairRelationIndex` | **Fixes it.** Walks edges (independent of the index), compares against what the index reports per graph, re-registers what is missing. Idempotent. |
+
+### Rules
+
+- **Any new batched write path inherits this gap.** Register index entries after
+  commit, and state in a comment what a crash in the gap leaves and how it
+  recovers.
+- **Recovery belongs before the destructive step.** The graph build repairs once
+  per run _before_ clearing, so a previous run's leftovers are folded into the
+  rebuild rather than duplicated. A repair that ran afterwards would be useless.
+- **Surface a non-zero repair count** (`Result.RepairedRelations`) rather than
+  absorbing it — it means a previous run did not finish.
+- **`VerifyIndexes` is a test and recovery tool, not a startup step.** It is
+  proportional to the whole store; running it on every open taxes every launch
+  to re-prove something almost always true.
+
+### Scope of the crash claim
+
+A unit test cannot kill the process mid-write. The tests reproduce the **state**
+a crash produces — records present, index entries absent — and prove recovery
+from it. That is narrower than "survives a crash". Say the narrower thing.
+
 ---
 
 ## 13. Decisions pinned by tests
@@ -422,15 +501,22 @@ recommended shape.
 These tests exist to make a decision hard to reverse by accident. If one fails,
 the decision is being changed — check that it is on purpose.
 
-| Test                                                   | Pins                                                               |
-| ------------------------------------------------------ | ------------------------------------------------------------------ |
-| `TestNoOrderedPropertiesDeclared`                      | No ordered declaration (§9)                                        |
-| `TestTimeRangeQueryPlanShape`                          | The accepted plan shape; never a full scan                         |
-| `TestTimeRangeResultsUnchangedUnderByteWiseComparison` | Timestamp encoding orders correctly at year/month/digit boundaries |
-| `TestUndatedEventsExcludedFromTimeRange`               | A zero timestamp sorts before every real record                    |
-| `TestUpdateRelationLeavesNoStaleIndexEntry`            | Atomic indexed update; no stale `graph_id`                         |
-| `TestInsertRelationsBatchRoundTrip`                    | Batched writes register index entries too                          |
-| `TestDeleteGraphRelationsIsAllOrNothing`               | Transactional clear touches no nodes                               |
-| `TestIncrementDedupCountsBatched`                      | A missing id skips rather than aborting the pass                   |
+| Test                                                    | Pins                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------- |
+| `TestNoOrderedPropertiesDeclared`                       | No ordered declaration (§9)                                         |
+| `TestTimeRangeQueryPlanShape`                           | The accepted plan shape; never a full scan                          |
+| `TestTimeRangeResultsUnchangedUnderByteWiseComparison`  | Timestamp encoding orders correctly at year/month/digit boundaries  |
+| `TestUndatedEventsExcludedFromTimeRange`                | A zero timestamp sorts before every real record                     |
+| `TestUpdateRelationLeavesNoStaleIndexEntry`             | Atomic indexed update; no stale `graph_id`                          |
+| `TestInsertRelationsBatchRoundTrip`                     | Batched writes register index entries too                           |
+| `TestDeleteGraphRelationsIsAllOrNothing`                | Transactional clear touches no nodes                                |
+| `TestIncrementDedupCountsBatched`                       | A missing id skips rather than aborting the pass                    |
+| `TestIndexesVerifyAfterEveryWritePath`                  | Every write path leaves the index structurally truthful             |
+| `TestReopenAfterUncleanShutdownReplaysWAL`              | An uncompacted close still replays into a consistent store          |
+| `TestCommitIndexGapLeavesEdgesInvisibleToGraphQueries`  | The exact shape of the gap (§12a) — not merely "relation missing"   |
+| `TestRepairOrphanedRelationsRecoversFromCommitIndexGap` | Repair works and is idempotent                                      |
+| `TestRunRecoversFromAnInterruptedPreviousBuild`         | A crashed build reruns without duplicating relations                |
+| `TestStoreMemoryPerEvent`                               | Per-event resident cost, with a regression ceiling                  |
+| `TestStoreMemoryGrowsWithRecordSize`                    | Memory grows far slower than the record; the fixed floor stays flat |
 
 ---
