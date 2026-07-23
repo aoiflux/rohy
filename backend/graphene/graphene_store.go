@@ -74,6 +74,32 @@ func (s *Store) ensure() error {
 	return s.openErr
 }
 
+// NOTE — why no ordered property is declared here.
+//
+// Declaring the timestamp key ordered is the textbook move: rohy runs range filters on it,
+// and a declared key answers those by binary search instead of by scanning every entry
+// registered under it. It was implemented, measured, and removed again, because on this
+// workload it is a large net loss:
+//
+//	timestamp declared     100k events: open ~8.0 s
+//	timestamp undeclared   100k events: open ~0.8 s
+//
+// A declaration is runtime state that does not survive a reopen, so it has to absorb every
+// already-registered entry on EVERY open — and for a near-unique key like a timestamp that
+// absorption dominates startup and grows faster than linearly. The open cost is paid by
+// every user on every launch; the query it accelerates is not.
+//
+// And it accelerates almost nothing here. Measured on a 20k-event store, declared versus
+// not: narrow range 1.63–1.85 ms vs 1.71–1.91 ms, wide range 10.6–12.4 ms vs 10.1–12.4 ms,
+// count over a range ~0.55 µs either way. Range queries in rohy are dominated by decoding
+// the matched event records — RawXML is kilobytes each — not by locating candidate ids, so
+// making the lookup asymptotically better moves a cost that was never the bottleneck.
+//
+// The upstream guidance is explicit that this is a measurement, not a rule ("measure before
+// indexing... intuition about selectivity usually is not [exact]"). This is that
+// measurement. If event records are ever hydrated more cheaply, or ranges are run over a
+// far larger store, re-measure before re-declaring — and measure OPEN, not just the query.
+
 // Warm opens the store now, so the app can pay that cost deliberately (on a background
 // goroutine, with progress reported) rather than on whichever user action happens to touch
 // the store first. Safe to call repeatedly and concurrently.
@@ -176,11 +202,66 @@ func (s *Store) InsertRelation(r *Relation) (uint64, error) {
 	return uint64(id), nil
 }
 
+// InsertRelations persists a batch of relations in ONE commit and registers their
+// indexes, stamping each relation's ID. Src and Dst nodes must already exist.
+//
+// This is the write path a rule-generated graph takes, where relations arrive by the
+// thousand. Inserting them one at a time costs one durable write per edge — the WAL is
+// what a crash-safe write buys, and it is not tunable — so the batch is the whole
+// difference between a graph build that is write-bound per edge and one that pays a
+// single framed commit for the lot. The batch is atomic: on error nothing is applied and
+// no ids are returned, so a failed build cannot leave a half-built graph behind.
+//
+// Indexing is deliberately a separate pass after the commit: index registration is not
+// part of a batch commit, so the edges must exist before their entries are registered.
+// A crash in between leaves edges that are present but not yet findable by graph_id — the
+// build is idempotent and re-running it replaces the graph wholesale, which is the
+// recovery path.
+func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
+	defer s.bumpVersion()
+	if len(rels) == 0 {
+		return nil, nil
+	}
+	g, err := s.graph()
+	if err != nil {
+		return nil, err
+	}
+
+	edges := make([]*store.Edge, len(rels))
+	for i, r := range rels {
+		ed, err := r.toEdge()
+		if err != nil {
+			return nil, err
+		}
+		edges[i] = ed
+	}
+
+	ids, err := g.AddEdges(edges)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]uint64, len(ids))
+	for i, id := range ids {
+		rels[i].ID = uint64(id)
+		out[i] = uint64(id)
+		// One call per relation rather than one per key: registration takes a lock per
+		// entry, so the per-entity form is the cheaper shape.
+		if err := g.IndexEdgeProperties(id, rels[i].indexValues()); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
 // UpdateRelation replaces a relation's type/label/confidence in place (its endpoints
-// are immutable — graphene ignores Src/Dst on update). The secondary index is
-// refreshed for the type; graphene does not auto-update the index on edit, so a stale
-// prior value can linger until the edge is deleted, which is harmless here because
-// relations are read by edge type, not by the relation_type property.
+// are immutable — graphene ignores Src/Dst on update).
+//
+// The record and its index entries are replaced in ONE call. The plain update leaves the
+// index alone under the default reindex policy, so an edited relation would keep matching
+// its previous indexed values — and graph_id is one of those values, so a relation moved
+// between graphs would still be found under the old graph. There is no window here in
+// which the record and its index disagree.
 func (s *Store) UpdateRelation(r *Relation) error {
 	defer s.bumpVersion()
 	g, err := s.graph()
@@ -192,10 +273,7 @@ func (s *Store) UpdateRelation(r *Relation) error {
 		return err
 	}
 	edge.ID = store.EdgeID(r.ID)
-	if err := g.UpdateEdge(edge); err != nil {
-		return err
-	}
-	return g.IndexEdgeProperties(edge.ID, r.indexValues())
+	return g.UpdateEdgeIndexed(edge, r.indexValues())
 }
 
 // DeleteRelation removes a single mapped relation (and purges its index entries).
@@ -232,25 +310,47 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]int) error {
 	if err != nil {
 		return err
 	}
+	// Read the whole set in one batched fetch rather than one point lookup per id, then
+	// commit every increment together. Applied one at a time this was a durable write per
+	// event, which on a duplicate-heavy ingest is the dominant cost of the dedup pass.
+	//
+	// Iteration order over the map is deliberately not fixed: these are independent
+	// per-node increments, so the order they are buffered in cannot change the result.
+	ids := make([]store.NodeID, 0, len(deltas))
 	for id, delta := range deltas {
-		if delta <= 0 {
-			continue
-		}
-		e, err := s.GetEvent(id)
-		if err != nil {
-			return err
-		}
-		e.DeduplicationCount += delta
-		n, err := e.toNode()
-		if err != nil {
-			return err
-		}
-		n.ID = store.NodeID(id)
-		if err := g.UpdateNode(n); err != nil {
-			return err
+		if delta > 0 {
+			ids = append(ids, store.NodeID(id))
 		}
 	}
-	return nil
+	if len(ids) == 0 {
+		return nil
+	}
+	nodes, missing, err := g.GetNodes(ids)
+	if err != nil {
+		return err
+	}
+	// A missing id is skipped rather than fatal: the event it counted duplicates for is
+	// already gone, so there is nothing to increment.
+	_ = missing
+
+	tx := g.Begin()
+	for _, n := range nodes {
+		e, err := eventFromNode(n)
+		if err != nil {
+			return err
+		}
+		e.DeduplicationCount += deltas[uint64(n.ID)]
+		updated, err := e.toNode()
+		if err != nil {
+			return err
+		}
+		updated.ID = n.ID
+		// deduplication_count is not an indexed key, so no index entry needs replacing
+		// alongside the record — which is what lets these updates live in a transaction,
+		// since index registration is not part of a commit.
+		tx.UpdateNode(updated)
+	}
+	return tx.Commit()
 }
 
 // MigrateRelationsToGraph assigns graphID to every relation that has no graph yet
@@ -279,20 +379,60 @@ func (s *Store) MigrateRelationsToGraph(graphID uint64) (int, error) {
 // is deleted). Event nodes are never touched — only the graph's edges. Returns the
 // number of relations deleted.
 func (s *Store) DeleteGraphRelations(graphID uint64) (int, error) {
+	defer s.bumpVersion()
 	rels, err := s.RelationsByGraph(graphID)
 	if err != nil {
 		return 0, err
 	}
+	if len(rels) == 0 {
+		return 0, nil
+	}
+	g, err := s.graph()
+	if err != nil {
+		return 0, err
+	}
+
+	// Clearing a graph is one logical act, so it commits once. Deleting edge by edge
+	// paid a durable write each time and, worse, could stop half way and leave the graph
+	// partly cleared — which the idempotent rebuild would then treat as the previous
+	// result. A transaction either removes the whole graph's edges or removes none.
+	// Index entries are cleaned up as part of the delete, so no separate purge is needed.
+	tx := g.Begin()
 	for _, r := range rels {
-		if err := s.DeleteRelation(r.ID); err != nil {
+		tx.DeleteEdge(store.EdgeID(r.ID))
+	}
+	if err := tx.Commit(); err != nil {
+		// A relation that is already gone is not a failure: the caller's intent is that
+		// the graph ends up empty. Fall back to a per-edge pass that tolerates it.
+		var nf *store.ErrNotFound
+		if !errors.As(err, &nf) {
+			return 0, err
+		}
+		return s.deleteRelationsIndividually(rels)
+	}
+	return len(rels), nil
+}
+
+// deleteRelationsIndividually is the tolerant fallback for clearing a graph whose edge set
+// has drifted from what the index reported — an already-deleted edge is skipped rather
+// than failing the clear.
+func (s *Store) deleteRelationsIndividually(rels []*Relation) (int, error) {
+	g, err := s.graph()
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, r := range rels {
+		if err := g.DeleteEdge(store.EdgeID(r.ID)); err != nil {
 			var nf *store.ErrNotFound
 			if errors.As(err, &nf) {
 				continue
 			}
-			return 0, err
+			return deleted, err
 		}
+		deleted++
 	}
-	return len(rels), nil
+	return deleted, nil
 }
 
 // FindEventIDByHash returns the node id of an event whose normalized hash matches,

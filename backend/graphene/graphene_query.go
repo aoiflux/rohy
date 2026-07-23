@@ -384,7 +384,12 @@ func (s *Store) RelationsOf(eventID uint64) ([]*Relation, error) {
 	if err != nil {
 		return nil, err
 	}
-	edges, err := g.EdgesOf(store.NodeID(eventID), store.DirectionBoth, []store.EdgeType{consts.EdgeRelation})
+	// No edge-type filter: consts.EdgeRelation is the only edge label rohy ever writes
+	// (see schema.go), so filtering by it selects the same set while forcing every
+	// incident edge's labels to be inspected. Passing nil reads adjacency directly. This
+	// call is made once per row of a loaded window, so the saving is per visible event,
+	// not per query. If a second edge type is ever introduced, this must filter again.
+	edges, err := g.EdgesOf(store.NodeID(eventID), store.DirectionBoth, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -297,9 +297,16 @@ func (s *Store) hydrateIDs(ids []uint64) ([]*Event, error) {
 	for i, id := range ids {
 		nodeIDs[i] = store.NodeID(id)
 	}
-	nodes, err := g.GetNodes(nodeIDs)
+	// GetNodes returns the nodes it found plus the ids it could not resolve, rather than
+	// failing on the first miss. An unresolvable id means the index still points at a node
+	// the store no longer holds; treating that as a short page would hide the divergence,
+	// so it is surfaced as an error exactly as the read path has always done.
+	nodes, missing, err := g.GetNodes(nodeIDs)
 	if err != nil {
 		return nil, err
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(consts.MsgNodesMissing, len(missing), len(nodeIDs), missing)
 	}
 	out := make([]*Event, 0, len(nodes))
 	for _, n := range nodes {

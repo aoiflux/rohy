@@ -62,6 +62,17 @@ func graphIDValue(id uint64) []byte {
 
 // timestampIndex renders t using the fixed-width UTC layout so that lexicographic
 // comparison in the property index matches chronological order.
+//
+// This IS the order-preserving encoding for the timestamp key — the text equivalent of
+// index/encoding's String encoder, not a hand-padded number. Fixed width and a forced UTC
+// offset are what make byte order and chronological order the same thing, which is the
+// precondition for declaring the key ordered (see declareOrdered in graphene_store.go).
+//
+// A zero timestamp renders as year one and therefore sorts before every real record, which
+// is the intended position for an undated event: it is excluded by any lower time bound
+// rather than landing in the middle of a range. Encoding to Unix nanoseconds instead would
+// be more compact but is undefined outside 1678–2262, so a zero time would encode to a
+// wrapped value rather than to "before everything".
 func timestampIndex(t time.Time) string {
 	return t.UTC().Format(consts.TimestampIndexLayout)
 }

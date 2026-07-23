@@ -24,6 +24,8 @@ github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuy
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
 github.com/aoiflux/graphene v0.2.0 h1:0ds8G5gvi8vpbhHSuZcO5g7Aw2Zj9hAOh+wJBlRDpvk=
 github.com/aoiflux/graphene v0.2.0/go.mod h1:cajlcsc421LNejLmlagk0tn85Oh+usSf7MpGl7uNEJo=
+github.com/aoiflux/graphene v0.3.0 h1:JJD4R2CxPsjWYxZSVTGLq3peYpldtLlKfT8q388+gZQ=
+github.com/aoiflux/graphene v0.3.0/go.mod h1:cajlcsc421LNejLmlagk0tn85Oh+usSf7MpGl7uNEJo=
 github.com/bep/debounce v1.2.1 h1:v67fRdBA9UQu2NhLFXrSg0Brw7CexQekrBwDMM8bzeY=
 github.com/bep/debounce v1.2.1/go.mod h1:H8yggRPQKLUhUoqrJC1bO2xNya7vanpDl7xR3ISbCJ0=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

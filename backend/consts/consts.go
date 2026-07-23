@@ -243,10 +243,18 @@ const MsgElevationRequired = "Administrator privileges are required to read the 
 //
 // TimestampIndexLayout is a fixed-width, UTC ("Z") layout with nanosecond
 // precision. Fixed width + UTC makes lexicographic byte comparison equivalent to
-// chronological order, which is required because graphene's BetweenInclusive
-// property filter falls back to lexicographic comparison for non-numeric values.
+// chronological order, which is what makes range filters on this key correct:
+// graphene compares non-numeric property values byte-wise. Any change that breaks
+// the width/UTC invariant silently breaks time-range queries.
 // Callers MUST convert to UTC before formatting.
 const TimestampIndexLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+// --- Store read integrity ---
+//
+// MsgNodesMissing reports ids that an index or query produced but that no longer resolve
+// to a stored node. That is index/store divergence, not an empty result: silently
+// returning the shorter set would hand the UI a short page and hide the corruption.
+const MsgNodesMissing = "%d of %d events could not be loaded (missing node ids: %v)"
 
 // --- Wails event channel names (backend → frontend) ---
 const (
@@ -552,6 +560,11 @@ const (
 	// ProgressInterval is the record count between progress reports so the UI is
 	// updated without flooding the event channel on very large datasets.
 	ProgressInterval = 2000
+	// RelationBatchSize caps the relations written per commit when a rule-generated graph
+	// is persisted. A batched write buffers in memory until it commits, so the chunk is
+	// what bounds that cost on a rule that matches hundreds of thousands of times; it is
+	// also the granularity at which a build notices it has been cancelled.
+	RelationBatchSize = 512
 )
 
 // --- Hashing ---

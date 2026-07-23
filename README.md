@@ -84,6 +84,10 @@ from scratch, then stamp version/commit/date into the binary. The clean-frontend
 step is deliberate: the Go binary embeds whatever is in `dist`, so reusing a
 stale build ships an old UI behind a new backend.
 
+Working on the persistence layer? Read [PERFORMANCE.md](PERFORMANCE.md) first — it
+records what rohy's costs actually are, the rules that follow from that, and one
+documented optimisation that made cold start 10× slower before it was measured.
+
 ## Usage
 
 1. **Ingest** — on the Dashboard, pick `.evtx` files or a folder (or start a

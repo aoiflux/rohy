@@ -175,6 +175,24 @@ func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, events []*graph
 	gen := autograph.Generate(&rule.Spec, events)
 	out.Matches, out.Truncated, out.Dropped = gen.Matches, gen.Truncated, gen.Dropped
 
+	// Persist in chunks rather than one relation at a time. Each write is durable, so a
+	// per-relation loop pays a separate committed write for every edge; batching folds a
+	// chunk into a single commit. The chunk size bounds the memory a commit buffers and
+	// stays the point at which cancellation is honoured, so batching does not cost the
+	// build its responsiveness.
+	batch := make([]*graphene.Relation, 0, consts.RelationBatchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if _, err := b.store.InsertRelations(batch); err != nil {
+			return err
+		}
+		out.Relations += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+
 	for i := range gen.Relations {
 		if err := ctx.Err(); err != nil {
 			return out, err
@@ -182,10 +200,15 @@ func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, events []*graph
 		rel := gen.Relations[i]
 		rel.GraphID = graph.ID
 		rel.CreatedAt = now
-		if _, err := b.store.InsertRelation(&rel); err != nil {
-			return out, err
+		batch = append(batch, &rel)
+		if len(batch) >= consts.RelationBatchSize {
+			if err := flush(); err != nil {
+				return out, err
+			}
 		}
-		out.Relations++
+	}
+	if err := flush(); err != nil {
+		return out, err
 	}
 	return out, nil
 }
