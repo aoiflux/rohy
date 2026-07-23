@@ -13,9 +13,14 @@
 #      into backend/version, which is the single source the About dialog reads. An unstamped
 #      build reports itself as a dev build rather than pretending to be a release.
 #
-# Cross-compiling is deliberately NOT attempted here: Wails links the platform's native
-# webview (WebView2 / WebKitGTK / WKWebView) through cgo, so each OS must be built on its
-# own machine or CI runner. See .github/workflows/release.yml for the full matrix.
+# This script builds for the CURRENT platform only. Release artefacts for all six targets
+# come from .github/workflows/release.yml.
+#
+# Cross-compiling is not attempted here, but the reason is narrower than it looks. On Linux
+# and macOS the Wails frontend binds the native webview (WebKitGTK / WKWebView) through cgo,
+# so those targets need their own toolchain and headers. Windows does NOT: it uses the
+# pure-Go WebView2 loader, so windows/arm64 cross-builds from an amd64 Windows host — which
+# is exactly what the release workflow does.
 
 [CmdletBinding()]
 param(

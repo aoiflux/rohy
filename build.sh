@@ -8,8 +8,12 @@
 #   2. Version/commit/date are injected into backend/version, the single source the About
 #      dialog reads, so the reported version is always what was actually built.
 #
-# Cross-compiling is not attempted: Wails links the platform's native webview through cgo,
-# so each OS builds on its own machine/runner. See .github/workflows/release.yml.
+# This script builds for the CURRENT platform only; release artefacts come from
+# .github/workflows/release.yml.
+#
+# Cross-compiling is not attempted here, but the reason is narrower than it looks: only the
+# Linux and macOS frontends bind the native webview through cgo. Windows uses the pure-Go
+# WebView2 loader and cross-builds fine, which is how the workflow produces windows/arm64.
 
 set -euo pipefail
 cd "$(dirname "$0")"

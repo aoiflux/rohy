@@ -1,0 +1,328 @@
+# rohy release pipeline (Phase 16).
+#
+# Produces all six platform/architecture artefacts from ONE orchestrated run, plus a single
+# checksum manifest covering them. Triggered by pushing a version tag; the workflow only
+# ever CONSUMES a tag, it never creates one.
+#
+# Host strategy is dictated by what each target actually needs, which was measured rather
+# than assumed (see PLAN.md §16):
+#
+#   windows/amd64 + windows/arm64 -> one Windows runner. Wails on Windows uses the pure-Go
+#     WebView2 loader, so no cgo is involved and arm64 cross-builds from an amd64 host.
+#   linux/amd64, linux/arm64      -> native runners each. The GTK/WebKit frontend is cgo,
+#     so it needs the target's headers and toolchain.
+#   darwin/amd64 + darwin/arm64   -> one macOS runner. The WKWebView frontend is cgo, but
+#     Xcode targets both architectures from either host.
+#
+# Two guarantees are inherited from build.ps1 / build.sh and must not be weakened here:
+#   1. The frontend is rebuilt from scratch every time. The Go binary embeds whatever is in
+#      frontend/dist, so a stale dist ships an old UI behind a new backend. dist is deleted
+#      before every build and is NEVER cached.
+#   2. Version metadata is injected at link time and reflects reality, including marking a
+#      dirty tree, so an artefact can always say exactly what it was built from.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer to stamp (without the leading v), e.g. 0.0.1"
+        required: true
+        default: "0.0.1"
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "20"
+  WAILS_VERSION: "v2.13.0"
+
+jobs:
+  # ---------------------------------------------------------------------------------
+  # Resolve the version once, so every artefact in the release reports the same identity.
+  # ---------------------------------------------------------------------------------
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------------
+  # Windows: both architectures from one runner (no cgo on this platform).
+  # ---------------------------------------------------------------------------------
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # full history so the commit stamp is real
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Backend tests
+        run: go test ./backend/...
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+
+      # Deleted, never cached — see the header note.
+      - name: Clean frontend build
+        shell: bash
+        run: rm -rf frontend/dist
+
+      - name: Build windows/amd64 and windows/arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMIT=$(git rev-parse --short HEAD)
+          if [ -n "$(git status --porcelain)" ]; then COMMIT="${COMMIT}-dirty"; fi
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PKG=rohy/backend/version
+          LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
+          for arch in amd64 arm64; do
+            wails build -clean -platform "windows/${arch}" -ldflags "$LDFLAGS" -o "rohy-${arch}.exe"
+          done
+          test -f frontend/dist/index.html
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=${{ needs.version.outputs.version }}
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            cp "build/bin/rohy-${arch}.exe" "rohy.exe"
+            7z a -tzip "dist/rohy_${V}_windows_${arch}.zip" rohy.exe LICENSE README.md >/dev/null
+            rm rohy.exe
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rohy-windows
+          path: dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------
+  # Linux: one native runner per architecture — the GTK/WebKit frontend is cgo.
+  # ---------------------------------------------------------------------------------
+  linux:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 22.04 ships WebKitGTK 4.0. Building against it rather than 4.1 keeps the artefact
+      # usable on older distributions; the README states 4.0 as the runtime requirement to
+      # match.
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Backend tests
+        run: go test ./backend/...
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+
+      - name: Clean frontend build
+        run: rm -rf frontend/dist
+
+      - name: Build linux/${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          COMMIT=$(git rev-parse --short HEAD)
+          if [ -n "$(git status --porcelain)" ]; then COMMIT="${COMMIT}-dirty"; fi
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PKG=rohy/backend/version
+          LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
+          wails build -clean -platform "linux/${{ matrix.arch }}" -ldflags "$LDFLAGS" -o rohy
+          test -f frontend/dist/index.html
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          V=${{ needs.version.outputs.version }}
+          mkdir -p dist
+          cp LICENSE README.md build/bin/
+          tar -czf "dist/rohy_${V}_linux_${{ matrix.arch }}.tar.gz" -C build/bin rohy LICENSE README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rohy-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------
+  # macOS: both architectures from one runner — Xcode targets either from either host.
+  # ---------------------------------------------------------------------------------
+  macos:
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Backend tests
+        run: go test ./backend/...
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+
+      - name: Clean frontend build
+        run: rm -rf frontend/dist
+
+      - name: Build darwin/amd64 and darwin/arm64
+        run: |
+          set -euo pipefail
+          COMMIT=$(git rev-parse --short HEAD)
+          if [ -n "$(git status --porcelain)" ]; then COMMIT="${COMMIT}-dirty"; fi
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PKG=rohy/backend/version
+          LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
+          V=${{ needs.version.outputs.version }}
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            rm -rf build/bin
+            wails build -clean -platform "darwin/${arch}" -ldflags "$LDFLAGS"
+            test -f frontend/dist/index.html
+            # macOS ships a .app bundle; zip preserves the bundle structure and the
+            # executable bit, which a plain tar of the binary would lose.
+            ditto -c -k --keepParent "build/bin/rohy.app" "dist/rohy_${V}_darwin_${arch}.zip"
+          done
+
+      # Signing and notarization are NOT performed. An unsigned macOS build is blocked by
+      # Gatekeeper until the user clears it explicitly, and that is stated in the release
+      # notes rather than left as a surprise. Wiring it needs an Apple Developer identity
+      # and notarization credentials in repository secrets; until those exist, degrading
+      # loudly beats pretending the artefact is signed.
+      - name: Note signing status
+        run: echo "::warning::macOS artefacts are UNSIGNED and not notarized; Gatekeeper will require manual approval."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rohy-macos
+          path: dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------
+  # Release: all-or-nothing. A partial matrix must never publish a partial release, so this
+  # job depends on every build job and GitHub will skip it if any of them failed.
+  # ---------------------------------------------------------------------------------
+  release:
+    needs: [version, windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          merge-multiple: true
+
+      - name: Verify the full matrix arrived
+        run: |
+          set -euo pipefail
+          cd staged
+          ls -la
+          missing=0
+          for f in \
+            "windows_amd64.zip" "windows_arm64.zip" \
+            "linux_amd64.tar.gz" "linux_arm64.tar.gz" \
+            "darwin_amd64.zip" "darwin_arm64.zip"; do
+            if ! ls *"$f" >/dev/null 2>&1; then echo "MISSING: *$f"; missing=1; fi
+          done
+          [ "$missing" -eq 0 ] || { echo "refusing to publish an incomplete release"; exit 1; }
+
+      # The manifest the README already instructs users to verify against.
+      - name: Generate SHA256SUMS.txt
+        run: |
+          cd staged
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: staged/*
+          generate_release_notes: true
+          body: |
+            ### Verify your download
+
+            Every artefact is listed in `SHA256SUMS.txt`.
+
+            ```bash
+            sha256sum -c SHA256SUMS.txt          # Linux
+            shasum -a 256 -c SHA256SUMS.txt      # macOS
+            ```
+
+            ### Signing status
+
+            These artefacts are **not code-signed**. On macOS, Gatekeeper will refuse to
+            open the app until you allow it explicitly (System Settings → Privacy &
+            Security). On Windows, SmartScreen may warn on first run. Verify the checksum
+            above before allowing either.

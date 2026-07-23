@@ -1,0 +1,10 @@
+# Normalise line endings.
+#
+# core.autocrlf is on for this working tree, so files land as CRLF on Windows. That is fine
+# for source Go and JS, but NOT for anything a POSIX shell executes: GitHub Actions runs the
+# `run:` blocks in these workflows through bash on Linux runners, where a trailing \r is a
+# syntax error ("unexpected token `$'do\r'`"). Pinning them to LF makes the checkout correct
+# regardless of who committed from where.
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf

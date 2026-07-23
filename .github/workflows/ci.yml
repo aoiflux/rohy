@@ -1,0 +1,105 @@
+# rohy pull-request validation (Phase 16.5).
+#
+# This is the gate, not the release. It answers one question — does the change build and
+# pass its tests on every platform rohy ships to — and produces no artefacts.
+#
+# Deliberately separate from release.yml. A release must be reproducible from a tag and
+# publish all-or-nothing; a PR check must be fast and must run on every push. Folding them
+# together would make one of those two worse.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "20"
+
+jobs:
+  # Vet, race, and the full suite. Run once on Linux, where the race detector is cheapest,
+  # rather than on every platform — cross-platform coverage is the build job's concern.
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Vet
+        run: go vet ./backend/...
+
+      - name: Backend tests
+        run: go test ./backend/... -count=1
+
+      # The persistence, ingest, and API layers are the concurrent ones: a lazy-opened
+      # store, a gated ingest pipeline, and a cancellable build all share state across
+      # goroutines. They are where a data race would actually live.
+      - name: Race detector
+        run: go test ./backend/graphene/ ./backend/evtx/ ./backend/api/ ./backend/graphbuild/ -race -count=1
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+
+  # Prove the app still builds for every shipped target. This is what catches a change that
+  # compiles on the developer's Windows machine but breaks the cgo frontends.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows/amd64
+          - runner: windows-latest
+            platform: windows/arm64
+          - runner: ubuntu-22.04
+            platform: linux/amd64
+          - runner: macos-latest
+            platform: darwin/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install native dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      # Never restored from cache: the binary embeds whatever is in dist, so a stale dist
+      # would let a broken frontend build pass this check.
+      - name: Clean frontend build
+        shell: bash
+        run: rm -rf frontend/dist
+
+      - name: Build ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails build -clean -platform "${{ matrix.platform }}"
+          test -f frontend/dist/index.html

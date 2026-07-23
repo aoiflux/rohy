@@ -41,7 +41,7 @@ the machine.
 
 | Area            | What you get                                                                                                                                                          |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Ingestion**   | `.evtx` files/folders, SQLite `.db` (two documented schemas), live capture with durable per-channel bookmarks, pause/resume, hash-based de-duplication across sources |
+| **Ingestion**   | `.evtx` files/folders, SQLite `.db` (two documented schemas), live capture with durable per-channel bookmarks, pause/resume, hash-based de-duplication with per-source occurrence counts |
 | **Events**      | Accurate counts, progressive loading, collapsible search with persisted filters, relation-aware quick filters, CSV/JSON export                                        |
 | **Rules**       | Portable one-file-per-rule JSON, 8 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored                                           |
 | **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content                                                      |
@@ -112,7 +112,7 @@ a working folder is self-contained and portable.
 | --------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Windows 10/11 (amd64) | Primary — developed and tested here | [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on Windows 11) |
 | Windows (arm64)       | Builds in CI                        | WebView2 runtime                                                                                          |
-| Linux (amd64, arm64)  | Builds in CI                        | `libwebkit2gtk-4.1` + `libgtk-3`                                                                          |
+| Linux (amd64, arm64)  | Builds in CI                        | `libwebkit2gtk-4.0` + `libgtk-3`                                                                          |
 | macOS (amd64, arm64)  | Builds in CI                        | WKWebView (system)                                                                                        |
 
 **Live event-log capture is Windows-only** — it uses the native `wevtapi`. On
@@ -120,8 +120,8 @@ other platforms the app runs and ingests `.evtx`/`.db` files normally; only live
 capture is unavailable.
 
 Honest note on testing: development and manual verification happen on
-**Windows**. The other targets are built by CI on native runners but are not yet
-manually exercised — cross-platform builds are wired, not battle-tested.
+**Windows**. The other targets are built by CI but are not yet manually
+exercised — cross-platform builds are wired, not battle-tested.
 
 ## SQLite `.db` ingestion
 
