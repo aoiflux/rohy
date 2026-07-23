@@ -3,6 +3,7 @@
   // the flattened parsed fields, and the raw JSON payload, plus the "Add to Graph"
   // action. Slides in from the right over a scrim.
   import { UI, SOURCE_TYPE_LABEL, RELATION_LABEL } from '../../lib/consts/index.js';
+  import * as api from '../../lib/api/index.js';
   import Button from '../material/Button.svelte';
   import FindingEditor from './FindingEditor.svelte';
 
@@ -20,7 +21,35 @@
     relation && relation.types ? relation.types.map((t) => RELATION_LABEL[t] || t).join(', ') : '',
   );
 
-  const parsedEntries = $derived(event && event.parsed_fields ? Object.entries(event.parsed_fields) : []);
+  // The raw record and parsed fields are NOT carried by list rows: they live in the payload
+  // cold store and are fetched per event, which is what keeps a large case's memory bounded.
+  // This drawer is the only view that wants them, so this is the only place that pays.
+  let payload = $state(/** @type {any} */ (null));
+  let payloadFor = $state(/** @type {number|null} */ (null));
+  $effect(() => {
+    const id = event ? event.id : null;
+    if (id == null) {
+      payload = null;
+      payloadFor = null;
+      return;
+    }
+    if (payloadFor === id) return; // already fetched for this event
+    payloadFor = id;
+    payload = null;
+    api
+      .getEvent(id)
+      .then((full) => {
+        // Guard against a slow response arriving after the analyst moved on.
+        if (payloadFor === id) payload = full;
+      })
+      .catch(() => {
+        if (payloadFor === id) payload = null;
+      });
+  });
+
+  const rawXml = $derived(payload ? payload.raw_xml : '');
+  const parsedEntries = $derived(payload && payload.parsed_fields ? Object.entries(payload.parsed_fields) : []);
+  const payloadLoading = $derived(event != null && payload == null);
 
   // Human-readable origin; legacy events (pre source-tracking) have no source_type.
   const sourceTypeLabel = $derived(
@@ -145,7 +174,7 @@
 
       <section>
         <h3>{UI.DETAIL_RAW}</h3>
-        <pre class="raw">{prettyRaw(event.raw_xml)}</pre>
+        <pre class="raw">{payloadLoading ? UI.DETAIL_LOADING : prettyRaw(rawXml)}</pre>
       </section>
     </div>
 

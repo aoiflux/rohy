@@ -533,3 +533,121 @@ func TestSourceCountsBackfillForLegacyEvents(t *testing.T) {
 		t.Errorf("backfilled count = %d, want 4 attributed to the recorded source", got.SourceCounts["archive.evtx"])
 	}
 }
+
+// --- Payload cold store ---
+
+// TestListQueriesDoNotHydratePayload pins the whole point of the cold store: a page of the
+// events list must not pull raw records into memory. If this fails, the memory win is gone
+// and nothing else would show it — the rows would look correct.
+func TestListQueriesDoNotHydratePayload(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	e := mkEvent("4624", "p", "c", "u", base, "h1")
+	e.RawXML = "<Event>a considerable amount of raw record text</Event>"
+	e.ParsedFields = map[string]string{"TargetUserName": "alice"}
+	if _, err := s.InsertEvents([]*Event{e}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := s.QueryEvents(EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(rows))
+	}
+	if rows[0].RawXML != "" || len(rows[0].ParsedFields) != 0 {
+		t.Errorf("list query hydrated the payload; that is the cost the cold store exists to avoid")
+	}
+	// But the row must still carry the reference, or the detail view could never find it.
+	if rows[0].Payload.IsZero() {
+		t.Error("list row carries no payload reference; the raw record would be unreachable")
+	}
+}
+
+// TestSingleEventReadHydratesPayload is the other half: the one view that wants the raw
+// record gets it.
+func TestSingleEventReadHydratesPayload(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	const raw = "<Event>the full record</Event>"
+	e := mkEvent("4624", "p", "c", "u", base, "h1")
+	e.RawXML = raw
+	e.ParsedFields = map[string]string{"TargetUserName": "alice", "LogonType": "3"}
+	ids, err := s.InsertEvents([]*Event{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetEvent(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RawXML != raw {
+		t.Errorf("raw record = %q, want %q", got.RawXML, raw)
+	}
+	if got.ParsedFields["TargetUserName"] != "alice" || got.ParsedFields["LogonType"] != "3" {
+		t.Errorf("parsed fields did not round-trip: %+v", got.ParsedFields)
+	}
+}
+
+// TestPayloadSurvivesStoreReopen covers the durable path: payloads written in one session
+// must resolve in the next, or reopening a case would silently lose every raw record.
+func TestPayloadSurvivesStoreReopen(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	const raw = "<Event>persisted across a restart</Event>"
+	e := mkEvent("4624", "p", "c", "u", base, "h1")
+	e.RawXML = raw
+	ids, err := s.InsertEvents([]*Event{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+
+	got, err := reopened.GetEvent(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RawXML != raw {
+		t.Errorf("after reopen, raw record = %q, want %q", got.RawXML, raw)
+	}
+}
+
+// TestEventWithoutPayloadNeedsNoLookup covers the catalogue shape and any event with no raw
+// record: it must read back cleanly rather than erroring on a zero reference.
+func TestEventWithoutPayloadNeedsNoLookup(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	e := mkEvent("4624", "p", "c", "u", base, "h1")
+	e.RawXML, e.ParsedFields = "", nil
+	ids, err := s.InsertEvents([]*Event{e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetEvent(ids[0])
+	if err != nil {
+		t.Fatalf("reading an event with no payload errored: %v", err)
+	}
+	if got.RawXML != "" {
+		t.Errorf("raw record = %q, want empty", got.RawXML)
+	}
+}

@@ -2,9 +2,11 @@ package graphene
 
 import (
 	"errors"
+	"path/filepath"
 	"sync"
 
 	"rohy/backend/consts"
+	"rohy/backend/payload"
 
 	"github.com/aoiflux/graphene"
 	"github.com/aoiflux/graphene/store"
@@ -26,6 +28,9 @@ type Store struct {
 	// a filter does not rescan and re-sort the whole matching set for every page. Any
 	// write invalidates it (see bumpVersion).
 	order orderCache
+	// payloads holds the bulky per-event fields outside the graph, because the graph keeps
+	// its records resident. Opened alongside the graph so the two share a lifetime.
+	payloads *payload.Store
 }
 
 // Open opens (creating if necessary) a disk-backed store rooted at dir, eagerly. The WAL
@@ -62,6 +67,7 @@ func (s *Store) ensure() error {
 	s.openOnce.Do(func() {
 		if s.inMemory {
 			s.g = graphene.NewInMemory()
+			s.payloads = payload.OpenInMemory()
 			return
 		}
 		g, err := graphene.Open(s.dir)
@@ -69,7 +75,13 @@ func (s *Store) ensure() error {
 			s.openErr = err
 			return
 		}
-		s.g = g
+		p, err := payload.Open(filepath.Join(s.dir, consts.PayloadDirName))
+		if err != nil {
+			g.Close()
+			s.openErr = err
+			return
+		}
+		s.g, s.payloads = g, p
 	})
 	return s.openErr
 }
@@ -127,7 +139,29 @@ func (s *Store) Close() error {
 	if s.g == nil {
 		return nil
 	}
+	// Close the payload log first: it is written before the events that reference it, so it
+	// is flushed before them too.
+	if s.payloads != nil {
+		if err := s.payloads.Close(); err != nil {
+			s.g.Close()
+			return err
+		}
+	}
 	return s.g.Close()
+}
+
+// hydrate loads an event's cold fields from the payload store. Callers that return a SINGLE
+// event use it; list queries deliberately do not, because hydrating a page of rows is
+// exactly the cost this store exists to avoid.
+func (s *Store) hydrate(e *Event) error {
+	if e == nil || s.payloads == nil || e.Payload.IsZero() {
+		return nil
+	}
+	blob, err := s.payloads.Read(e.Payload)
+	if err != nil {
+		return err
+	}
+	return e.applyPayload(blob)
 }
 
 // Compact merges the delta layer and truncates the WAL (disk store only; no-op
@@ -265,6 +299,31 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 	g, err := s.graph()
 	if err != nil {
 		return nil, err
+	}
+
+	// Write the bulky fields to the cold store FIRST, then commit the events that reference
+	// them. A crash between the two leaves payload bytes nothing points at — wasted space,
+	// reclaimed by rebuilding. The opposite order would leave events pointing at payloads
+	// that were never written, which cannot be recovered from.
+	if s.payloads != nil {
+		blobs := make([][]byte, len(events))
+		for i, e := range events {
+			b, err := e.encodePayload()
+			if err != nil {
+				return nil, err
+			}
+			blobs[i] = b
+		}
+		refs, err := s.payloads.AppendBatch(blobs)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.payloads.Sync(); err != nil {
+			return nil, err
+		}
+		for i := range events {
+			events[i].Payload = refs[i]
+		}
 	}
 
 	nodes := make([]*store.Node, len(events))

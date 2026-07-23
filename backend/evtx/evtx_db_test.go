@@ -75,9 +75,15 @@ func TestIngestDBRoundTrip(t *testing.T) {
 	if first.SourceType != consts.SourceTypeSQLiteDB {
 		t.Errorf("source_type = %q, want %q", first.SourceType, consts.SourceTypeSQLiteDB)
 	}
-	// A raw_xml column that parses should enrich the parsed fields.
-	if first.ParsedFields["TargetUserName"] != "alice" {
-		t.Errorf("parsed fields not extracted from raw_xml: %+v", first.ParsedFields)
+	// A raw_xml column that parses should enrich the parsed fields. Those live in the
+	// payload cold store, so they arrive on a single-event read rather than on a list
+	// query — the list deliberately does not pay for them.
+	full, err := store.GetEvent(first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.ParsedFields["TargetUserName"] != "alice" {
+		t.Errorf("parsed fields not extracted from raw_xml: %+v", full.ParsedFields)
 	}
 }
 
@@ -260,7 +266,13 @@ func TestIngestMessageCatalogue(t *testing.T) {
 		if e.Provider != "Microsoft-Windows-Security-Auditing" {
 			t.Errorf("provider not resolved: %q", e.Provider)
 		}
-		if e.RawXML == "" {
+		// The message is the catalogue row's substance and lives in the payload store, so
+		// it is fetched per event rather than read off the list.
+		full, err := store.GetEvent(e.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if full.RawXML == "" {
 			t.Errorf("message text was not stored for %s", e.EventID)
 		}
 	}

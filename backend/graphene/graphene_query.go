@@ -244,7 +244,17 @@ func (s *Store) GetEvent(id uint64) (*Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	return eventFromNode(n)
+	e, err := eventFromNode(n)
+	if err != nil {
+		return nil, err
+	}
+	// A single-event read is the detail view, which is the one place the raw record is
+	// actually wanted — so this is where the cold store is paid for. List queries never
+	// come through here.
+	if err := s.hydrate(e); err != nil {
+		return nil, err
+	}
+	return e, nil
 }
 
 // GetEvents returns multiple events by node id, in the order given.

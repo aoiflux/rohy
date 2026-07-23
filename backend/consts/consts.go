@@ -249,6 +249,24 @@ const MsgElevationRequired = "Administrator privileges are required to read the 
 // Callers MUST convert to UTC before formatting.
 const TimestampIndexLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
+// --- Payload cold store ---
+//
+// The raw record and parsed fields live outside the graph, because the graph holds its
+// records in memory and those two fields are ~70% of an event's resident cost while being
+// read only when an analyst opens a single event. PayloadHeaderSize is the per-record
+// length prefix that makes the log self-describing, so an orphaned tail left by a crash can
+// be detected rather than silently misread.
+const (
+	PayloadLogFile    = "payloads.log"
+	PayloadHeaderSize = 4
+	PayloadDirName    = "payloads"
+)
+
+const (
+	MsgPayloadClosed     = "payload store is closed"
+	MsgPayloadOutOfRange = "payload reference (offset %d, length %d) lies beyond the log end %d"
+)
+
 // --- Store read integrity ---
 //
 // MsgNodesMissing reports ids that an index or query produced but that no longer resolve

@@ -319,6 +319,9 @@ export const UI = Object.freeze({
     'rohy ingests Windows event logs, maps relationships between events, and correlates them with rules you control. Evidence stays local — nothing leaves this machine.',
 
   // Global ingestion indicator
+  // Shown while the raw record is fetched from the payload cold store — list rows do not
+  // carry it, so opening an event is the moment it is read.
+  DETAIL_LOADING: 'Loading raw record…',
   INGEST_BAR_HINT: 'Go to the Dashboard for ingestion controls',
   INGEST_BAR_STORED: 'stored',
   // Multi-file (folder / multi-select) ingestion. FILE_OF is used as `File 3 of 12`, so a

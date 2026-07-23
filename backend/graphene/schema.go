@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/payload"
 	"rohy/backend/utils"
 
 	"github.com/aoiflux/graphene/store"
@@ -20,15 +21,20 @@ import (
 // graphene node labelled consts.NodeEvent. ID is the graphene-assigned node id
 // (zero until the event has been persisted).
 type Event struct {
-	ID             uint64            `json:"id"`
-	EventID        string            `json:"event_id"`
-	Timestamp      time.Time         `json:"timestamp"`
-	Provider       string            `json:"provider"`
-	Channel        string            `json:"channel"`
-	Computer       string            `json:"computer"`
-	User           string            `json:"user"`
-	RawXML         string            `json:"raw_xml"`
-	ParsedFields   map[string]string `json:"parsed_fields"`
+	ID        uint64    `json:"id"`
+	EventID   string    `json:"event_id"`
+	Timestamp time.Time `json:"timestamp"`
+	Provider  string    `json:"provider"`
+	Channel   string    `json:"channel"`
+	Computer  string    `json:"computer"`
+	User      string    `json:"user"`
+	// RawXML and ParsedFields are NOT persisted in the node record. They are the bulky
+	// part of an event — measured at ~70% of its resident cost — and the graph holds every
+	// record in memory, so keeping them here would charge the whole case for a view of one
+	// event. They live in the payload cold store and are hydrated only when a single event
+	// is fetched; a list query leaves them empty by design. See Payload.
+	RawXML         string            `json:"-"`
+	ParsedFields   map[string]string `json:"-"`
 	HashRaw        string            `json:"hash_raw"`
 	HashNormalized string            `json:"hash_normalized"`
 	// SourceType classifies the event's origin (consts.SourceType*); SourceIdentifier
@@ -50,6 +56,38 @@ type Event struct {
 	// should contain it is a finding in its own right. A single source_identifier — the
 	// first one seen — cannot express either.
 	SourceCounts map[string]int `json:"source_counts,omitempty"`
+	// Payload locates this event's raw record and parsed fields in the cold store. Two
+	// integers stand in for the kilobytes they describe. A zero Payload means the event has
+	// none — a catalogue row, or an event written before the cold store existed.
+	Payload payload.Ref `json:"payload,omitempty"`
+}
+
+// payloadBlob is the encoded form of the fields held outside the node record.
+type payloadBlob struct {
+	RawXML       string            `json:"raw_xml,omitempty"`
+	ParsedFields map[string]string `json:"parsed_fields,omitempty"`
+}
+
+// encodePayload renders the cold fields for the payload log, or nil when there is nothing
+// to store — an event with neither costs nothing in the log and keeps a zero Ref.
+func (e *Event) encodePayload() ([]byte, error) {
+	if e.RawXML == "" && len(e.ParsedFields) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(payloadBlob{RawXML: e.RawXML, ParsedFields: e.ParsedFields})
+}
+
+// applyPayload decodes a payload blob back onto the event.
+func (e *Event) applyPayload(b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	var p payloadBlob
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	e.RawXML, e.ParsedFields = p.RawXML, p.ParsedFields
+	return nil
 }
 
 // ComputeNormalizedHash sets HashNormalized from the fields that decide whether two

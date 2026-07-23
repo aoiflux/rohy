@@ -107,32 +107,31 @@ func TestStoreMemoryPerEvent(t *testing.T) {
 	// A regression ceiling, not a target. Upstream reports ~597 B per node for topology
 	// plus a three-key property index on disk; rohy indexes nine keys, so a figure several
 	// times that is expected. This catches an order-of-magnitude change, nothing finer.
-	const ceiling = 4000
+	// Payload now lives outside the node record, so this bounds index + topology only.
+	const ceiling = 2200
 	if perEvent > ceiling {
 		t.Errorf("store holds ~%.0f B per event, above the %d B regression ceiling", perEvent, ceiling)
 	}
 }
 
-// TestStoreMemoryGrowsWithRecordSize separates the two things that grow with a case: the
-// property index, and the record blob itself.
+// TestStoreMemoryIsFlatInRecordSize pins the property that makes a large case survivable:
+// an event's resident cost no longer depends on how big its raw record is.
 //
-// The measured answer is that BOTH contribute — the store keeps node property blobs
-// resident, RawXML included. That is the capacity constraint worth knowing about, because
-// RawXML is by far the largest field an event carries, and it is retained even though
-// almost nothing reads it: it is shown only when an analyst opens a single event.
+// It used to. The raw record and parsed fields lived in the node blob, the graph holds its
+// records in memory, and so a 64x larger record cost 4.6x the memory — ~7.8 kB per event at
+// a 4 kB payload. Moving both fields to the payload cold store made the cost flat: the node
+// carries a reference, and the bytes are read only when one event is opened.
 //
-// This test therefore does not assert that the record is free. It pins the shape that
-// makes large cases survivable at all — that memory grows far more slowly than the record
-// does — and logs the split so the fixed per-event floor stays visible.
-func TestStoreMemoryGrowsWithRecordSize(t *testing.T) {
+// If this test starts failing, something has been put back into the node record that scales
+// with the source data. That is the regression worth catching, because it is invisible until
+// a case gets big.
+func TestStoreMemoryIsFlatInRecordSize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("memory profile skipped in -short")
 	}
 
 	const n = 30000
 
-	// Same event count, small versus large RawXML. If memory tracked the record blob, the
-	// second would be far larger; if it tracks the index, the two land close together.
 	beforeSmall := residentBytes()
 	small := ingestForMemory(t, n, 64)
 	afterSmall := residentBytes()
@@ -148,21 +147,14 @@ func TestStoreMemoryGrowsWithRecordSize(t *testing.T) {
 	}
 	smallPer := float64(afterSmall-beforeSmall) / float64(n)
 	largePer := float64(afterLarge-beforeLarge) / float64(n)
-	t.Logf("64 B RawXML: ~%.0f B/event; 4096 B RawXML: ~%.0f B/event (record is %d× larger, memory %.1f× larger)",
-		smallPer, largePer, 4096/64, largePer/smallPer)
-	t.Logf("implied fixed cost per event (index + topology): ~%.0f B", smallPer)
+	t.Logf("64 B record: ~%.0f B/event; 4096 B record: ~%.0f B/event (record 64x larger, memory %.2fx)",
+		smallPer, largePer, largePer/smallPer)
 
-	// The record is retained, so memory does grow with it — but far more slowly than the
-	// record itself. That gap is what makes a large case survivable at all, and losing it
-	// would mean the store had started holding payloads proportionally.
-	if largePer > smallPer*16 {
-		t.Errorf("memory now tracks the record blob almost proportionally (%.0f → %.0f B/event "+
-			"for a 64× larger record); large cases will not fit", smallPer, largePer)
-	}
-	// The floor must also stay a floor: if the fixed per-event cost climbs, every case gets
-	// heavier regardless of payload size.
-	const floorCeiling = 3000
-	if smallPer > floorCeiling {
-		t.Errorf("fixed cost is ~%.0f B/event with a tiny record, above the %d B ceiling", smallPer, floorCeiling)
+	// Flat, not merely sub-linear. A 64x record increase may move this a little through
+	// allocator noise, but anything approaching a doubling means payload bytes are resident
+	// again.
+	if largePer > smallPer*1.5 {
+		t.Errorf("memory scales with record size again (%.0f -> %.0f B/event for a 64x larger record); "+
+			"something bulky is back in the node record", smallPer, largePer)
 	}
 }
