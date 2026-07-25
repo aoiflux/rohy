@@ -5,7 +5,7 @@
 # ever CONSUMES a tag, it never creates one.
 #
 # Host strategy is dictated by what each target actually needs, which was measured rather
-# than assumed (see PLAN.md §16):
+# than assumed
 #
 #   windows/amd64 + windows/arm64 -> one Windows runner. Wails on Windows uses the pure-Go
 #     WebView2 loader, so no cgo is involved and arm64 cross-builds from an amd64 host.
