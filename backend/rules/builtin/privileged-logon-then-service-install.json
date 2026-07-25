@@ -1,9 +1,14 @@
 {
   "format_version": 1,
   "name": "Privileged Logon Then Service Installed",
-  "description": "Special privileges are assigned to a logon (4672) and a new service is installed (7045) — a common persistence and lateral-movement footprint.",
+  "description": "Special privileges are assigned to a logon (4672) and a new service is later installed (7045) on the same computer — a common persistence and lateral-movement footprint. Note 4672 fires on essentially every administrative or SYSTEM logon, so this pairing is broad: treat it as a lead to inspect, not a finding on its own.",
   "relation_type": "correlation",
   "algorithm": "sequence",
-  "sequence": ["4672", "7045"],
-  "labels": ["installs service"]
+  "sequence": [
+    "4672",
+    "7045"
+  ],
+  "labels": [
+    "installs service"
+  ]
 }

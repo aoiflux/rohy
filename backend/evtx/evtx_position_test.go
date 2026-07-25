@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
@@ -222,4 +223,146 @@ func TestNilPositionStoreIsSafe(t *testing.T) {
 	if _, err := feed(t, opts, sink, liveChunk(consts.ChannelSecurity, 2, 10)); err != nil {
 		t.Fatalf("bookmarking is optional: %v", err)
 	}
+}
+
+// dupSink is a journalSink that reports one hash as already persisted, so a matching event
+// takes the deferred-increment (dbInc) path instead of becoming a new canonical.
+type dupSink struct {
+	journalSink
+	knownHash string
+	knownID   uint64
+}
+
+func (s *dupSink) FindEventIDByHash(h string) (uint64, bool, error) {
+	if h == s.knownHash {
+		return s.knownID, true, nil
+	}
+	return 0, false, nil
+}
+
+// TestPositionNotCommittedWhileIncrementsBuffered pins that a bookmark is not advanced past
+// records whose deduplication-count increments are still buffered.
+//
+// The gap this guards: a full batch of new events flushes and, being empty afterwards, lets
+// the position commit — but a duplicate of a previously-persisted canonical from the SAME
+// chunk sits in the increment buffer until its own threshold. If the bookmark advanced past
+// that record and the process then died, the increment would be lost and the canonical's
+// occurrence count would be one short. Not event loss — an undercount — but still a durable
+// write escaping its bookmark, which the whole position discipline exists to prevent.
+func TestPositionNotCommittedWhileIncrementsBuffered(t *testing.T) {
+	j := &writeJournal{}
+	positions := &journalPositions{journal: j}
+	// The duplicate's hash is reported as already persisted, so it defers an increment.
+	sink := &dupSink{journalSink: journalSink{journal: j}, knownHash: "known-dup", knownID: 7}
+
+	// Chunk 1 (ends at record 10) carries only a duplicate of the pre-persisted canonical,
+	// so it stages position 10 and buffers an increment — nothing is written or flushed yet.
+	// Chunk 2 (ends at 20) carries two new events that fill the batch and trigger a flush;
+	// that flush finds pending empty afterwards and would commit the STAGED position from
+	// chunk 1 (10) — while chunk 1's increment, covering record 10, is still buffered.
+	//
+	// Staging happens after each chunk's event loop, which is why the two must be separate
+	// chunks: a single chunk cannot both stage its position and flush before staging it.
+	chunk1 := chunkResult{
+		channel:  consts.ChannelSecurity,
+		maxRecID: 10,
+		events: []*graphene.Event{
+			{EventID: "4624", Channel: consts.ChannelSecurity, HashNormalized: "known-dup"},
+		},
+	}
+	chunk2 := chunkResult{
+		channel:  consts.ChannelSecurity,
+		maxRecID: 20,
+		events: []*graphene.Event{
+			{EventID: "4624", Channel: consts.ChannelSecurity, HashNormalized: "new-a"},
+			{EventID: "4624", Channel: consts.ChannelSecurity, HashNormalized: "new-b"},
+		},
+	}
+	opts := Options{Source: consts.SourceLive, Continuous: true, Idempotent: true, Positions: positions, BatchSize: 2}
+	if _, err := feed(t, opts, sink, chunk1, chunk2); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// The invariant: no bookmark may be committed while an increment covering a record at or
+	// below it is still buffered. Chunk 1's increment covers record 10, so NO "position="
+	// entry may appear before the "inc". Once the increment is durable the bookmark may jump
+	// straight to 20 — positions are monotonic high-water marks, and 20 covers 10 too.
+	journal := j.snapshot()
+	firstPos, incAt := -1, -1
+	for i, e := range journal {
+		if incAt == -1 && e == "inc" {
+			incAt = i
+		}
+		if firstPos == -1 && len(e) > 9 && e[:9] == "position=" {
+			firstPos = i
+		}
+	}
+	if firstPos == -1 {
+		t.Fatalf("bookmark never committed; journal=%v", journal)
+	}
+	if incAt == -1 {
+		t.Fatalf("increment never flushed; journal=%v", journal)
+	}
+	if firstPos < incAt {
+		t.Errorf("a bookmark was committed before the increment covering record 10; journal=%v", journal)
+	}
+}
+
+// TestPauseDrainsIncrementsBeforeBookmarking pins that the pause boundary flushes the
+// deduplication-increment buffer too, not only new events — the same boundary must drain
+// BOTH, or a pause could bookmark past an increment it left buffered (R-10.1).
+func TestPauseDrainsIncrementsBeforeBookmarking(t *testing.T) {
+	j := &writeJournal{}
+	positions := &journalPositions{journal: j}
+	sink := &dupSink{journalSink: journalSink{journal: j}, knownHash: "known-dup", knownID: 7}
+	gate := NewGate()
+
+	// One chunk, one event: a duplicate of the pre-persisted canonical, ending at record 55.
+	// It buffers an increment and stages position 55, but writes no new event — so without a
+	// pause draining the increment, nothing would flush and the bookmark could not advance.
+	ch := make(chan chunkResult, 1)
+	ch <- chunkResult{
+		channel:  consts.ChannelSecurity,
+		maxRecID: 55,
+		events:   []*graphene.Event{{EventID: "4624", Channel: consts.ChannelSecurity, HashNormalized: "known-dup"}},
+	}
+
+	opts := Options{Source: consts.SourceLive, Continuous: true, Idempotent: true, Positions: positions, Gate: gate, BatchSize: 100}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = runSink(ctx, opts.normalized(), sink, NoopReporter{}, ch, 0)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	if got := positions.Position(consts.ChannelSecurity); got != 0 {
+		t.Fatalf("nothing should be bookmarked yet, got position %d", got)
+	}
+	gate.Pause()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for positions.Position(consts.ChannelSecurity) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := positions.Position(consts.ChannelSecurity); got != 55 {
+		t.Errorf("position after pause = %d, want 55 (the increment must be drained and bookmarked)", got)
+	}
+	// The bookmark must follow the increment, never precede it.
+	journal := j.snapshot()
+	incAt, posAt := -1, -1
+	for i, e := range journal {
+		if incAt == -1 && e == "inc" {
+			incAt = i
+		}
+		if posAt == -1 && e == "position=55" {
+			posAt = i
+		}
+	}
+	if incAt == -1 || posAt == -1 || incAt > posAt {
+		t.Errorf("increment was not flushed before the bookmark at pause; journal=%v", journal)
+	}
+
+	cancel()
+	<-done
 }

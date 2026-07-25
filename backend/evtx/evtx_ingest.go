@@ -278,11 +278,18 @@ func runSink(ctx context.Context, opts Options, sink EventSink, reporter Reporte
 
 	// Live capture bookmarks (P7). staged holds the highest record id seen per channel for
 	// chunks whose events have all been handed to the batch; a position is committed only
-	// once nothing is left unwritten (len(pending) == 0), i.e. strictly AFTER the durable
-	// write that covers it. That ordering is what makes a crash re-read rather than skip.
+	// once nothing is left unwritten, i.e. strictly AFTER the durable write that covers it.
+	// That ordering is what makes a crash re-read rather than skip.
+	//
+	// "Nothing left unwritten" means BOTH buffers: pending new events AND dbInc dedup-count
+	// increments. Guarding only pending would let a batch's flush advance the bookmark past
+	// a record whose duplicate's increment is still buffered from an earlier chunk — a crash
+	// there would lose the increment and leave the canonical's occurrence count one short.
+	// Not event loss, but still a durable write escaping its bookmark, which is exactly what
+	// this discipline exists to prevent.
 	staged := map[string]uint64{}
 	commitPositions := func() {
-		if opts.Positions == nil || len(staged) == 0 || len(pending) > 0 {
+		if opts.Positions == nil || len(staged) == 0 || len(pending) > 0 || len(dbInc) > 0 {
 			return
 		}
 		for channel, recID := range staged {

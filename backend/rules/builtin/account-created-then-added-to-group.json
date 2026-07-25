@@ -1,9 +1,14 @@
 {
   "format_version": 1,
   "name": "Account Created Then Added To Group",
-  "description": "A user account is created (4720) and then added to a security-enabled local group (4732) — the standard shape of persistence via a new privileged account.",
+  "description": "A user account is created (4720) and then, on the same computer, a security-enabled local group gains a member (4732) — the standard shape of persistence via a new privileged account. The two events are paired by host and time order, not by account: confirm they concern the same account before drawing that conclusion.",
   "relation_type": "correlation",
   "algorithm": "sequence",
-  "sequence": ["4720", "4732"],
-  "labels": ["added to group"]
+  "sequence": [
+    "4720",
+    "4732"
+  ],
+  "labels": [
+    "added to group"
+  ]
 }

@@ -426,6 +426,7 @@ export namespace graphbuild {
 	    removed: number;
 	    truncated: boolean;
 	    dropped: number;
+	    graph_discarded: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RuleOutcome(source);
@@ -442,6 +443,7 @@ export namespace graphbuild {
 	        this.removed = source["removed"];
 	        this.truncated = source["truncated"];
 	        this.dropped = source["dropped"];
+	        this.graph_discarded = source["graph_discarded"];
 	    }
 	}
 	export class Result {
@@ -494,13 +496,13 @@ export namespace graphene {
 	    channel: string;
 	    computer: string;
 	    user: string;
-	    raw_xml: string;
-	    parsed_fields: Record<string, string>;
 	    hash_raw: string;
 	    hash_normalized: string;
 	    source_type: string;
 	    source_identifier: string;
 	    deduplication_count: number;
+	    source_counts?: Record<string, number>;
+	    payload?: payload.Ref;
 	
 	    static createFrom(source: any = {}) {
 	        return new Event(source);
@@ -515,13 +517,13 @@ export namespace graphene {
 	        this.channel = source["channel"];
 	        this.computer = source["computer"];
 	        this.user = source["user"];
-	        this.raw_xml = source["raw_xml"];
-	        this.parsed_fields = source["parsed_fields"];
 	        this.hash_raw = source["hash_raw"];
 	        this.hash_normalized = source["hash_normalized"];
 	        this.source_type = source["source_type"];
 	        this.source_identifier = source["source_identifier"];
 	        this.deduplication_count = source["deduplication_count"];
+	        this.source_counts = source["source_counts"];
+	        this.payload = this.convertValues(source["payload"], payload.Ref);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -800,6 +802,25 @@ export namespace layout {
 		}
 	}
 	
+
+}
+
+export namespace payload {
+	
+	export class Ref {
+	    o?: number;
+	    l?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Ref(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.o = source["o"];
+	        this.l = source["l"];
+	    }
+	}
 
 }
 

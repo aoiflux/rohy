@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rohy/backend/consts"
@@ -236,6 +237,40 @@ func TestRegistryBuiltinToggleAndPersist(t *testing.T) {
 	for _, r := range reg2.List() {
 		if r.ID == id && r.Enabled {
 			t.Errorf("builtin toggle not persisted for %q", id)
+		}
+	}
+}
+
+// TestHighVolumeBuiltinsCarryABreadthCaveat pins the Phase 5 forensic-review finding: the
+// two rules anchored on 4672 (special privileges assigned) fire on essentially every
+// administrative or SYSTEM logon, so their descriptions must say the pairing is broad. If a
+// later copy-edit strips that honesty, this fails and the description is re-reviewed rather
+// than silently over-claiming.
+func TestHighVolumeBuiltinsCarryABreadthCaveat(t *testing.T) {
+	builtins, errs := Builtins()
+	if len(errs) != 0 {
+		t.Fatalf("built-ins failed to load: %+v", errs)
+	}
+	byID := map[string]*Rule{}
+	for _, r := range builtins {
+		byID[r.ID] = r
+	}
+
+	for _, id := range []string{
+		"privileged-logon-then-scheduled-task-created",
+		"privileged-logon-then-service-installed",
+	} {
+		rule := byID[id]
+		if rule == nil {
+			t.Fatalf("built-in %q not found; did an id (slug of the name) change?", id)
+		}
+		desc := strings.ToLower(rule.Description)
+		if !strings.Contains(desc, "4672") {
+			t.Errorf("%s: description no longer names the high-volume anchor 4672", id)
+		}
+		if !strings.Contains(desc, "lead") && !strings.Contains(desc, "broad") {
+			t.Errorf("%s: description dropped its breadth caveat (expected 'broad'/'lead'): %q",
+				id, rule.Description)
 		}
 	}
 }

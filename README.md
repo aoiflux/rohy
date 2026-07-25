@@ -181,6 +181,10 @@ One file, one rule, one graph:
 empty for an unlabelled link. Drop files into the rules folder (shown on the
 Rules page) or import them from the UI.
 
+See [RULES.md](RULES.md) for the complete format — every field, the validation
+rules, the format-version and extensibility contract, and what a rule match does
+and does not establish.
+
 ## Roadmap
 
 **Delivered** — ingestion (files, folders, SQLite, live capture with
