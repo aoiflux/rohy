@@ -1,8 +1,31 @@
-build/bin
 frontend/node_modules
 frontend/dist
 .claude/
 frontend/.vscode/
-build/
 rohy-data/
-# *.md
+
+# Build directory: OUTPUTS are ignored, PACKAGING ASSETS are not.
+#
+# build/appicon.png and build/windows/icon.ico are the application icon, generated from
+# frontend/src/assets/logo.svg by tools/gen_icons.py. They must be committed: when they are
+# absent Wails generates its own DEFAULT artwork, so an ignored icon means every fresh clone
+# silently ships the placeholder mark instead of rohy's — and nobody notices, because the
+# build still succeeds.
+#
+# Git cannot re-include a file whose parent directory is excluded, which is why this ignores
+# build/* and build/windows/* rather than build/.
+build/*
+!build/appicon.png
+!build/windows/
+build/windows/*
+!build/windows/icon.ico
+!build/windows/info.json
+!build/windows/wails.exe.manifest
+!build/darwin/
+build/darwin/*
+!build/darwin/Info.plist
+!build/darwin/Info.dev.plist
+
+# Python bytecode from tools/
+__pycache__/
+*.pyc
