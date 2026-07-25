@@ -84,6 +84,20 @@ from scratch, then stamp version/commit/date into the binary. The clean-frontend
 step is deliberate: the Go binary embeds whatever is in `dist`, so reusing a
 stale build ships an old UI behind a new backend.
 
+### Application icon
+
+The icon is **derived**, never hand-drawn. `frontend/src/assets/logo.svg` is the one place
+the mark is defined; after changing it, regenerate the raster assets:
+
+```bash
+python tools/gen_icons.py      # needs Pillow
+```
+
+That rewrites `build/appicon.png` (used for macOS and Linux) and `build/windows/icon.ico`
+(all six Windows sizes), and writes `build/icon-preview.png` so small sizes can be checked
+by eye. Both generated assets are committed — Wails substitutes its own default artwork when
+they are missing, so an uncommitted icon means a fresh clone silently ships the placeholder.
+
 Working on the persistence layer? Read [PERFORMANCE.md](PERFORMANCE.md) first — it
 records what rohy's costs actually are, the rules that follow from that, and one
 documented optimisation that made cold start 10× slower before it was measured.

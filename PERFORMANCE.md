@@ -38,9 +38,9 @@ Know what actually dominates before optimising anything.
 
 | Layer                           | What dominates                                                                                        | What does _not_                                                                    |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Event queries**               | Decoding matched event records. `RawXML` is kilobytes per event, so hydration swamps everything else. | Locating candidate ids. The index lookup was never the bottleneck.                 |
+| **Event queries**               | Decoding matched event records — now the scalar fields only; the raw record moved to the payload cold store (§14). | Locating candidate ids. The index lookup was never the bottleneck.                 |
 | **Ingest / graph build (disk)** | The number of durable commits. Every commit must reach the write-ahead log before it returns.         | Property encoding. Ingest is write-bound, not CPU-bound.                           |
-| **Store open**                  | Loading the property index. Cost scales with _distinct values_, not entry count.                      | Loading the graph itself — that part is linear and cheap (~131 ms at 100k events). |
+| **Store open**                  | Loading the property index. Cost scales with _distinct values_, not entry count.                      | Loading the graph itself — linear and cheap (~131 ms at 100k events) — and the raw record, which is no longer resident. |
 | **Ordering / paging**           | Decoding a minimal per-node view to sort.                                                             | Re-querying: the id order is cached against filter + store version.                |
 
 The single most useful consequence: **in rohy, making a lookup asymptotically
@@ -520,3 +520,57 @@ the decision is being changed — check that it is on purpose.
 | `TestStoreMemoryGrowsWithRecordSize`                    | Memory grows far slower than the record; the fixed floor stays flat |
 
 ---
+
+---
+
+## 14. The payload cold store
+
+**Rule: nothing that scales with the source data belongs in the node record.**
+
+The graph database loads its records into memory when the store opens, property blobs
+included. Anything in an event's blob is resident for **every event in the case**, for the
+whole session — so a field's cost is not "per read", it is "per event, always".
+
+The raw record and parsed fields were 70% of an event's resident cost while being read in
+exactly one place: the detail drawer. They now live in `backend/payload`, an append-only log,
+with a fixed `(offset, length)` reference in the event.
+
+| | Before | After |
+|---|---:|---:|
+| 64 B record | 1682 B/event | 1624 B/event |
+| 4096 B record | 7796 B/event | 1610 B/event |
+| **Scaling with record size** | **4.6×** | **1.0× — flat** |
+
+The headline is the shape, not the percentage: **resident cost no longer depends on record
+size.** `TestStoreMemoryIsFlatInRecordSize` guards it, because this regresses invisibly —
+nothing looks wrong until a case gets large.
+
+### Rules that follow
+
+- **Hydrate on single-event reads only.** `GetEvent` pays for the payload; list queries never
+  do. `TestListQueriesDoNotHydratePayload` pins it, because a regression here would leave the
+  rows looking perfectly correct.
+- **Write the payload before the record that references it.** A crash between the two leaves
+  orphaned bytes — waste, reclaimed by rebuilding. The reverse order leaves a record pointing
+  at a payload that was never written, which cannot be recovered. Waste is the acceptable
+  failure.
+- **A zero reference means "no payload".** Events that never had a raw record (catalogue
+  rows) cost nothing here and need no special case at the call site.
+- **Before adding a field to `Event`, ask whether it scales with the input.** If it does, it
+  belongs in the payload log, not the node record — and the decomposition below is how to
+  tell.
+
+### How to decompose a memory cost
+
+Do not guess which part dominates. Build the same fixture four ways — with and without the
+index, with and without the payload — and subtract. Measured at a 2 KB record:
+
+| Component | B/event |
+|---|---:|
+| Topology | 503 |
+| Property index (9 keys) | 867 |
+| Raw record + parsed fields | 3137 |
+
+An early guess that the index dominated was **wrong**: that is only true at tiny payloads.
+Measuring first is what kept the effort off trimming index keys, which would have cost query
+capability for a fifth of the benefit.
