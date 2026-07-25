@@ -78,9 +78,30 @@ export const BASE_TOKENS = Object.freeze({
   'motion-ease': 'cubic-bezier(0.2, 0, 0, 1)',
 });
 
+// Motion duration tokens, so reduced motion can be applied by zeroing exactly these.
+const MOTION_DURATION_TOKENS = ['motion-fast', 'motion-medium', 'motion-slow'];
+
+// reducedMotionPreferred reports the OS "reduce motion" setting, safely outside a browser.
+function reducedMotionPreferred() {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch (_) {
+    return false;
+  }
+}
+
 // applyTheme writes the token set for `name` onto the document root as CSS custom
 // properties and stamps data-theme (used by any attribute-based styling). Called by
 // the theme store whenever the theme changes.
+//
+// Reduced motion is honoured HERE, at the token source, by collapsing the motion duration
+// tokens to zero. Every CSS transition and animation that reads var(--motion-*) — which is
+// the house rule — then becomes instant without its own media query. This is the CSS
+// counterpart to lib/motion.js zeroing JS transition durations: one authoritative place per
+// side, so a new surface cannot silently ignore the preference merely by forgetting to add
+// a @media block. (A handful of components keep their own reduced-motion blocks for effects
+// that are not duration-token based — a hover transform, an infinite keyframe with a
+// hardcoded duration — which this cannot reach.)
 export function applyTheme(name) {
   const tokens = THEME_TOKENS[name] || THEME_TOKENS[DEFAULT_THEME];
   const root = document.documentElement;
@@ -89,6 +110,11 @@ export function applyTheme(name) {
   }
   for (const [k, v] of Object.entries(BASE_TOKENS)) {
     root.style.setProperty(`--${k}`, v);
+  }
+  if (reducedMotionPreferred()) {
+    for (const k of MOTION_DURATION_TOKENS) {
+      root.style.setProperty(`--${k}`, '0ms');
+    }
   }
   root.setAttribute('data-theme', name);
 }

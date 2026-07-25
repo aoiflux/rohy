@@ -31,6 +31,19 @@ function create() {
     /** Apply the current value to the document (call once at startup). */
     init() {
       apply(get(store));
+      // Re-apply when the OS reduced-motion preference changes, so the motion tokens are
+      // re-zeroed (or restored) live rather than only at the next theme switch. applyTheme
+      // reads the current preference, so re-running it is all that is needed.
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        try {
+          window
+            .matchMedia('(prefers-reduced-motion: reduce)')
+            .addEventListener('change', () => apply(get(store)));
+        } catch (_) {
+          // Older engines without addEventListener on MediaQueryList: the startup value
+          // still applies; only live toggling is unavailable.
+        }
+      }
     },
     toggle() {
       apply(get(store) === THEMES.DARK ? THEMES.LIGHT : THEMES.DARK);

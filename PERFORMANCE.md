@@ -574,3 +574,43 @@ index, with and without the payload — and subtract. Measured at a 2 KB record:
 An early guess that the index dominated was **wrong**: that is only true at tiny payloads.
 Measuring first is what kept the effort off trimming index keys, which would have cost query
 capability for a fifth of the benefit.
+
+---
+
+## 15. Perceived performance
+
+Being fast and *feeling* fast are different problems. §1–§14 are about the first; this is
+about the second — covering the unavoidable async gaps (a query, a payload fetch) with motion
+so the app reads as "arriving" rather than "waiting". Borrowed from mobile OSes and games,
+which animate a transition over the moment content is loading.
+
+The trap to avoid is a **deceptive** version of this, and two rules keep it honest:
+
+1. **The reveal plays for the same duration every time.** A content-arrival transition
+   (`lib/motion.js` `reveal()`) animates the element as it mounts, for a fixed duration,
+   whether the data took 5 ms or 500 ms. It never holds data back — it animates pixels that
+   are already there — so it adds **zero real latency**. And because the duration is constant,
+   the animation never becomes a *tell* that "this time it was slow", which is exactly what a
+   duration scaled to load time would leak. `TestRevealIsAConsistentArrival` pins that two
+   calls are identical.
+
+2. **A skeleton appears only past a threshold.** `SKELETON_DELAY` (140 ms, just above the
+   ~100 ms that reads as instant) gates the shimmer via `afterDelay()`. A fast load cancels
+   the timer before it fires, so it reveals cleanly with no flash; only a genuinely slow load
+   shows a placeholder. Flashing a skeleton for a few frames reads as a glitch — worse than
+   the reveal alone.
+
+### Rules
+
+- **Reveal on arrival, always.** Wrap content that replaces a loading state in
+  `in:fly={reveal()}`. It is the consistent motion the whole effect depends on.
+- **Skeleton, never spinner, for slow loads** — and shape it like the content (see
+  `Skeleton.svelte`, and the events-list skeleton rows that mirror the real row grid and
+  height, so the reveal lands with no reflow jump).
+- **Gate the skeleton with `afterDelay`.** Never show it unconditionally; a fast load must
+  skip it entirely.
+- **Do not add latency to make motion "fit".** The reveal covers the gap for free; the data
+  path stays as fast as §1–§14 make it. Perceived speed is layered on top of real speed, never
+  traded for it.
+- **Reduced motion still wins.** `reveal()` collapses to an instant, motionless appearance;
+  the skeleton stays (it is information) but its shimmer stills. Same one-place rule as §14.

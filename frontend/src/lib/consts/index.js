@@ -546,7 +546,6 @@ export const UI = Object.freeze({
   RELATION_ONE: 'relation',
   RELATION_MANY: 'relations',
   ACTION_SHOW_IN_GRAPH: 'Show in graph',
-  RELATION_BADGE_ARIA: 'Has mapped relations',
 
   // Analyst findings (P25). Everything else in rohy is machine-derived; this is the one
   // layer the analyst authors, so the wording says whose claim it is.

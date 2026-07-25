@@ -20,6 +20,9 @@
   import VirtualList from '../components/events/VirtualList.svelte';
   import ProgressBar from '../components/material/ProgressBar.svelte';
   import EventDetail from '../components/events/EventDetail.svelte';
+  import Skeleton from '../components/material/Skeleton.svelte';
+  import { fly } from 'svelte/transition';
+  import { reveal, afterDelay } from '../lib/motion.js';
 
   let active = $state(/** @type {any} */ (null));
   // Relation-aware highlighting (P14): adjacency summary for the loaded window, and the
@@ -27,6 +30,20 @@
   // detail drawer closes so the highlight stays visible in the table).
   let adjacency = $state(/** @type {Record<number,{count:number,types:string[],related_ids:number[]}>} */ ({}));
   let selectedId = $state(/** @type {number|null} */ (null));
+
+  // Skeleton gating (perceived performance). A first-page load shows shaped placeholder rows
+  // — but only once it has run past the "instant" threshold, so a fast load reveals content
+  // cleanly instead of flashing a skeleton for a few frames. loadingMore is excluded: a
+  // scroll-triggered page appends beneath rows already on screen, where a skeleton would jump
+  // the viewport rather than reassure.
+  let showSkeleton = $state(false);
+  $effect(() => {
+    if ($events.loading) {
+      const cancel = afterDelay(() => (showSkeleton = true));
+      return cancel; // cleared the instant loading ends — a fast load never trips it
+    }
+    showSkeleton = false;
+  });
 
   onMount(() => {
     if ($events.list.length === 0) events.load();
@@ -224,12 +241,30 @@
   </div>
 
   <div class="list">
-    {#if $events.loading}
-      <p class="msg">{UI.SPLASH_LOADING}</p>
+    {#if $events.loading && showSkeleton}
+      <!-- Shaped placeholder rows for a genuinely slow first load: the page reads as
+           materialising rather than blank. Gated by afterDelay so a fast load skips it. -->
+      <div class="skel" aria-hidden="true">
+        {#each Array(12) as _, i (i)}
+          <div class="skelrow">
+            <Skeleton width="3.5em" />
+            <Skeleton width="70%" />
+            <Skeleton width="60%" />
+            <Skeleton width="50%" />
+            <Skeleton width="9em" />
+          </div>
+        {/each}
+      </div>
+    {:else if $events.loading}
+      <!-- Loading, but under the skeleton threshold: stay quiet so a fast load reveals
+           cleanly rather than flashing a placeholder. -->
     {:else if $events.list.length === 0}
       <p class="msg">{UI.EMPTY_EVENTS}</p>
     {:else}
-      <VirtualList items={$events.list} onEndReached={() => events.loadMore()}>
+      <!-- Consistent arrival: the list flies in the same way every time it mounts, whether
+           the data was instant or came after a skeleton, so the motion is never a tell. -->
+      <div class="revealed" in:fly={reveal()}>
+        <VirtualList items={$events.list} onEndReached={() => events.loadMore()}>
         {#snippet row(ev)}
           <button
             class="erow"
@@ -251,7 +286,7 @@
                   class:byrule={adjacency[ev.id].system_count > 0}
                   class:byhand={adjacency[ev.id].system_count === 0}
                   title={relationTitle(adjacency[ev.id])}
-                  aria-label={UI.RELATION_BADGE_ARIA}
+                  aria-label={relationTitle(adjacency[ev.id])}
                 >
                   {adjacency[ev.id].system_count > 0 ? '⚙' : '🔗'}{adjacency[ev.id].count}
                 </span>
@@ -286,7 +321,8 @@
             </span>
           </button>
         {/snippet}
-      </VirtualList>
+        </VirtualList>
+      </div>
     {/if}
   </div>
 
@@ -350,6 +386,22 @@
     padding: var(--space-5);
     color: var(--color-on-surface-muted);
     font-family: var(--font-sans);
+  }
+  /* The reveal wrapper must carry the list's height through to VirtualList, which scrolls at
+     height:100% — otherwise wrapping it collapses the scroll region. */
+  .revealed {
+    height: 100%;
+  }
+  /* Skeleton rows mirror the real row grid and height exactly, so the reveal that replaces
+     them lands the content in the same place — no reflow jump between placeholder and data. */
+  .skelrow {
+    display: grid;
+    grid-template-columns: 80px 1.4fr 1fr 1fr 1.4fr;
+    gap: var(--space-3);
+    align-items: center;
+    padding: 0 var(--space-5);
+    height: 46px;
+    border-bottom: 1px solid var(--color-outline);
   }
   .erow {
     width: 100%;

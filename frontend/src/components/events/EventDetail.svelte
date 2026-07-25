@@ -5,6 +5,7 @@
   import { UI, SOURCE_TYPE_LABEL, RELATION_LABEL } from '../../lib/consts/index.js';
   import * as api from '../../lib/api/index.js';
   import Button from '../material/Button.svelte';
+  import Skeleton from '../material/Skeleton.svelte';
   import FindingEditor from './FindingEditor.svelte';
 
   let {
@@ -174,7 +175,19 @@
 
       <section>
         <h3>{UI.DETAIL_RAW}</h3>
-        <pre class="raw">{payloadLoading ? UI.DETAIL_LOADING : prettyRaw(rawXml)}</pre>
+        {#if payloadLoading}
+          <!-- The raw record is fetched from the payload cold store as the drawer opens. The
+               drawer's own slide-in usually covers it; when the fetch runs longer, a shaped
+               skeleton stands in for the record rather than a bare "loading" line. -->
+          <div class="rawskel" aria-label={UI.DETAIL_LOADING}>
+            <Skeleton width="90%" />
+            <Skeleton width="80%" />
+            <Skeleton width="95%" />
+            <Skeleton width="60%" />
+          </div>
+        {:else}
+          <pre class="raw">{prettyRaw(rawXml)}</pre>
+        {/if}
       </section>
     </div>
 
@@ -278,6 +291,17 @@
     max-height: 320px;
     color: var(--color-on-surface);
     white-space: pre;
+  }
+  /* Placeholder for the raw record while it loads from the payload store: same frame as the
+     real block, lines of varying width so it reads as text arriving. */
+  .rawskel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    background: var(--color-surface-variant);
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
   }
   footer {
     padding: var(--space-4) var(--space-5);
