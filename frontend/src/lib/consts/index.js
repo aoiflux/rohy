@@ -230,16 +230,27 @@ export const UI = Object.freeze({
   TIMELINE_UNDATED_EXCLUDED: 'event(s) have no timestamp and cannot be placed on a timeline.',
   TIMELINE_SEE_EVENTS: 'See them on Events',
   TIMELINE_EMPTY: 'No dated events yet — ingest logs to see a timeline.',
-  TIMELINE_HINT: 'Scroll to zoom · drag to pan · Shift+drag to select a range',
+  TIMELINE_HINT: 'Drag the axis to scrub · scroll or use the buttons to zoom',
   TIMELINE_IN_VIEW: 'Events in view',
   TIMELINE_WINDOW_EMPTY: 'No events in this range.',
   TIMELINE_RANGE_APPLIED: 'Time range applied to the event filter',
   TIMELINE_SHOW_ON_GRAPH: 'Show this event on the graph',
   TIMELINE_ROW_HINT: 'Click to select and mark its correlations · double-click to open on the graph',
-  TIMELINE_GROUP_BY: 'Lanes', // short: it sits in the app bar beside the action buttons
+  TIMELINE_GROUP_BY: 'Lanes',
   TIMELINE_GROUP_NONE: 'No grouping',
   TIMELINE_GROUP_GRAPH: 'Graph / rule',
   TIMELINE_PLAYHEAD_HINT: 'Drag along the axis to scrub',
+  // Timeline toolbar (P24 UX pass).
+  TIMELINE_MODE_PAN: 'Pan',
+  TIMELINE_MODE_SELECT: 'Select',
+  TIMELINE_MODE_PAN_HINT: 'Drag to move through time (hold Shift to select a range)',
+  TIMELINE_MODE_SELECT_HINT: 'Drag to select a time range and filter to it (hold Shift to pan)',
+  TIMELINE_ZOOM_IN: 'Zoom in',
+  TIMELINE_ZOOM_OUT: 'Zoom out',
+  TIMELINE_ZOOM_LABEL: 'Zoom',
+  TIMELINE_OVERVIEW_HINT: 'Drag the window to move; drag its edges to zoom',
+  TIMELINE_PAN_LEGEND: 'Drag: move · Shift+drag: select range',
+  TIMELINE_SELECT_LEGEND: 'Drag: select range · Shift+drag: move',
   RELATION_ONE_EVENT: 'event',
   RELATION_MANY_EVENTS: 'events',
 
@@ -686,6 +697,24 @@ export const TIMELINE = Object.freeze({
   // so the real number is small, but the cap keeps one pathological case from drawing
   // thousands of marks — and when it bites, the page says so rather than truncating quietly.
   FLAG_MARK_LIMIT: 500,
+  // Zoom applied by the toolbar's − / + buttons (multiplies the visible span). A little
+  // larger than the wheel step so a click is a decisive move, not a nudge.
+  ZOOM_BUTTON_STEP: 0.4,
+  // Height of the overview minimap strip under the main chart.
+  OVERVIEW_H: 44,
+  // Screen-px width of each draggable edge handle on the overview window.
+  OVERVIEW_HANDLE_PX: 10,
+  // Width of the DOM gutter that holds lane labels beside a grouped chart. Wide enough for a
+  // readable truncated name plus its count; the full value is on hover.
+  LANE_LABEL_W: 172,
+});
+
+// Timeline drag mode: what a plain drag on the main chart does. Pan is the default
+// (explore); Select paints a time range to filter by. Shift inverts whichever is active, so
+// either gesture is always one modifier away.
+export const TIMELINE_MODE = Object.freeze({
+  PAN: 'pan',
+  SELECT: 'select',
 });
 
 // Timeline lane grouping (mirrors backend consts.TimelineGroup*).

@@ -13,7 +13,8 @@
   // Zoom/pan follow the graph canvas's model — anchored at the cursor — so the two surfaces
   // feel like the same application rather than two different ones.
   import { onMount } from 'svelte';
-  import { TIMELINE } from '../../lib/consts/index.js';
+  import { TIMELINE, TIMELINE_MODE } from '../../lib/consts/index.js';
+  import { timelineGesture, timelineCursor, zoomAround } from '../../lib/timeline.js';
 
   let {
     buckets = [],
@@ -25,6 +26,9 @@
     marks = [],
     // Playhead position as a fraction, or null when unset.
     playhead = null,
+    // What a plain drag does: TIMELINE_MODE.PAN or .SELECT. Shift inverts it. The axis strip
+    // always scrubs regardless.
+    dragMode = TIMELINE_MODE.PAN,
     onViewChange = undefined,
     onRangeSelect = undefined,
     onHover = undefined,
@@ -37,10 +41,13 @@
   let h = $state(0);
   let dpr = 1;
 
-  let mode = null; // 'pan' | 'select' | 'scrub'
+  let drag = null; // the live gesture: 'pan' | 'select' | 'scrub'
   let dragStart = 0;
   let dragView = { start: 0, end: 1 };
   let sel = $state(/** @type {{a:number,b:number}|null} */ (null));
+  // Cursor reflects what a press would begin, updated as the pointer hovers and as Shift is
+  // held, so the drag's effect is legible before it starts.
+  let cursor = $state('grab');
 
   const span = $derived(Math.max(view.end - view.start, TIMELINE.MIN_VIEW_SPAN));
   const grouped = $derived(lanes && lanes.length > 0);
@@ -66,7 +73,6 @@
     const bar = token(css, '--color-primary', '#1e6fd0');
     const grid = token(css, '--color-outline', '#888');
     const accent = token(css, '--color-accent', '#42a5f5');
-    const text = token(css, '--color-on-surface-variant', '#888');
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -83,7 +89,7 @@
     if (buckets.length) {
       const bw = Math.max(w / Math.max(buckets.length * span, 1), 1);
       if (grouped) {
-        drawLanes(ctx, css, plotH, bw, bar, grid, text);
+        drawLanes(ctx, plotH, bw, bar, grid);
       } else {
         drawHistogram(ctx, plotH, bw, bar);
       }
@@ -109,11 +115,12 @@
 
   // One row per lane, each scaled to its OWN maximum: a quiet lane still shows its shape
   // instead of being flattened to nothing by a busy one. Absolute volume is carried by the
-  // lane's total in the legend, so nothing is misread as "these are equal".
-  function drawLanes(ctx, css, plotH, bw, bar, grid, text) {
+  // count in the DOM label gutter beside the canvas, so nothing is misread as "these are
+  // equal". Labels are NOT drawn here: overlaying long identifiers (SIDs run to 60+ chars)
+  // on top of the bars was the readability problem this pass fixes. They live in a proper
+  // gutter with truncation and a tooltip, which a canvas cannot give.
+  function drawLanes(ctx, plotH, bw, bar, grid) {
     const rowH = plotH / lanes.length;
-    ctx.font = `500 10px ${token(css, '--font-sans', 'sans-serif')}`;
-    ctx.textBaseline = 'top';
 
     for (let li = 0; li < lanes.length; li++) {
       const lane = lanes[li];
@@ -139,16 +146,6 @@
         const bh = Math.max((c / laneMax) * (rowH - TIMELINE.LANE_PAD), 1);
         ctx.fillRect(x, top + rowH - bh, bw, bh);
       }
-
-      // Lane label always visible, drawn over a scrim so it stays readable above the bars.
-      const label = `${lane.key}  ${lane.total}`;
-      const tw = ctx.measureText(label).width;
-      ctx.fillStyle = token(css, '--color-surface', '#fff');
-      ctx.globalAlpha = 0.75;
-      ctx.fillRect(0, top + 2, tw + 10, 13);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = text;
-      ctx.fillText(label, 5, top + 3);
     }
   }
 
@@ -278,41 +275,38 @@
 
   function onwheel(e) {
     e.preventDefault();
-    const anchor = xToFrac(localX(e));
-    const factor = e.deltaY < 0 ? 1 - TIMELINE.ZOOM_STEP : 1 + TIMELINE.ZOOM_STEP;
-    const nextSpan = Math.min(Math.max(span * factor, TIMELINE.MIN_VIEW_SPAN), 1);
-    let start = anchor - ((anchor - view.start) / span) * nextSpan;
-    start = Math.min(Math.max(start, 0), 1 - nextSpan);
-    onViewChange?.({ start, end: start + nextSpan });
+    onViewChange?.(zoomAround(view, e.deltaY < 0 ? 1 - TIMELINE.ZOOM_STEP : 1 + TIMELINE.ZOOM_STEP, xToFrac(localX(e)), TIMELINE.MIN_VIEW_SPAN));
   }
 
   function onpointerdown(e) {
     wrapEl.setPointerCapture(e.pointerId);
     dragStart = localX(e);
     const f = xToFrac(dragStart);
-    if (onAxis(e)) {
-      mode = 'scrub';
+    drag = timelineGesture({ onAxis: onAxis(e), shiftKey: e.shiftKey, mode: dragMode });
+    if (drag === 'scrub') {
       onPlayheadMove?.(f);
-    } else if (e.shiftKey) {
-      mode = 'select';
+    } else if (drag === 'select') {
       sel = { a: f, b: f };
     } else {
-      mode = 'pan';
       dragView = { ...view };
     }
+    cursor = timelineCursor({ onAxis: onAxis(e), shiftKey: e.shiftKey, mode: dragMode, active: true });
   }
 
   function onpointermove(e) {
     const x = localX(e);
-    if (!mode) {
+    if (!drag) {
+      // Not dragging: report hover and keep the cursor in step with where the pointer is and
+      // whether Shift is down, so the affordance is right before the press.
+      cursor = timelineCursor({ onAxis: onAxis(e), shiftKey: e.shiftKey, mode: dragMode });
       onHover?.({ frac: xToFrac(x), x, y: localY(e), onAxis: onAxis(e) });
       return;
     }
-    if (mode === 'pan') {
+    if (drag === 'pan') {
       const dx = ((x - dragStart) / Math.max(w, 1)) * span;
       const start = Math.min(Math.max(dragView.start - dx, 0), 1 - span);
       onViewChange?.({ start, end: start + span });
-    } else if (mode === 'select') {
+    } else if (drag === 'select') {
       sel = { a: sel.a, b: xToFrac(x) };
     } else {
       onPlayheadMove?.(Math.min(Math.max(xToFrac(x), 0), 1));
@@ -325,29 +319,30 @@
     } catch (_) {
       /* capture may already be gone */
     }
-    if (mode === 'select' && sel) {
+    if (drag === 'select' && sel) {
       const a = Math.min(sel.a, sel.b);
       const b = Math.max(sel.a, sel.b);
       // A sweep too small to be intentional is a click, not a range.
       if (b - a > TIMELINE.MIN_SELECT_SPAN) onRangeSelect?.({ start: a, end: b });
       sel = null;
     }
-    mode = null;
+    drag = null;
+    cursor = timelineCursor({ onAxis: onAxis(e), shiftKey: e.shiftKey, mode: dragMode });
   }
 
   function onpointerleave() {
-    if (!mode) onHover?.(null);
+    if (!drag) onHover?.(null);
   }
 </script>
 
 <div
   class="wrap"
-  class:scrub={false}
   bind:this={wrapEl}
   bind:clientWidth={w}
   bind:clientHeight={h}
   role="application"
   aria-label="timeline"
+  style="cursor: {cursor}"
   {onwheel}
   {onpointerdown}
   {onpointermove}
@@ -363,11 +358,8 @@
     width: 100%;
     height: 100%;
     touch-action: none;
-    cursor: grab;
+    /* Cursor is set inline and reflects the pending gesture (pan / select / scrub). */
     background: var(--color-background);
-  }
-  .wrap:active {
-    cursor: grabbing;
   }
   canvas {
     display: block;

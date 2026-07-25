@@ -24,16 +24,19 @@
     THEMES,
     TIMELINE,
     TIMELINE_GROUP,
+    TIMELINE_MODE,
     FINDING_FILTERS,
     UNDATED,
     EVENTS_LIST,
   } from '../lib/consts/index.js';
+  import { zoomAround } from '../lib/timeline.js';
 
   import AppBar from '../components/material/AppBar.svelte';
   import Button from '../components/material/Button.svelte';
   import Select from '../components/material/Select.svelte';
   import ProgressBar from '../components/material/ProgressBar.svelte';
   import TimelineCanvas from '../components/timeline/TimelineCanvas.svelte';
+  import TimelineOverview from '../components/timeline/TimelineOverview.svelte';
 
   let summary = $state(/** @type {any} */ (null));
   let loading = $state(false);
@@ -64,6 +67,22 @@
 
   // View state persists across navigation and restart, like the search panel does.
   let view = $state(prefs.current().timelineView || { start: 0, end: 1 });
+
+  // What a plain drag on the chart does. Persisted, so an analyst who works in ranges is not
+  // reset to pan on every visit.
+  let dragMode = $state(prefs.current().timelineDragMode || TIMELINE_MODE.PAN);
+  function setDragMode(m) {
+    dragMode = m;
+    prefs.set({ timelineDragMode: m });
+  }
+
+  // Zoom from the toolbar buttons, anchored at the centre of the current window so the
+  // midpoint stays put — the same model the wheel uses, just without a cursor position.
+  function zoom(factor) {
+    const mid = (view.start + view.end) / 2;
+    setView(zoomAround(view, factor, mid, TIMELINE.MIN_VIEW_SPAN));
+  }
+  const atFullExtent = $derived(view.start <= 0 && view.end >= 1);
 
   const extent = $derived.by(() => {
     if (!summary || !summary.from || !summary.to) return null;
@@ -379,13 +398,53 @@
     <Button variant="text" onclick={() => route.go(ROUTES.DASHBOARD)}>{UI.NAV_DASHBOARD}</Button>
     <Button variant="text" onclick={() => route.go(ROUTES.EVENTS)}>{UI.NAV_EVENTS}</Button>
     <Button variant="text" onclick={() => route.go(ROUTES.GRAPH)}>{UI.NAV_GRAPH}</Button>
-    <Select compact label={UI.TIMELINE_GROUP_BY} options={groupOptions} value={groupBy} onchange={setGroupBy} />
-    <Button variant="text" onclick={resetView}>{UI.ACTION_ZOOM_RESET}</Button>
-    <Button variant="text" onclick={loadSummary}>{UI.ACTION_RETRY}</Button>
     <Button variant="tonal" onclick={() => theme.toggle()}>
       {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}
     </Button>
   </AppBar>
+
+  {#if summary && summary.dated > 0}
+    <!-- Timeline-specific controls, grouped together and next to the chart they act on —
+         rather than scattered among the app bar's navigation. -->
+    <div class="toolbar">
+      <div class="mode" role="group" aria-label={UI.TIMELINE_MODE_PAN + ' / ' + UI.TIMELINE_MODE_SELECT}>
+        <button
+          class="seg"
+          class:on={dragMode === TIMELINE_MODE.PAN}
+          type="button"
+          title={UI.TIMELINE_MODE_PAN_HINT}
+          aria-pressed={dragMode === TIMELINE_MODE.PAN}
+          onclick={() => setDragMode(TIMELINE_MODE.PAN)}
+        >✋ {UI.TIMELINE_MODE_PAN}</button>
+        <button
+          class="seg"
+          class:on={dragMode === TIMELINE_MODE.SELECT}
+          type="button"
+          title={UI.TIMELINE_MODE_SELECT_HINT}
+          aria-pressed={dragMode === TIMELINE_MODE.SELECT}
+          onclick={() => setDragMode(TIMELINE_MODE.SELECT)}
+        >⬚ {UI.TIMELINE_MODE_SELECT}</button>
+      </div>
+
+      <div class="zoom" role="group" aria-label={UI.TIMELINE_ZOOM_LABEL}>
+        <button class="zbtn" type="button" title={UI.TIMELINE_ZOOM_OUT} aria-label={UI.TIMELINE_ZOOM_OUT}
+          onclick={() => zoom(1 + TIMELINE.ZOOM_BUTTON_STEP)} disabled={atFullExtent}>−</button>
+        <button class="zbtn" type="button" title={UI.TIMELINE_ZOOM_IN} aria-label={UI.TIMELINE_ZOOM_IN}
+          onclick={() => zoom(1 - TIMELINE.ZOOM_BUTTON_STEP)}>+</button>
+        <button class="zbtn wide" type="button" onclick={resetView} disabled={atFullExtent}>{UI.ACTION_ZOOM_RESET}</button>
+      </div>
+
+      <Select compact label={UI.TIMELINE_GROUP_BY} options={groupOptions} value={groupBy} onchange={setGroupBy} />
+
+      <!-- The gesture legend changes with the mode, so the modifier that is NOT the default
+           is always spelled out rather than left to be discovered. -->
+      <span class="legend">
+        {dragMode === TIMELINE_MODE.SELECT ? UI.TIMELINE_SELECT_LEGEND : UI.TIMELINE_PAN_LEGEND}
+      </span>
+
+      <Button variant="text" onclick={loadSummary}>{UI.ACTION_RETRY}</Button>
+    </div>
+  {/if}
 
   {#if loading}
     <div class="busy"><ProgressBar /></div>
@@ -413,20 +472,44 @@
     <p class="empty">{UI.TIMELINE_EMPTY}</p>
   {:else}
     <div class="chart">
-      <TimelineCanvas
-        buckets={summary.buckets}
-        lanes={displayLanes}
-        {view}
-        {marks}
-        {playhead}
-        onViewChange={setView}
-        onRangeSelect={applyRange}
-        onHover={(h) => (hover = h)}
-        onPlayheadMove={(f) => (playhead = f)}
-      />
+      {#if displayLanes.length > 0}
+        <!-- Lane labels live in a DOM gutter beside the plot, not painted over the bars.
+             Long identifiers (SIDs) are truncated with the full value on hover, and each
+             lane's total sits in a fixed column — so the labels are readable and volume is
+             legible, which drawing them on the canvas could not achieve. The gutter reserves
+             the plot's height minus the axis strip, and each lane row flexes evenly to match
+             the canvas's own per-lane division. -->
+        <div class="lanegutter" style="bottom: {TIMELINE.AXIS_H}px; width: {TIMELINE.LANE_LABEL_W}px" aria-hidden="true">
+          {#each displayLanes as lane (lane.key)}
+            <div class="lanelabel" title={lane.key}>
+              <span class="lname">{lane.key}</span>
+              <span class="lcount">{fmtNum(lane.total)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <div class="plot" style="padding-left: {displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0}px">
+        <TimelineCanvas
+          buckets={summary.buckets}
+          lanes={displayLanes}
+          {view}
+          {marks}
+          {playhead}
+          {dragMode}
+          onViewChange={setView}
+          onRangeSelect={applyRange}
+          onHover={(h) => (hover = h)}
+          onPlayheadMove={(f) => (playhead = f)}
+        />
+      </div>
       {#if hover && hoverBucket}
-        <!-- Follows the cursor, offset so it never sits under the pointer itself. -->
-        <div class="tip" style="left: {hover.x + 12}px; top: {Math.max(hover.y - 34, 4)}px">
+        <!-- Follows the cursor, offset so it never sits under the pointer itself. hover.x is
+             relative to the canvas, which is inset by the lane gutter, so the gutter width is
+             added back to place the tip correctly within the chart. -->
+        <div
+          class="tip"
+          style="left: {(displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0) + hover.x + 12}px; top: {Math.max(hover.y - 34, 4)}px"
+        >
           <b>{hoverBucket.count}</b>
           {hoverBucket.count === 1 ? UI.RELATION_ONE_EVENT : UI.RELATION_MANY_EVENTS}
           <span class="tiptime">{fmt(hoverBucket.start)}</span>
@@ -434,7 +517,17 @@
       {/if}
     </div>
 
-    <div class="axis">
+    <!-- Overview: the full extent with the current window drawn over it. Only worth showing
+         once zoomed in — at full extent the window is the whole strip and it says nothing. -->
+    {#if !atFullExtent}
+      <!-- Inset by the lane gutter so the overview's extent lines up under the plot, not the
+           labels — the window frame then sits directly below the part of the chart it maps. -->
+      <div class="overview" style="height: {TIMELINE.OVERVIEW_H}px; padding-left: {displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0}px">
+        <TimelineOverview buckets={summary.buckets} {view} onViewChange={setView} />
+      </div>
+    {/if}
+
+    <div class="axis" style="padding-left: calc(var(--space-5) + {displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0}px)">
       <span>{fmt(windowRange?.from)}</span>
       {#if playhead !== null}
         <span class="playhead" title={UI.TIMELINE_PLAYHEAD_HINT}>
@@ -501,6 +594,86 @@
   .busy {
     padding: 0 var(--space-5);
   }
+  /* Timeline-specific controls, grouped on their own strip beneath the app bar. */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding: var(--space-2) var(--space-5);
+    border-bottom: 1px solid var(--color-outline);
+    background: var(--color-surface);
+  }
+  /* Pan/Select segmented toggle. */
+  .mode {
+    display: inline-flex;
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .seg {
+    border: none;
+    background: var(--color-surface);
+    color: var(--color-on-surface-variant);
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
+  }
+  .seg + .seg {
+    border-left: 1px solid var(--color-outline);
+  }
+  .seg.on {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
+  .seg:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .zoom {
+    display: inline-flex;
+    gap: var(--space-1);
+  }
+  .zbtn {
+    min-width: 30px;
+    height: 30px;
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-on-surface);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--motion-ease);
+  }
+  .zbtn.wide {
+    width: auto;
+    padding: 0 var(--space-3);
+    font-size: 0.8rem;
+    font-family: var(--font-sans);
+  }
+  .zbtn:hover:not(:disabled) {
+    background: var(--color-surface-variant);
+  }
+  .zbtn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .zbtn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .legend {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    color: var(--color-on-surface-muted);
+    margin-left: auto;
+  }
+  .overview {
+    flex: 0 0 auto;
+  }
   .notice {
     display: flex;
     align-items: center;
@@ -524,6 +697,53 @@
     flex: 0 0 clamp(160px, 34vh, 380px);
     min-height: 0;
     border-bottom: 1px solid var(--color-outline);
+  }
+  /* Holds the canvas; padding-left (set inline in grouped mode) reserves the lane gutter, so
+     the canvas measures its own width as the plot area alone and needs no coordinate change. */
+  .plot {
+    width: 100%;
+    height: 100%;
+  }
+  /* Lane label gutter: overlays the reserved left strip, top-aligned, ending above the axis
+     so it lines up with the plot rows. Each row flexes evenly to match the canvas's own
+     plotH / laneCount division. */
+  .lanegutter {
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* width and bottom are set inline from the LANE_LABEL_W / AXIS_H consts. */
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .lanelabel {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 0 var(--space-2) 0 var(--space-3);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-outline) 40%, transparent);
+    overflow: hidden;
+  }
+  .lname {
+    /* min-width:0 lets a flex child shrink below its content so the ellipsis engages;
+       without it a long SID would force the gutter wider instead of truncating. */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    color: var(--color-on-surface-variant);
+  }
+  .lcount {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--color-on-surface-muted);
   }
   .tip {
     position: absolute;
