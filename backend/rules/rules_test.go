@@ -241,11 +241,11 @@ func TestRegistryBuiltinToggleAndPersist(t *testing.T) {
 	}
 }
 
-// TestHighVolumeBuiltinsCarryABreadthCaveat pins the Phase 5 forensic-review finding: the
-// two rules anchored on 4672 (special privileges assigned) fire on essentially every
-// administrative or SYSTEM logon, so their descriptions must say the pairing is broad. If a
-// later copy-edit strips that honesty, this fails and the description is re-reviewed rather
-// than silently over-claiming.
+// TestHighVolumeBuiltinsCarryABreadthCaveat pins the Phase 5 forensic-review finding: a
+// rule anchored on a high-volume event pairs it with almost anything that follows on a busy
+// host, so its description must name that anchor and say the pairing is broad. If a later
+// copy-edit strips the honesty, this fails and the description is re-reviewed rather than
+// silently over-claiming.
 func TestHighVolumeBuiltinsCarryABreadthCaveat(t *testing.T) {
 	builtins, errs := Builtins()
 	if len(errs) != 0 {
@@ -256,21 +256,94 @@ func TestHighVolumeBuiltinsCarryABreadthCaveat(t *testing.T) {
 		byID[r.ID] = r
 	}
 
+	// id → the high-volume event the description must both name and hedge about.
+	noisy := []struct{ id, anchor string }{
+		{"privileged-logon-then-scheduled-task-created", "4672"}, // fires on every admin/SYSTEM logon
+		{"privileged-logon-then-service-installed", "4672"},
+		{"privileged-logon-then-wmi-persistence-registered", "4672"},
+		{"service-installed-then-start-type-changed", "7040"},           // Windows Update flips start types
+		{"explicit-credential-logon-then-share-accessed", "4648"},       // runas, tasks, service accounts
+		{"kerberos-pre-authentication-failures-then-logon", "4771"},     // expired/stale creds, no attack
+		{"powershell-script-block-then-scheduled-task-created", "4104"}, // every script, benign included
+		{"share-accessed-then-scheduled-task-created", "5140"},          // routine on file servers
+		{"firewall-exception-added-then-logon", "4946"},                 // ordinary installers add rules
+		{"service-terminated-then-new-service-installed", "7034"},       // services crash for dull reasons
+		{"rdp-authentication-then-logon", "1149"},                       // every RDP connection
+		{"defender-protection-disabled-then-service-installed", "5001"}, // AV handoff, Defender upgrade
+	}
+	// Any one of these words carries the hedge; the point is that some hedge survives, not
+	// that a particular sentence does.
+	caveats := []string{"broad", "lead", "routine", "noisier", "ordinary"}
+
+	for _, n := range noisy {
+		rule := byID[n.id]
+		if rule == nil {
+			t.Fatalf("built-in %q not found; did an id (slug of the name) change?", n.id)
+		}
+		desc := strings.ToLower(rule.Description)
+		if !strings.Contains(desc, n.anchor) {
+			t.Errorf("%s: description no longer names the high-volume anchor %s", n.id, n.anchor)
+		}
+		hedged := false
+		for _, c := range caveats {
+			if strings.Contains(desc, c) {
+				hedged = true
+				break
+			}
+		}
+		if !hedged {
+			t.Errorf("%s: description dropped its breadth caveat (expected one of %v): %q",
+				n.id, caveats, rule.Description)
+		}
+	}
+}
+
+// TestChannelDependentBuiltinsSayWhichChannel guards the other way a built-in can quietly
+// mislead: a rule reaching outside Security and System matches nothing at all unless that
+// channel was ingested, and silence then reads as "no such activity" rather than "not
+// looked at". Each such rule's description must say which channel it needs.
+func TestChannelDependentBuiltinsSayWhichChannel(t *testing.T) {
+	builtins, errs := Builtins()
+	if len(errs) != 0 {
+		t.Fatalf("built-ins failed to load: %+v", errs)
+	}
+	byID := map[string]*Rule{}
+	for _, r := range builtins {
+		byID[r.ID] = r
+	}
+
 	for _, id := range []string{
-		"privileged-logon-then-scheduled-task-created",
-		"privileged-logon-then-service-installed",
+		"privileged-logon-then-wmi-persistence-registered",    // WMI-Activity/Operational
+		"defender-protection-disabled-then-service-installed", // Defender/Operational
+		"malware-detected-then-security-log-cleared",          // Defender/Operational
+		"powershell-script-block-then-scheduled-task-created", // PowerShell/Operational
+		"rdp-authentication-then-logon",                       // TerminalServices-RemoteConnectionManager
 	} {
 		rule := byID[id]
 		if rule == nil {
 			t.Fatalf("built-in %q not found; did an id (slug of the name) change?", id)
 		}
-		desc := strings.ToLower(rule.Description)
-		if !strings.Contains(desc, "4672") {
-			t.Errorf("%s: description no longer names the high-volume anchor 4672", id)
-		}
-		if !strings.Contains(desc, "lead") && !strings.Contains(desc, "broad") {
-			t.Errorf("%s: description dropped its breadth caveat (expected 'broad'/'lead'): %q",
+		if !strings.Contains(strings.ToLower(rule.Description), "channel") {
+			t.Errorf("%s: description no longer says which channel must be ingested: %q",
 				id, rule.Description)
+		}
+	}
+}
+
+// TestBuiltinDescriptionsNameEveryEventID enforces the library's documentation standard:
+// a reader deciding whether to enable a rule should learn what each of its steps is from
+// the description alone, without decoding raw event IDs. Every ID in the sequence must
+// therefore appear in the prose that explains it.
+func TestBuiltinDescriptionsNameEveryEventID(t *testing.T) {
+	builtins, errs := Builtins()
+	if len(errs) != 0 {
+		t.Fatalf("built-ins failed to load: %+v", errs)
+	}
+	for _, r := range builtins {
+		for _, id := range r.Sequence {
+			if !strings.Contains(r.Description, id) {
+				t.Errorf("%s: description does not explain event ID %s: %q", r.ID, id, r.Description)
+			}
 		}
 	}
 }

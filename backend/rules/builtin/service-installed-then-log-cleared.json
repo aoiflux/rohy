@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Service Installed Then Security Log Cleared",
+  "description": "A new service is installed (7045) and the security audit log is then cleared (1102) — installing a means of execution and then removing the record of it. Service installation is ordinary on a host that receives software; the clear is what makes the pairing worth reading.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["7045", "1102"],
+  "labels": ["then clears the audit log"]
+}

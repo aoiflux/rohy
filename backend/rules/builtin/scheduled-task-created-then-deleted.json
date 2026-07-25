@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Scheduled Task Created Then Deleted",
+  "description": "A scheduled task is created (4698) and a scheduled task is later deleted (4699) on the same computer — the create, run, clean-up shape of a task used once for execution and then removed. The two events are paired by host and time order, not by task name: confirm they name the same task before calling it a clean-up.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4698", "4699"],
+  "labels": ["then deleted"]
+}

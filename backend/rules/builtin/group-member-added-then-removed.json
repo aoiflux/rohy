@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Group Member Added Then Removed",
+  "description": "A member is added to a security-enabled local group (4732) and a member is later removed from one (4733) — privilege granted and then handed back, which is what temporary escalation looks like once it has been cleaned up. Routine administration produces the same shape, and the events are not matched by account or group, so confirm both records concern the same membership.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4732", "4733"],
+  "labels": ["then removed"]
+}

@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "PowerShell Script Block Then Scheduled Task Created",
+  "description": "A PowerShell script block is logged (4104) and a scheduled task is then created (4698) — script-driven persistence, the shape of a payload that arranges to run again. 4104 comes from the PowerShell operational channel, which must be ingested and have script block logging enabled, and where it does it fires constantly for entirely ordinary scripts: it is a broad anchor, so read the logged script text before treating the pairing as anything.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4104", "4698"],
+  "labels": ["creates scheduled task"]
+}

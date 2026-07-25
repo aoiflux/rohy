@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Defender Protection Disabled Then Service Installed",
+  "description": "Microsoft Defender real-time protection is disabled (5001) and a new service is then installed (7045) — clearing the way before dropping something that would be caught. 5001 is recorded in the Defender operational channel, which must be ingested for this rule to match, and it also fires routinely when a third-party product takes over protection or during a Defender upgrade.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["5001", "7045"],
+  "labels": ["then installs a service"]
+}

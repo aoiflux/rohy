@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Privileged Logon Then WMI Persistence Registered",
+  "description": "Special privileges are assigned to a logon (4672) and a permanent WMI event consumer is then registered (5861) — a fileless persistence mechanism that survives reboot and leaves nothing in the usual autorun locations. 5861 needs the WMI-Activity operational channel ingested; 4672 fires on essentially every administrative or SYSTEM logon, so it is a broad anchor and the pairing is a lead to inspect, not a finding on its own.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4672", "5861"],
+  "labels": ["registers WMI consumer"]
+}

@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Failed Logons Then Logon Then Account Created",
+  "description": "Three or more failed logons (4625), then a successful logon (4624), then a new user account (4720) on the same computer — guessing that works, followed by an account to keep the access. Longer than a two-step rule and correspondingly rarer, but the steps need only appear in this order on the host, not back to back, and are not matched by account.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "sequence": ["4625", "4625", "4625", "4624", "4720"],
+  "labels": ["", "", "then succeeds", "then creates an account"]
+}

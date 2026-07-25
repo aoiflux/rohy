@@ -27,8 +27,8 @@ automatically with correlation rules.
 - **Investigate** with a filtered, paginated event list that stays fast on large
   cases.
 - **Correlate** using rule files: an ordered chain of event IDs with optional
-  labels (`4625 → 4625 —then succeeds→ 4624`). Eight conservative rules ship
-  built in.
+  labels (`4625 → 4625 —then succeeds→ 4624`). Thirty conservative rules
+  ship built in.
 - **Map** events on a graph canvas, by hand or generated from a rule — one rule,
   one graph.
 - **See provenance** everywhere: a relation the tool inferred and one you
@@ -43,7 +43,7 @@ the machine.
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Ingestion**   | `.evtx` files/folders, SQLite `.db` (two documented schemas), live capture with durable per-channel bookmarks, pause/resume, hash-based de-duplication with per-source occurrence counts |
 | **Events**      | Accurate counts, progressive loading, collapsible search with persisted filters, relation-aware quick filters, CSV/JSON export                                        |
-| **Rules**       | Portable one-file-per-rule JSON, 8 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored                                           |
+| **Rules**       | Portable one-file-per-rule JSON, 30 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored                                           |
 | **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content                                                      |
 | **Correlation** | Sequence matching scoped per computer, non-overlapping, capped; idempotent rebuilds (re-running replaces, never duplicates)                                           |
 
@@ -184,6 +184,56 @@ Rules page) or import them from the UI.
 See [RULES.md](RULES.md) for the complete format — every field, the validation
 rules, the format-version and extensibility contract, and what a rule match does
 and does not establish.
+
+### Built-in library
+
+Thirty rules ship inside the application, enabled by default and individually
+toggleable. They cannot be edited in place — import your own copy under a
+different name to vary one.
+
+| Theme | Rule | Chain |
+| --- | --- | --- |
+| **Credential attack** | Failed Logons Then Successful Logon | `4625 4625 4625 → 4624` |
+| | Failed Logons Then Account Lockout | `4625 4625 → 4740` |
+| | Kerberos Pre-Authentication Failures Then Logon | `4771 4771 4771 → 4624` |
+| | Account Lockout Then Account Unlocked | `4740 → 4767` |
+| | Failed Logons Then Logon Then Account Created | `4625 4625 4625 → 4624 → 4720` |
+| **Accounts and privilege** | Account Created Then Added To Group | `4720 → 4732` |
+| | Account Created Then Added To Domain Group † | `4720 → 4728` |
+| | Account Enabled Then Added To Group | `4722 → 4732` |
+| | Password Reset Then Added To Group | `4724 → 4732` |
+| | Password Reset Then Logon | `4724 → 4624` |
+| | Account Created Then Deleted | `4720 → 4726` |
+| | Group Member Added Then Removed | `4732 → 4733` |
+| **Persistence** | Privileged Logon Then Service Installed | `4672 → 7045` |
+| | Privileged Logon Then Scheduled Task Created | `4672 → 4698` |
+| | Privileged Logon Then WMI Persistence Registered ‡ | `4672 → 5861` |
+| | PowerShell Script Block Then Scheduled Task Created ‡ | `4104 → 4698` |
+| | Service Installed Then Start Type Changed | `7045 → 7040` |
+| | Scheduled Task Created Then Deleted | `4698 → 4699` |
+| **Lateral movement** | Explicit Credential Logon Then Share Accessed | `4648 → 5140` |
+| | Share Accessed Then Scheduled Task Created | `5140 → 4698` |
+| | RDP Authentication Then Logon ‡ | `1149 → 4624` |
+| | Firewall Exception Added Then Logon | `4946 → 4624` |
+| **Defence tampering** | Defender Protection Disabled Then Service Installed ‡ | `5001 → 7045` |
+| | Malware Detected Then Security Log Cleared ‡ | `1116 → 1102` |
+| | Service Terminated Then New Service Installed | `7034 → 7045` |
+| **Anti-forensics** | Logon Then Security Log Cleared | `4624 → 1102` |
+| | Log Cleared Then System Time Changed | `1102 → 4616` |
+| | Audit Policy Changed Then Security Log Cleared | `4719 → 1102` |
+| | Service Installed Then Security Log Cleared | `7045 → 1102` |
+| | Security Log Cleared Then Another Log Cleared | `1102 → 104` |
+
+† matches domain controller logs. ‡ needs a channel beyond Security and System —
+WMI-Activity, PowerShell, Defender, or TerminalServices — to be ingested, and
+matches nothing at all if it was not.
+
+A match means those event IDs appeared **in that order on one computer** — not
+that they involve the same account, and not that the steps were adjacent. Each
+rule's description says what it does and does not establish, names the channel
+it depends on, and hedges where its anchor is a high-volume event (4672, 4648,
+4771, 4104, 5140, 4946, 7034, 7040, 1149, 5001). Read the description before
+acting on a graph.
 
 ## Roadmap
 
