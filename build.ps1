@@ -25,7 +25,7 @@
 [CmdletBinding()]
 param(
     # SemVer for this build. Keep in step with backend/version.Version's default.
-    [string]$Version = "0.0.1",
+    [string]$Version = "0.1.0",
     # Skip `go test ./backend/...` (not recommended for a release).
     [switch]$SkipTests,
     # Produce an NSIS installer as well as the bare executable (Windows only).
@@ -44,7 +44,8 @@ try {
     if ((git status --porcelain) -ne $null -and (git status --porcelain).Length -gt 0) {
         $commit = "$commit-dirty"   # a dirty tree must never masquerade as a clean release
     }
-} catch { }
+}
+catch { }
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 $pkg = "rohy/backend/version"

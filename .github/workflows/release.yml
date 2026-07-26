@@ -29,9 +29,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "SemVer to stamp (without the leading v), e.g. 0.0.1"
+        description: "SemVer to stamp (without the leading v), e.g. 0.1.0"
         required: true
-        default: "0.0.1"
+        default: "0.1.0"
 
 permissions:
   contents: write

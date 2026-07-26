@@ -28,7 +28,7 @@
 [CmdletBinding()]
 param(
     # SemVer for this build. Keep in step with backend/version.Version's default.
-    [string]$Version = "0.0.1",
+    [string]$Version = "0.1.0",
     # Skip the test suites (not recommended for anything you intend to ship).
     [switch]$SkipTests,
     # Attempt the cgo-bound targets anyway. They are expected to fail on this host; the flag

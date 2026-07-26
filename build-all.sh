@@ -28,7 +28,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${1:-0.0.1}"
+VERSION="${1:-0.1.0}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 TRY_CROSS="${TRY_CROSS:-0}"     # attempt targets this host is expected to fail on
 ARTEFACTS="build/artefacts"
