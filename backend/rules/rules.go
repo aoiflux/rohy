@@ -21,10 +21,10 @@ import (
 // Sequence is the ordered list of event IDs to correlate. Fields beyond these are
 // reserved for future matchers (provider, channel, user, time-window).
 type Spec struct {
-	FormatVersion int      `json:"format_version"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	RelationType  string   `json:"relation_type"`
+	FormatVersion int    `json:"format_version"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	RelationType  string `json:"relation_type"`
 	// Algorithm selects how the sequence is correlated into edges (consts.Algo*). It is
 	// optional and defaults to sequence correlation; it is the extension point for future
 	// field-correlation / temporal-window algorithms.
@@ -82,35 +82,25 @@ func Parse(data []byte) (*Spec, error) {
 }
 
 // validate enforces the rule contract, returning the first actionable problem found.
+//
+// The contract itself lives in Spec.problems (validate.go), which reports every violation
+// with a stable code and a location. This wrapper is the loader's view of it: default the
+// omitted version, then surface the first problem as an error. Having one implementation is
+// the point — the editor validates a buffer with exactly the checks that decide, moments
+// later, whether the file it writes will load.
 func (s *Spec) validate() error {
 	if s.FormatVersion == 0 {
 		s.FormatVersion = consts.RuleFormatVersion // tolerate an omitted version as current
 	}
-	if s.FormatVersion > consts.RuleFormatVersion {
-		return fmt.Errorf(consts.MsgRuleUnsupportedFormat, s.FormatVersion, consts.RuleFormatVersion)
-	}
-	if strings.TrimSpace(s.Name) == "" {
-		return errors.New(consts.MsgRuleNameRequired)
-	}
-	if len(s.Sequence) < consts.RuleMinSequence {
-		return fmt.Errorf(consts.MsgRuleShortSequence, consts.RuleMinSequence)
-	}
-	if len(s.Sequence) > consts.RuleMaxSequence {
-		return fmt.Errorf(consts.MsgRuleLongSequence, consts.RuleMaxSequence)
-	}
-	for i, id := range s.Sequence {
-		if strings.TrimSpace(id) == "" {
-			return fmt.Errorf(consts.MsgRuleEmptyEventID, i)
-		}
-	}
-	if len(s.Labels) > len(s.Sequence)-1 {
-		return fmt.Errorf(consts.MsgRuleTooManyLabels, len(s.Labels), len(s.Sequence)-1)
-	}
-	if a := strings.TrimSpace(s.Algorithm); a != "" && a != consts.AlgoSequence {
-		return fmt.Errorf(consts.MsgRuleUnknownAlgorithm, s.Algorithm)
+	if problems := s.problems(); len(problems) > 0 {
+		return errors.New(problems[0].Message)
 	}
 	return nil
 }
+
+// trimmed is strings.TrimSpace under a shorter name, used by the contract checks where the
+// trimming is incidental to the condition being read.
+func trimmed(s string) string { return strings.TrimSpace(s) }
 
 // normalize trims user-entered strings and defaults the relation type so a rule always
 // emits a valid, const-driven edge type.

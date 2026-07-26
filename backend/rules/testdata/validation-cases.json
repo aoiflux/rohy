@@ -1,0 +1,241 @@
+[
+  {
+    "name": "minimal valid rule",
+    "source": [
+      "{",
+      "  \"name\": \"Logon Then Log Cleared\",",
+      "  \"description\": \"4624 then 1102 on one host.\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "every field populated",
+    "source": [
+      "{",
+      "  \"format_version\": 1,",
+      "  \"name\": \"Failed Logons Then Successful Logon\",",
+      "  \"description\": \"Three failed logons (4625) then a success (4624).\",",
+      "  \"relation_type\": \"correlation\",",
+      "  \"algorithm\": \"sequence\",",
+      "  \"sequence\": [\"4625\", \"4625\", \"4625\", \"4624\"],",
+      "  \"labels\": [\"\", \"\", \"then succeeds\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "omitted format_version is treated as current",
+    "source": [
+      "{",
+      "  \"name\": \"No Version\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "missing name",
+    "source": [
+      "{",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": ["name_required"]
+  },
+  {
+    "name": "name is only whitespace",
+    "source": [
+      "{",
+      "  \"name\": \"   \",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": ["name_required"],
+    "locations": [{ "code": "name_required", "field": "name", "index": -1, "line": 2, "col": 11 }]
+  },
+  {
+    "name": "sequence has a single step",
+    "source": [
+      "{",
+      "  \"name\": \"One Step\",",
+      "  \"description\": \"Only 4624.\",",
+      "  \"sequence\": [\"4624\"]",
+      "}"
+    ],
+    "codes": ["sequence_short"]
+  },
+  {
+    "name": "sequence is empty",
+    "source": [
+      "{",
+      "  \"name\": \"No Steps\",",
+      "  \"description\": \"Nothing.\",",
+      "  \"sequence\": []",
+      "}"
+    ],
+    "codes": ["sequence_short"]
+  },
+  {
+    "name": "sequence is absent entirely",
+    "source": ["{", "  \"name\": \"No Sequence Key\",", "  \"description\": \"Nothing.\"", "}"],
+    "codes": ["sequence_short"]
+  },
+  {
+    "name": "blank event id",
+    "source": [
+      "{",
+      "  \"name\": \"Blank Step\",",
+      "  \"description\": \"4624 then nothing.\",",
+      "  \"sequence\": [\"4624\", \"\"]",
+      "}"
+    ],
+    "codes": ["sequence_empty_id"],
+    "locations": [
+      { "code": "sequence_empty_id", "field": "sequence", "index": 1, "line": 4, "col": 24 }
+    ]
+  },
+  {
+    "name": "whitespace-only event id counts as blank",
+    "source": [
+      "{",
+      "  \"name\": \"Spaces Step\",",
+      "  \"description\": \"4624 then spaces.\",",
+      "  \"sequence\": [\"4624\", \"   \"]",
+      "}"
+    ],
+    "codes": ["sequence_empty_id"]
+  },
+  {
+    "name": "every blank event id is reported, not just the first",
+    "source": [
+      "{",
+      "  \"name\": \"Two Blanks\",",
+      "  \"description\": \"4624 and gaps.\",",
+      "  \"sequence\": [\"\", \"4624\", \"\"]",
+      "}"
+    ],
+    "codes": ["sequence_empty_id", "sequence_empty_id"]
+  },
+  {
+    "name": "more labels than connections",
+    "source": [
+      "{",
+      "  \"name\": \"Over Labelled\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"sequence\": [\"4624\", \"1102\"],",
+      "  \"labels\": [\"a\", \"b\"]",
+      "}"
+    ],
+    "codes": ["labels_too_many"]
+  },
+  {
+    "name": "exactly one label per connection is fine",
+    "source": [
+      "{",
+      "  \"name\": \"Fully Labelled\",",
+      "  \"description\": \"4624 then 1102 then 4720.\",",
+      "  \"sequence\": [\"4624\", \"1102\", \"4720\"],",
+      "  \"labels\": [\"a\", \"b\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "unknown algorithm",
+    "source": [
+      "{",
+      "  \"name\": \"Future Matcher\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"algorithm\": \"temporal-window\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": ["unknown_algorithm"]
+  },
+  {
+    "name": "empty algorithm defaults rather than failing",
+    "source": [
+      "{",
+      "  \"name\": \"Empty Algorithm\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"algorithm\": \"\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "unrecognized relation_type is defaulted, not rejected",
+    "source": [
+      "{",
+      "  \"name\": \"Odd Relation\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"relation_type\": \"whatever\",",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "a future format version suppresses every other complaint",
+    "source": [
+      "{",
+      "  \"format_version\": 999,",
+      "  \"sequence\": [\"4624\"]",
+      "}"
+    ],
+    "codes": ["unsupported_format"]
+  },
+  {
+    "name": "malformed json",
+    "source": ["{", "  \"name\": \"Broken\",", "  \"sequence\": [\"4624\", \"1102\"",
+      "}"],
+    "codes": ["syntax"]
+  },
+  {
+    "name": "not an object at all",
+    "source": ["[\"4624\", \"1102\"]"],
+    "codes": ["syntax"]
+  },
+  {
+    "name": "wrong type for sequence",
+    "source": [
+      "{",
+      "  \"name\": \"Bad Type\",",
+      "  \"description\": \"x\",",
+      "  \"sequence\": \"4624\"",
+      "}"
+    ],
+    "codes": ["syntax"]
+  },
+  {
+    "name": "several problems are all reported, in contract order",
+    "source": ["{", "  \"sequence\": [\"\"],", "  \"algorithm\": \"nope\"", "}"],
+    "codes": ["name_required", "sequence_short", "sequence_empty_id", "unknown_algorithm"]
+  },
+  {
+    "name": "a field this build does not interpret is preserved, not rejected",
+    "source": [
+      "{",
+      "  \"name\": \"From A Newer Build\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"sequence\": [\"4624\", \"1102\"],",
+      "  \"max_gap_seconds\": 300",
+      "}"
+    ],
+    "codes": [],
+    "warnings": ["unknown_field"],
+    "unknown_fields": ["max_gap_seconds"]
+  },
+  {
+    "name": "a rule with no description is valid but flagged",
+    "source": ["{", "  \"name\": \"Undocumented\",", "  \"sequence\": [\"4624\", \"1102\"]", "}"],
+    "codes": [],
+    "warnings": ["no_description"]
+  }
+]

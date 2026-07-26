@@ -148,6 +148,19 @@ function create() {
     }
   }
 
+  // sourceOfFile reads a rule file by path — the one case `source` cannot serve, because a
+  // file that failed to load has no rule and therefore no id. It is what lets the load-errors
+  // panel offer to repair a broken file. Returns null on failure (the message is on the
+  // store), so the caller can just bail.
+  async function sourceOfFile(path) {
+    try {
+      return await api.readRuleFile(path);
+    } catch (err) {
+      fail(err);
+      return null;
+    }
+  }
+
   // enabledCount powers the "N of M enabled" summary without a second backend call.
   function enabledCount() {
     return get(store).list.filter((r) => r.enabled).length;
@@ -168,6 +181,7 @@ function create() {
     run,
     cancelRun,
     source,
+    sourceOfFile,
     enabledCount,
     isDeletable,
   };

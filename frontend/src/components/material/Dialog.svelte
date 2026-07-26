@@ -9,6 +9,7 @@
     open = $bindable(false),
     title = '',
     wide = false,
+    full = false,
     onclose = undefined,
     children,
     actions,
@@ -28,6 +29,7 @@
     <div
       class="dialog"
       class:wide
+      class:full
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -71,6 +73,20 @@
   }
   .dialog.wide {
     max-width: 760px;
+  }
+  /* `full` is for a working surface rather than a message: it claims a fixed share of the
+     window and hands its own scrolling to the content, because a split editor needs a stable
+     height to lay its panes out against. */
+  .dialog.full {
+    max-width: min(1200px, 94vw);
+    height: min(880px, 92vh);
+  }
+  .dialog.full .body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
   h2 {
     font-family: var(--font-sans);

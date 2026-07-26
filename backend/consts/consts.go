@@ -377,6 +377,12 @@ const (
 	// RuleMaxFileBytes caps the size of an importable rule file. A rule is a small JSON
 	// document; anything larger is rejected before it is read into memory.
 	RuleMaxFileBytes = 1 << 20 // 1 MiB
+	// RuleFormatIndent and RuleFormatWidth define how rohy writes a rule file. The built-in
+	// library is written this way — one field per line, short arrays kept inline — and the
+	// editor's pretty-print reproduces it, so a rule authored in the app is indistinguishable
+	// from one written by hand and a formatting pass never shows up as a spurious diff.
+	RuleFormatIndent = "  "
+	RuleFormatWidth  = 100
 )
 
 // Auto-graphing algorithm types (P3). A rule selects how its sequence is correlated into
@@ -398,6 +404,30 @@ const AutoGraphMaxMatches = 100000
 // temporal algorithms will compute partial scores.
 const RuleMatchConfidence = 1.0
 
+// --- Rule validation problem codes ---
+//
+// A stable identifier for each way a rule file can be wrong, carried alongside the human
+// message. The message is what a person reads; the code is what the editor acts on — it
+// decides which form control to highlight or which token to underline, and it is the key
+// the shared Go/JS validation-parity fixture is written against. Codes are part of the
+// wire contract and are mirrored in the frontend const registry.
+const (
+	RuleErrSyntax            = "syntax"
+	RuleErrFileTooLarge      = "file_too_large"
+	RuleErrNameRequired      = "name_required"
+	RuleErrSequenceShort     = "sequence_short"
+	RuleErrSequenceLong      = "sequence_long"
+	RuleErrSequenceEmptyID   = "sequence_empty_id"
+	RuleErrLabelsTooMany     = "labels_too_many"
+	RuleErrUnknownAlgorithm  = "unknown_algorithm"
+	RuleErrUnsupportedFormat = "unsupported_format"
+	// Advisory only — these never block a save. They exist because a rule can be perfectly
+	// valid and still be a bad rule to hand to another analyst.
+	RuleWarnUnknownField  = "unknown_field"
+	RuleWarnNoDescription = "no_description"
+	RuleWarnNameCollision = "name_collision"
+)
+
 // --- Rule validation / status message templates ---
 const (
 	MsgRuleParseFailed       = "not a valid rule file: %v"
@@ -412,6 +442,13 @@ const (
 	MsgRuleAlreadyImported   = "a rule named %q is already imported (delete it first to replace it)"
 	MsgRuleFileTooLarge      = "rule file is too large (%d bytes, maximum %d)"
 	MsgRuleBuiltinProtected  = "built-in rules cannot be deleted (disable it instead)"
+	// Advisory messages, shown by the editor beside a rule that is valid but questionable.
+	MsgRuleUnknownField  = "field %q is not used by this build — it is preserved on save but has no effect"
+	MsgRuleNoDescription = "this rule has no description — the rules list and inspector will say nothing about what it matches"
+	MsgRuleNameCollision = "another rule is already named %q (id %s); saving under this name is refused"
+	// MsgRuleOutsideRulesDir guards the by-path read the editor uses to repair a file that
+	// failed to load: only files in the rules directory are readable that way.
+	MsgRuleOutsideRulesDir = "%q is not in the rules directory"
 )
 
 // --- File picker (native dialogs) ---

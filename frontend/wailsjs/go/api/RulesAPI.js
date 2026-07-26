@@ -6,6 +6,10 @@ export function DeleteRule(arg1) {
   return window['go']['api']['RulesAPI']['DeleteRule'](arg1);
 }
 
+export function FormatRule(arg1, arg2) {
+  return window['go']['api']['RulesAPI']['FormatRule'](arg1, arg2);
+}
+
 export function ImportRuleFiles() {
   return window['go']['api']['RulesAPI']['ImportRuleFiles']();
 }
@@ -18,8 +22,16 @@ export function ListRules() {
   return window['go']['api']['RulesAPI']['ListRules']();
 }
 
+export function ReadRuleFile(arg1) {
+  return window['go']['api']['RulesAPI']['ReadRuleFile'](arg1);
+}
+
 export function ReloadRules() {
   return window['go']['api']['RulesAPI']['ReloadRules']();
+}
+
+export function RuleSchema() {
+  return window['go']['api']['RulesAPI']['RuleSchema']();
 }
 
 export function RuleSource(arg1) {
@@ -30,10 +42,18 @@ export function RulesDir() {
   return window['go']['api']['RulesAPI']['RulesDir']();
 }
 
+export function SaveRule(arg1) {
+  return window['go']['api']['RulesAPI']['SaveRule'](arg1);
+}
+
 export function SetRuleEnabled(arg1, arg2) {
   return window['go']['api']['RulesAPI']['SetRuleEnabled'](arg1, arg2);
 }
 
 export function Startup(arg1) {
   return window['go']['api']['RulesAPI']['Startup'](arg1);
+}
+
+export function ValidateRule(arg1, arg2) {
+  return window['go']['api']['RulesAPI']['ValidateRule'](arg1, arg2);
 }

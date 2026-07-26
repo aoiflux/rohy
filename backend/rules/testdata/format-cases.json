@@ -1,0 +1,81 @@
+[
+  {
+    "name": "a minimal rule",
+    "input": "{\"name\":\"X\",\"sequence\":[\"4624\",\"1102\"]}",
+    "expected": ["{", "  \"name\": \"X\",", "  \"sequence\": [\"4624\", \"1102\"]", "}"]
+  },
+  {
+    "name": "the root object always expands, even when it would fit",
+    "input": "{\"a\":1}",
+    "expected": ["{", "  \"a\": 1", "}"]
+  },
+  {
+    "name": "a short array stays inline",
+    "input": "{\"labels\":[\"\",\"\",\"then succeeds\"]}",
+    "expected": ["{", "  \"labels\": [\"\", \"\", \"then succeeds\"]", "}"]
+  },
+  {
+    "name": "an array too wide for the budget expands one element per line",
+    "input": "{\"sequence\":[\"aaaaaaaaaaaaaaa\",\"bbbbbbbbbbbbbbb\",\"ccccccccccccccc\",\"ddddddddddddddd\",\"eeeeeeeeeeeeeee\",\"fffffffffffffff\"]}",
+    "expected": [
+      "{",
+      "  \"sequence\": [",
+      "    \"aaaaaaaaaaaaaaa\",",
+      "    \"bbbbbbbbbbbbbbb\",",
+      "    \"ccccccccccccccc\",",
+      "    \"ddddddddddddddd\",",
+      "    \"eeeeeeeeeeeeeee\",",
+      "    \"fffffffffffffff\"",
+      "  ]",
+      "}"
+    ]
+  },
+  {
+    "name": "empty containers stay compact",
+    "input": "{\"sequence\":[],\"scope\":{}}",
+    "expected": ["{", "  \"sequence\": [],", "  \"scope\": {}", "}"]
+  },
+  {
+    "name": "field order is file order, not struct order",
+    "input": "{\"sequence\":[\"1\",\"2\"],\"name\":\"X\",\"format_version\":1}",
+    "expected": [
+      "{",
+      "  \"sequence\": [\"1\", \"2\"],",
+      "  \"name\": \"X\",",
+      "  \"format_version\": 1",
+      "}"
+    ]
+  },
+  {
+    "name": "a field this build does not interpret is kept, nested and all",
+    "input": "{\"name\":\"X\",\"scope\":{\"host\":\"any\",\"tags\":[\"a\",\"b\"]}}",
+    "expected": [
+      "{",
+      "  \"name\": \"X\",",
+      "  \"scope\": {\"host\": \"any\", \"tags\": [\"a\", \"b\"]}",
+      "}"
+    ]
+  },
+  {
+    "name": "a nested object too wide for the budget expands",
+    "input": "{\"scope\":{\"host\":\"a-fairly-long-hostname-value\",\"channel\":\"Microsoft-Windows-WMI-Activity/Operational\"}}",
+    "expected": [
+      "{",
+      "  \"scope\": {",
+      "    \"host\": \"a-fairly-long-hostname-value\",",
+      "    \"channel\": \"Microsoft-Windows-WMI-Activity/Operational\"",
+      "  }",
+      "}"
+    ]
+  },
+  {
+    "name": "angle brackets and ampersands are not escaped",
+    "input": "{\"description\":\"<Data Name='Foo'> & policy\"}",
+    "expected": ["{", "  \"description\": \"<Data Name='Foo'> & policy\"", "}"]
+  },
+  {
+    "name": "booleans and null render as themselves",
+    "input": "{\"a\":true,\"b\":false,\"c\":null}",
+    "expected": ["{", "  \"a\": true,", "  \"b\": false,", "  \"c\": null", "}"]
+  }
+]

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"rohy/backend/consts"
 )
@@ -16,6 +18,44 @@ type RuleSource struct {
 	File   string `json:"file"`
 	Path   string `json:"path,omitempty"` // on-disk path; empty for builtins
 	Source string `json:"source"`         // raw file contents, verbatim
+}
+
+// ReadFile returns the contents of a file in the rules directory.
+//
+// It exists for the one case Source cannot serve: a file that FAILED to load has no rule and
+// therefore no id, so the only way to offer "open this and fix it" is to address it by path.
+// Before this, a broken rule file could be named in the load-errors panel but not repaired
+// without leaving the application.
+//
+// The path is confined to the rules directory. Every path the frontend can hold comes from a
+// LoadError produced by scanning that directory, so the check costs nothing legitimate — and
+// it means a binding that reads a file cannot be talked into reading an arbitrary one.
+func (r *Registry) ReadFile(target string) (string, error) {
+	dir, err := filepath.Abs(r.dir)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(dir, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf(consts.MsgRuleOutsideRulesDir, target)
+	}
+
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if fi.Size() > consts.RuleMaxFileBytes {
+		return "", fmt.Errorf(consts.MsgRuleFileTooLarge, fi.Size(), int64(consts.RuleMaxFileBytes))
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // Find returns a copy of a rule by id.

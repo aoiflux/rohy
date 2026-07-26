@@ -181,6 +181,15 @@ One file, one rule, one graph:
 empty for an unlabelled link. Drop files into the rules folder (shown on the
 Rules page) or import them from the UI.
 
+You do not have to write the JSON by hand. _New rule_ on the Rules page opens an
+editor with two modes over the same file: a **guided** form generated from the
+rule format — every field carrying its own description, allowed values, and
+example, with each connection label edited between the two steps it joins — and
+a **raw** JSON view with highlighting, completion, and formatting. Switching
+between them is a change of view, not a conversion. A built-in cannot be edited
+in place, so _Duplicate_ opens an editable copy; a file that failed to load can
+be repaired with _Fix_ instead of leaving the application.
+
 See [RULES.md](RULES.md) for the complete format — every field, the validation
 rules, the format-version and extensibility contract, and what a rule match does
 and does not establish.
@@ -239,8 +248,9 @@ acting on a graph.
 
 **Delivered** — ingestion (files, folders, SQLite, live capture with
 pause/resume), event querying with accurate counts and progressive loading, the
-rule engine and built-in library, auto-graphing, multiple graphs, the graph
-canvas, relation provenance, keyboard shortcuts, and the release pipeline.
+rule engine and built-in library, the dual-mode rule editor, auto-graphing,
+multiple graphs, the graph canvas, relation provenance, keyboard shortcuts, and
+the release pipeline.
 
 **Next**
 

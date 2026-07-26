@@ -152,3 +152,72 @@ func (a *RulesAPI) RuleSource(id string) (rules.RuleSource, error) {
 	}
 	return src, nil
 }
+
+// --- Rule editor (P26) ---
+//
+// The four bindings below are what let the application author a rule rather than only
+// import one. They share a principle: the editor asks the backend the same questions the
+// loader answers, instead of re-implementing the format in JavaScript. A frontend copy of
+// the schema or the validator would drift, and the drift would surface as a rule that saves
+// cleanly and is then missing from the library.
+
+// RuleSchema returns the rule-format descriptor that drives both editor modes: field prose,
+// allowed values, and bounds. It is served rather than duplicated in the frontend so the
+// guided form's controls, the raw editor's completion list, and the client-side validator
+// all move together when the format changes.
+func (a *RulesAPI) RuleSchema() rules.Schema {
+	return rules.Describe()
+}
+
+// ValidateRule reports whether candidate text would load, with each problem carrying a
+// stable code and a position in the source so the editor can underline the offending token
+// or highlight the offending control. editingID excludes a rule from its own name-collision
+// check; pass "" for a new rule.
+//
+// It returns no error: an unparseable buffer is a normal state while typing, not a failed
+// call, and surfacing it as a rejected promise would make the editor flicker error dialogs
+// at someone mid-keystroke.
+func (a *RulesAPI) ValidateRule(source string, editingID string) rules.ValidationReport {
+	return a.registry.Validate(source, editingID)
+}
+
+// FormatRule pretty-prints or minifies rule text. It works on the text rather than on a
+// parsed rule, so a field this build does not interpret survives the round trip.
+func (a *RulesAPI) FormatRule(source string, minify bool) (string, error) {
+	var (
+		out []byte
+		err error
+	)
+	if minify {
+		out, err = rules.Minify([]byte(source))
+	} else {
+		out, err = rules.Pretty([]byte(source))
+	}
+	if err != nil {
+		return "", AsError(consts.ErrCodeRule, err)
+	}
+	return string(out), nil
+}
+
+// ReadRuleFile returns the contents of a file in the rules directory by path, for the one
+// case RuleSource cannot serve: a file that failed to load has no rule and therefore no id.
+// It is what lets the load-errors panel offer to repair a broken file instead of only naming
+// it. Paths outside the rules directory are refused.
+func (a *RulesAPI) ReadRuleFile(path string) (string, error) {
+	src, err := a.registry.ReadFile(path)
+	if err != nil {
+		return "", AsError(consts.ErrCodeIO, err)
+	}
+	return src, nil
+}
+
+// SaveRule creates or updates a user rule from the editor. Built-in rules are refused —
+// they live in the binary — so the editor's path for varying one is to duplicate it under a
+// new name, which arrives here as a create.
+func (a *RulesAPI) SaveRule(req rules.SaveRequest) (rules.SaveResult, error) {
+	res, err := a.registry.Save(req)
+	if err != nil {
+		return res, AsError(consts.ErrCodeRule, err)
+	}
+	return res, nil
+}

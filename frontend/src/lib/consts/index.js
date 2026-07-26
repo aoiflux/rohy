@@ -116,6 +116,42 @@ export const RULE_SOURCES = Object.freeze({
   USER: 'user',
 });
 
+// Rule validation problem codes (mirror backend consts.RuleErr*/RuleWarn*). The message is
+// what a person reads; the code is what the editor acts on — which control to highlight,
+// which token to underline. They are also the keys the shared Go/JS validation-parity
+// fixture is written against, so a change here without the matching change in Go is a
+// failing test rather than a silent divergence.
+export const RULE_PROBLEMS = Object.freeze({
+  SYNTAX: 'syntax',
+  FILE_TOO_LARGE: 'file_too_large',
+  NAME_REQUIRED: 'name_required',
+  SEQUENCE_SHORT: 'sequence_short',
+  SEQUENCE_LONG: 'sequence_long',
+  SEQUENCE_EMPTY_ID: 'sequence_empty_id',
+  LABELS_TOO_MANY: 'labels_too_many',
+  UNKNOWN_ALGORITHM: 'unknown_algorithm',
+  UNSUPPORTED_FORMAT: 'unsupported_format',
+  // Advisory — never blocks a save.
+  UNKNOWN_FIELD: 'unknown_field',
+  NO_DESCRIPTION: 'no_description',
+  NAME_COLLISION: 'name_collision',
+});
+
+// Rule field groups (mirror backend consts via rules.Group*). The guided editor renders one
+// section per group, which is what keeps metadata visibly separate from the matcher that
+// decides what a rule actually does.
+export const RULE_FIELD_GROUPS = Object.freeze({
+  IDENTITY: 'identity',
+  MATCHER: 'matcher',
+  METADATA: 'metadata',
+});
+
+// Editor modes (frontend-owned). Both are projections of one document; see lib/rules/document.js.
+export const EDITOR_MODES = Object.freeze({
+  RAW: 'raw',
+  GUIDED: 'guided',
+});
+
 // Relation-aware quick filters (mirror backend consts.RelationFilter*). Empty = no filter.
 export const RELATION_FILTERS = Object.freeze({
   NONE: '',
@@ -385,6 +421,10 @@ export const UI = Object.freeze({
   SHORTCUT_SCOPE_EVENTS: 'Events',
   SHORTCUT_SCOPE_GRAPH: 'Graph canvas',
   SHORTCUT_SCOPE_TIMELINE: 'Timeline',
+  SHORTCUT_SCOPE_EDITOR: 'Rule editor',
+  SHORTCUT_UNDO: 'Undo',
+  SHORTCUT_REDO: 'Redo',
+  SHORTCUT_TOGGLE_MODE: 'Switch raw / guided',
   SHORTCUT_CONNECT_SELECTED: 'Link the two selected nodes',
   SHORTCUT_SCRUB: 'Move the playhead (Shift for a bigger step)',
   SHORTCUT_SCRUB_ENDS: 'Playhead to the start / end of the view',
@@ -421,6 +461,82 @@ export const UI = Object.freeze({
   VALUE_YES: 'Yes',
   VALUE_NO: 'No',
   VALUE_NONE: '—',
+
+  // Rule editor (P26). Two modes over one document: a JSON buffer and a schema-driven form.
+  RULE_EDITOR_TITLE_NEW: 'New rule',
+  RULE_EDITOR_TITLE_EDIT: 'Edit rule',
+  RULE_EDITOR_TITLE_DUPLICATE: 'Duplicate of',
+  RULE_EDITOR_COPY_SUFFIX: '(copy)',
+  RULE_EDITOR_MODE: 'Editor mode',
+  RULE_EDITOR_MODE_RAW: 'Raw JSON',
+  RULE_EDITOR_MODE_GUIDED: 'Guided',
+  RULE_EDITOR_MODE_RAW_HINT: 'Edit the rule file directly (Ctrl+E)',
+  RULE_EDITOR_MODE_GUIDED_HINT: 'Fill in a form, field by field (Ctrl+E)',
+  RULE_EDITOR_CANNOT_GUIDE: 'The guided form needs the JSON to parse first.',
+  RULE_EDITOR_SOURCE_LABEL: 'Rule definition',
+  RULE_EDITOR_RAW_HINT: 'Ctrl+Space for suggestions · Ctrl+Shift+F to format · Ctrl+S to save',
+  RULE_EDITOR_COMPLETIONS: 'Suggestions',
+  RULE_EDITOR_PRETTY: 'Pretty',
+  RULE_EDITOR_MINIFY: 'Minify',
+  RULE_EDITOR_IMPORT: 'Open file…',
+  RULE_EDITOR_EXPORT: 'Save to file…',
+  RULE_EDITOR_IMPORT_FAILED: 'That file could not be read.',
+  RULE_EDITOR_SIDE: 'Side panel',
+  RULE_EDITOR_PREVIEW: 'Preview',
+  RULE_EDITOR_DIFF: 'Changes',
+  RULE_EDITOR_DIFF_NONE: 'Nothing has changed yet.',
+  RULE_EDITOR_DIFF_TOO_LARGE: 'This file is too large to diff.',
+  RULE_EDITOR_VALID: 'This rule will load.',
+  RULE_EDITOR_LINE: 'line',
+  RULE_EDITOR_SAVE: 'Save',
+  RULE_EDITOR_SAVING: 'Saving…',
+  RULE_EDITOR_SAVE_AND_RUN: 'Save and run',
+  RULE_EDITOR_SAVED: 'Rule saved',
+  RULE_EDITOR_SAVED_NEW: 'Rule created',
+  RULE_EDITOR_SAVED_RENAMED: 'Rule saved and renamed',
+  RULE_EDITOR_SAVE_REFUSED: 'The rule was not saved.',
+  RULE_EDITOR_RENAME_WARNING:
+    'Renaming changes this rule’s id, so the graph built under the old id will no longer be linked to it:',
+  RULE_EDITOR_DISCARD_TITLE: 'Discard changes?',
+  RULE_EDITOR_DISCARD_BODY: 'This rule has unsaved edits. Closing the editor will lose them.',
+  RULE_EDITOR_DISCARD: 'Discard',
+  RULE_EDITOR_KEEP_EDITING: 'Keep editing',
+  // Guided mode
+  RULE_EDITOR_GROUP_IDENTITY: 'Identity',
+  RULE_EDITOR_GROUP_IDENTITY_BLURB: 'What the rule is called — and, because the id is derived from it, which rule it is.',
+  RULE_EDITOR_GROUP_MATCHER: 'What it matches',
+  RULE_EDITOR_GROUP_MATCHER_BLURB:
+    'The ordered event IDs to correlate. A match means these appeared in this order on one computer — not that they involve the same account.',
+  RULE_EDITOR_GROUP_METADATA: 'Metadata',
+  RULE_EDITOR_GROUP_METADATA_BLURB: 'How the rule is described and how its relations are drawn. None of this changes what it matches.',
+  RULE_EDITOR_GROUP_UNKNOWN: 'Fields this build does not interpret',
+  RULE_EDITOR_GROUP_UNKNOWN_BLURB:
+    'Carried through unchanged when you save, but they have no effect here — most likely the rule was written for a newer rohy.',
+  RULE_EDITOR_ID_PREVIEW: 'Rule id:',
+  RULE_EDITOR_REQUIRED: 'Required',
+  RULE_EDITOR_READONLY: 'read-only',
+  RULE_EDITOR_HELP_TOGGLE: 'How to choose a value',
+  RULE_EDITOR_EXAMPLE: 'Example:',
+  RULE_EDITOR_ALLOWED: 'Allowed:',
+  RULE_EDITOR_DEFAULT: 'default',
+  RULE_EDITOR_LABELS_INLINE: 'Edited between the steps they join, above.',
+  RULE_EDITOR_STEP: 'Step',
+  RULE_EDITOR_STEPS: 'step(s)',
+  RULE_EDITOR_CONNECTION: 'Label for connection',
+  RULE_EDITOR_CONNECTIONS: 'connection(s)',
+  RULE_EDITOR_STEP_PLACEHOLDER: 'Event ID, e.g. 4624',
+  RULE_EDITOR_LABEL_PLACEHOLDER: 'Optional label for this connection',
+  RULE_EDITOR_ADD_STEP: 'Add step',
+  RULE_EDITOR_REMOVE_STEP: 'Remove this step',
+  RULE_EDITOR_MOVE_UP: 'Move earlier',
+  RULE_EDITOR_MOVE_DOWN: 'Move later',
+  // Entry points on the rules view
+  ACTION_NEW_RULE: 'New rule',
+  ACTION_EDIT_RULE: 'Edit',
+  ACTION_DUPLICATE_RULE: 'Duplicate',
+  ACTION_FIX_RULE: 'Fix…',
+  RULE_DUPLICATE_HINT: 'Built-in rules cannot be edited in place — this opens an editable copy.',
+  RULES_FIX_HINT: 'Open this file in the editor to repair it.',
 
   ACTION_INGEST_FILE: 'Ingest event logs',
   ACTION_SELECT_FILES: 'Select files',

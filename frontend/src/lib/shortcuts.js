@@ -14,6 +14,7 @@ export const SHORTCUT_SCOPE = Object.freeze({
   EVENTS: 'events',
   GRAPH: 'graph',
   TIMELINE: 'timeline',
+  EDITOR: 'editor',
 });
 
 // Navigation: Alt+<digit> → route.
@@ -41,6 +42,14 @@ export const SHORTCUTS = Object.freeze([
   { keys: 'Enter', label: UI.SHORTCUT_CONNECT_SELECTED, scope: SHORTCUT_SCOPE.GRAPH },
   { keys: '← →', label: UI.SHORTCUT_SCRUB, scope: SHORTCUT_SCOPE.TIMELINE },
   { keys: 'Home / End', label: UI.SHORTCUT_SCRUB_ENDS, scope: SHORTCUT_SCOPE.TIMELINE },
+  // Rule editor (P26). All modified keys: the editor is full of text fields, so a bare
+  // letter here would fire while somebody is typing an event ID or a description.
+  { keys: 'Ctrl+S', label: UI.RULE_EDITOR_SAVE, scope: SHORTCUT_SCOPE.EDITOR },
+  { keys: 'Ctrl+Z', label: UI.SHORTCUT_UNDO, scope: SHORTCUT_SCOPE.EDITOR },
+  { keys: 'Ctrl+Shift+Z', label: UI.SHORTCUT_REDO, scope: SHORTCUT_SCOPE.EDITOR },
+  { keys: 'Ctrl+Shift+F', label: UI.RULE_EDITOR_PRETTY, scope: SHORTCUT_SCOPE.EDITOR },
+  { keys: 'Ctrl+E', label: UI.SHORTCUT_TOGGLE_MODE, scope: SHORTCUT_SCOPE.EDITOR },
+  { keys: 'Ctrl+Space', label: UI.RULE_EDITOR_COMPLETIONS, scope: SHORTCUT_SCOPE.EDITOR },
   { keys: 'Esc', label: UI.SHORTCUT_ESC, scope: SHORTCUT_SCOPE.GLOBAL },
 ]);
 

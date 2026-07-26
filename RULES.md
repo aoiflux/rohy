@@ -142,10 +142,50 @@ entity linkage before drawing a conclusion from any correlation graph.
 ## 9. Where rules live
 
 - **Built-in rules** ship inside the application. They can be enabled or disabled, and a
-  disabled state persists, but they cannot be edited in place — vary one by importing your
-  own copy under a different name.
-- **User rules** are imported from a file or folder and stored in the case's rules
-  directory. They follow this exact format and are portable: a rule authored on one platform
-  loads unchanged on any other.
+  disabled state persists, but they cannot be edited in place — vary one with **Duplicate**,
+  which opens an editable copy under a new name (§10).
+- **User rules** are written by the in-app editor or imported from a file or folder, and are
+  stored in the case's rules directory. They follow this exact format and are portable: a
+  rule authored on one platform loads unchanged on any other.
 
 See [README.md](README.md) for the built-in library and the import workflow.
+
+## 10. Authoring rules in the application
+
+Everything above can be written by hand in any text editor. The **Rules** page also has an
+editor, with two modes over the same file.
+
+**Guided** is a form generated from the rule format itself: every field shows what it is,
+and a `?` beside it opens how to choose a value and an example. The sequence is edited as a
+chain, with each connection's label sitting *between* the two steps it joins — which is what
+makes the `labels[i]` rule of §6 impossible to get wrong.
+
+**Raw** is the file as text, with highlighting, `Ctrl+Space` completion drawn from this
+format, and `Ctrl+Shift+F` to format it in the same style the built-in library uses.
+
+Switching between them is a change of view, not a conversion: both edit one document and
+share one undo history. Guided → raw always works. Raw → guided needs the JSON to parse
+first, and says so rather than opening a form seeded from a file it could not read.
+
+Three things are worth knowing before you save:
+
+- **A rule's id is a slug of its name (§3), so renaming a rule replaces it.** The editor
+  says so before saving, and names the old and new ids. The graph the old id built is not
+  deleted, but it is no longer linked to this rule.
+- **A field this build does not interpret is preserved.** Per §3 it is ignored, not
+  rejected; the guided form lists such fields read-only rather than hiding them, and saving
+  writes them back untouched. Editing a rule written for a newer rohy does not downgrade it.
+- **Nothing invalid is written.** A save is validated by the same code that loads a rule
+  file, so a refused save changes nothing on disk. A file that already failed to load can be
+  opened with **Fix** from the load-errors panel and repaired in place.
+
+### Adding a validation rule
+
+Validation is implemented twice on purpose: in Go, which decides whether a rule loads, and
+in JavaScript, so the editor can underline a mistake on the keystroke that makes it. The two
+are kept in step by `backend/rules/testdata/validation-cases.json`, which is read by both
+test suites.
+
+**Adding a case to that fixture is the first step of any change to validation.** A rule
+enforced on one side and not the other is then a failing test, rather than an editor that
+quietly accepts something the loader will refuse.

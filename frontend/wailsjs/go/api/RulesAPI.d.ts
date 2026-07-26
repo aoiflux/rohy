@@ -6,18 +6,28 @@ import {context} from '../models';
 
 export function DeleteRule(arg1:string):Promise<void>;
 
+export function FormatRule(arg1:string,arg2:boolean):Promise<string>;
+
 export function ImportRuleFiles():Promise<rules.ImportResult>;
 
 export function ImportRuleFolder():Promise<rules.ImportResult>;
 
 export function ListRules():Promise<api.RulesResult>;
 
+export function ReadRuleFile(arg1:string):Promise<string>;
+
 export function ReloadRules():Promise<api.RulesResult>;
+
+export function RuleSchema():Promise<rules.Schema>;
 
 export function RuleSource(arg1:string):Promise<rules.RuleSource>;
 
 export function RulesDir():Promise<string>;
 
+export function SaveRule(arg1:rules.SaveRequest):Promise<rules.SaveResult>;
+
 export function SetRuleEnabled(arg1:string,arg2:boolean):Promise<void>;
 
 export function Startup(arg1:context.Context):Promise<void>;
+
+export function ValidateRule(arg1:string,arg2:string):Promise<rules.ValidationReport>;

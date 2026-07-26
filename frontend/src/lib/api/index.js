@@ -216,6 +216,67 @@ export function ruleSource(id) {
   return call(RULES, 'RuleSource', id);
 }
 
+// --- Rule editor (P26) ---
+//
+// The editor asks the backend the same questions the loader answers rather than
+// re-implementing the rule format here. lib/rules/ holds a fast local mirror for
+// keystroke-rate feedback, but these four are the authority: the schema the form is built
+// from, the validator that decides whether a save will load, the formatter that matches how
+// rohy writes rule files, and the write path itself.
+
+/**
+ * The rule-format descriptor: every field with its type, bounds, allowed values, and the
+ * prose the guided form shows. Fetched once per editor session and cached — it only changes
+ * when the build does.
+ * @returns {Promise<{format_version:number, max_file_bytes:number, group_order:string[],
+ *   fields:{name:string, kind:string, required:boolean, group:string, read_only:boolean,
+ *     default?:any, enum?:string[], min_items?:number, max_items?:number,
+ *     description:string, guidance:string, example:any}[]}>}
+ */
+export function ruleSchema() {
+  return call(RULES, 'RuleSchema');
+}
+
+/**
+ * Whether rule text would load, with every problem located in the source. Never rejects —
+ * a half-typed buffer is a normal state, not a failed call.
+ * @param {string} source
+ * @param {string} editingId the rule being edited ('' for a new one), so it does not
+ *   collide with its own name
+ * @returns {Promise<{valid:boolean, unknown_fields?:string[], normalized?:object,
+ *   errors:{code:string,field?:string,index:number,line:number,col:number,message:string}[],
+ *   warnings:{code:string,field?:string,index:number,line:number,col:number,message:string}[]}>}
+ */
+export function validateRule(source, editingId) {
+  return call(RULES, 'ValidateRule', source, editingId || '');
+}
+
+/** Pretty-print (or minify) rule text, preserving field order and any field this build does
+ * not interpret. @param {string} source @param {boolean} minify @returns {Promise<string>} */
+export function formatRule(source, minify) {
+  return call(RULES, 'FormatRule', source, !!minify);
+}
+
+/**
+ * A rule file's contents by path, for a file that failed to load and therefore has no id.
+ * Confined to the rules directory by the backend.
+ * @param {string} path @returns {Promise<string>}
+ */
+export function readRuleFile(path) {
+  return call(RULES, 'ReadRuleFile', path);
+}
+
+/**
+ * Creates or updates a user rule. An empty id creates; a changed name renames, which
+ * replaces the rule's identity — the result says so rather than leaving the UI to infer it.
+ * replace_path retires a broken file that has been repaired under a different name.
+ * @param {{id?:string, source:string, replace_path?:string}} req
+ * @returns {Promise<{rule:object, created:boolean, renamed:boolean, previous_id?:string}>}
+ */
+export function saveRule(req) {
+  return call(RULES, 'SaveRule', { id: '', source: '', replace_path: '', ...req });
+}
+
 // --- Rule-driven graph building (P6) ---
 
 /**

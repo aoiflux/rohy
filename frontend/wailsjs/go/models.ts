@@ -826,6 +826,40 @@ export namespace payload {
 
 export namespace rules {
 	
+	export class Field {
+	    name: string;
+	    kind: string;
+	    required: boolean;
+	    group: string;
+	    read_only: boolean;
+	    default?: any;
+	    enum?: string[];
+	    min_items?: number;
+	    max_items?: number;
+	    description: string;
+	    guidance: string;
+	    example: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Field(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.required = source["required"];
+	        this.group = source["group"];
+	        this.read_only = source["read_only"];
+	        this.default = source["default"];
+	        this.enum = source["enum"];
+	        this.min_items = source["min_items"];
+	        this.max_items = source["max_items"];
+	        this.description = source["description"];
+	        this.guidance = source["guidance"];
+	        this.example = source["example"];
+	    }
+	}
 	export class LoadError {
 	    path: string;
 	    message: string;
@@ -926,6 +960,178 @@ export namespace rules {
 	        this.path = source["path"];
 	        this.source = source["source"];
 	    }
+	}
+	export class SaveRequest {
+	    id: string;
+	    source: string;
+	    replace_path?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.source = source["source"];
+	        this.replace_path = source["replace_path"];
+	    }
+	}
+	export class SaveResult {
+	    rule?: Rule;
+	    created: boolean;
+	    renamed: boolean;
+	    previous_id?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rule = this.convertValues(source["rule"], Rule);
+	        this.created = source["created"];
+	        this.renamed = source["renamed"];
+	        this.previous_id = source["previous_id"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Schema {
+	    format_version: number;
+	    max_file_bytes: number;
+	    group_order: string[];
+	    fields: Field[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Schema(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format_version = source["format_version"];
+	        this.max_file_bytes = source["max_file_bytes"];
+	        this.group_order = source["group_order"];
+	        this.fields = this.convertValues(source["fields"], Field);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Spec {
+	    format_version: number;
+	    name: string;
+	    description: string;
+	    relation_type: string;
+	    algorithm?: string;
+	    sequence: string[];
+	    labels?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Spec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format_version = source["format_version"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.relation_type = source["relation_type"];
+	        this.algorithm = source["algorithm"];
+	        this.sequence = source["sequence"];
+	        this.labels = source["labels"];
+	    }
+	}
+	export class ValidationError {
+	    code: string;
+	    field?: string;
+	    index: number;
+	    line: number;
+	    col: number;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationError(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.field = source["field"];
+	        this.index = source["index"];
+	        this.line = source["line"];
+	        this.col = source["col"];
+	        this.message = source["message"];
+	    }
+	}
+	export class ValidationReport {
+	    valid: boolean;
+	    errors: ValidationError[];
+	    warnings: ValidationError[];
+	    normalized?: Spec;
+	    unknown_fields?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.valid = source["valid"];
+	        this.errors = this.convertValues(source["errors"], ValidationError);
+	        this.warnings = this.convertValues(source["warnings"], ValidationError);
+	        this.normalized = this.convertValues(source["normalized"], Spec);
+	        this.unknown_fields = source["unknown_fields"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

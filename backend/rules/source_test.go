@@ -114,3 +114,72 @@ func TestFindReturnsACopy(t *testing.T) {
 		t.Errorf("Find handed out a live pointer into the registry")
 	}
 }
+
+// --- Reading a file by path (P26 repair flow) ---
+
+func TestReadFileReturnsARuleFileByPath(t *testing.T) {
+	dir := t.TempDir()
+	// Deliberately BROKEN: this is the case Source cannot serve, because a file that failed
+	// to load has no rule and therefore no id.
+	body := `{"name":"Broken","sequence":["4624"]}`
+	writeRule(t, dir, "broken.json", body)
+
+	reg, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Invalids()) != 1 {
+		t.Fatalf("expected the file to fail to load, got %+v", reg.Invalids())
+	}
+
+	got, err := reg.ReadFile(reg.Invalids()[0].Path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got != body {
+		t.Errorf("contents = %q, want %q", got, body)
+	}
+}
+
+// The path always comes from a LoadError produced by scanning the rules directory, so
+// confining reads to that directory costs nothing legitimate — and it means a binding that
+// reads a file cannot be talked into reading an arbitrary one.
+func TestReadFileRefusesAnythingOutsideTheRulesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	if err := os.WriteFile(outside, []byte(`{"name":"X","sequence":["1","2"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, target := range []string{
+		outside,
+		filepath.Join(dir, "..", "escape.json"),
+		filepath.Join(dir, "..", filepath.Base(filepath.Dir(outside)), "secret.json"),
+	} {
+		if _, err := reg.ReadFile(target); err == nil {
+			t.Errorf("reading %q should be refused", target)
+		}
+	}
+}
+
+func TestReadFileRefusesAnOversizeFile(t *testing.T) {
+	dir := t.TempDir()
+	big := make([]byte, consts.RuleMaxFileBytes+1)
+	for i := range big {
+		big[i] = ' '
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.json"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.ReadFile(filepath.Join(dir, "big.json")); err == nil {
+		t.Error("an oversize file should be refused rather than read into memory")
+	}
+}

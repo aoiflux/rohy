@@ -25,7 +25,13 @@ const FINDING_COLUMNS = ['finding_flagged', 'finding_tags', 'finding_note'];
 
 const TAG_SEPARATOR = '; ';
 
-function download(filename, mime, text) {
+/**
+ * Triggers a Blob download. Exported because the rule editor writes a rule file out through
+ * the same path the event exports use — one download mechanism, so a change to how the
+ * WebView handles them is a change in one place.
+ * @param {string} filename @param {string} mime @param {string} text
+ */
+export function download(filename, mime, text) {
   if (typeof document === 'undefined') return;
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);

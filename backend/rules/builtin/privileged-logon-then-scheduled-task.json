@@ -4,11 +4,6 @@
   "description": "Special privileges are assigned to a logon (4672) and a scheduled task is later created (4698) on the same computer — a frequent persistence mechanism. Note 4672 fires on essentially every administrative or SYSTEM logon, so this pairing is broad by nature: treat it as a lead to inspect, not a finding on its own.",
   "relation_type": "correlation",
   "algorithm": "sequence",
-  "sequence": [
-    "4672",
-    "4698"
-  ],
-  "labels": [
-    "creates scheduled task"
-  ]
+  "sequence": ["4672", "4698"],
+  "labels": ["creates scheduled task"]
 }

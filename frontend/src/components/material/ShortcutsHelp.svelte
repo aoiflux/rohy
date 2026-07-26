@@ -32,6 +32,7 @@
     [SHORTCUT_SCOPE.EVENTS]: UI.SHORTCUT_SCOPE_EVENTS,
     [SHORTCUT_SCOPE.GRAPH]: UI.SHORTCUT_SCOPE_GRAPH,
     [SHORTCUT_SCOPE.TIMELINE]: UI.SHORTCUT_SCOPE_TIMELINE,
+    [SHORTCUT_SCOPE.EDITOR]: UI.SHORTCUT_SCOPE_EDITOR,
   };
 
   // Grouped by where each shortcut applies, so the list answers "what can I do here?".

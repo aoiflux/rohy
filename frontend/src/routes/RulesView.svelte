@@ -8,6 +8,7 @@
   import { theme } from '../stores/theme.js';
   import { route } from '../stores/router.js';
   import { rules } from '../stores/rules.js';
+  import { ruleEditor } from '../stores/ruleEditor.js';
   import { events, emptyFilter } from '../stores/events.js';
   import { graph } from '../stores/graph.js';
   import { snackbar } from '../stores/snackbar.js';
@@ -17,6 +18,7 @@
   import Button from '../components/material/Button.svelte';
   import Dialog from '../components/material/Dialog.svelte';
   import ProgressBar from '../components/material/ProgressBar.svelte';
+  import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   onMount(() => rules.load());
 
@@ -135,6 +137,35 @@
   // Runs rules and reports what was built. On success the first produced graph becomes
   // active and the user is offered a jump to the canvas — the run itself never steals the
   // view, so a build can't yank you out of what you were doing.
+  // --- Rule editor (P26) ---
+
+  // Editing is only ever offered on a rule that can actually be written to. A built-in lives
+  // in the binary, so the equivalent action there is a duplicate: the copy takes a new name
+  // and saves as a new rule, which is the documented way to vary one.
+  async function openEditor(rule) {
+    closeInspector();
+    if (rules.isDeletable(rule)) await ruleEditor.edit(rule);
+    else await ruleEditor.duplicate(rule);
+  }
+
+  // Repairing a file that failed to load. Until now this needed leaving the application: the
+  // errors panel could name the problem but not do anything about it.
+  async function fixBrokenFile(loadError) {
+    const src = await rules.sourceOfFile(loadError.path);
+    if (src === null) {
+      snackbar.error($rules.error || UI.RULE_INSPECT_UNAVAILABLE);
+      return;
+    }
+    ruleEditor.fix(src, loadError.path);
+  }
+
+  // After a save the library has already refreshed. `andRun` comes from Save-and-run, and
+  // reuses the ordinary run path so a rule saved that way reports exactly like one run from
+  // the list.
+  function onRuleSaved(result, andRun) {
+    if (andRun) runRules([result.rule.id]);
+  }
+
   async function runRules(ruleIds) {
     const filter = scoped && filterActive ? $events.filter : emptyFilter();
     const res = await rules.run(ruleIds, filter);
@@ -186,6 +217,7 @@
     <Button variant="filled" onclick={() => runRules([])} disabled={$rules.running || enabled === 0}>
       {$rules.running ? UI.RULES_RUNNING : UI.ACTION_RUN_RULES}
     </Button>
+    <Button variant="tonal" onclick={() => ruleEditor.createNew()}>{UI.ACTION_NEW_RULE}</Button>
     <Button variant="text" onclick={() => runImport(rules.importFiles)}>{UI.ACTION_IMPORT_RULES}</Button>
     <Button variant="text" onclick={() => runImport(rules.importFolder)}>{UI.ACTION_IMPORT_RULE_FOLDER}</Button>
     <Button variant="text" onclick={() => rules.reload()}>{UI.ACTION_RELOAD_RULES}</Button>
@@ -265,9 +297,16 @@
               <Button variant="text" onclick={() => runRules([rule.id])} disabled={$rules.running}>
                 {UI.ACTION_RUN_RULE}
               </Button>
+              <!-- A built-in lives in the binary and cannot be written to, so the equivalent
+                   action there is a duplicate: the copy takes a new name and saves as a new
+                   rule, which is the documented way to vary one. -->
               {#if rules.isDeletable(rule)}
+                <Button variant="text" onclick={() => openEditor(rule)}>{UI.ACTION_EDIT_RULE}</Button>
                 <Button variant="text" onclick={() => remove(rule)}>{UI.ACTION_DELETE_RULE}</Button>
               {:else}
+                <Button variant="text" title={UI.RULE_DUPLICATE_HINT} onclick={() => openEditor(rule)}>
+                  {UI.ACTION_DUPLICATE_RULE}
+                </Button>
                 <span class="protected" title={UI.RULE_BUILTIN_HINT}>🔒</span>
               {/if}
             </div>
@@ -281,7 +320,20 @@
         <h3>{UI.RULES_LOAD_ERRORS}</h3>
         <ul>
           {#each $rules.errors as e}
-            <li><code>{e.path}</code><span>{e.message}</span></li>
+            <li>
+              <div class="errhead">
+                <code>{e.path}</code>
+                <!-- Repairing a broken file used to mean leaving the application. A built-in
+                     that fails to load has no path and nothing to repair, so the action only
+                     appears for a file on disk. -->
+                {#if e.path}
+                  <Button variant="text" title={UI.RULES_FIX_HINT} onclick={() => fixBrokenFile(e)}>
+                    {UI.ACTION_FIX_RULE}
+                  </Button>
+                {/if}
+              </div>
+              <span>{e.message}</span>
+            </li>
           {/each}
         </ul>
       </section>
@@ -333,7 +385,12 @@
       <div class="srchead">
         <h3>{UI.RULE_INSPECT_SOURCE}</h3>
         {#if inspectedSource && inspectedSource.source}
-          <Button variant="text" onclick={copySource}>{UI.ACTION_COPY_SOURCE}</Button>
+          <span class="srcactions">
+            <Button variant="text" onclick={() => openEditor(inspected)}>
+              {rules.isDeletable(inspected) ? UI.ACTION_EDIT_RULE : UI.ACTION_DUPLICATE_RULE}
+            </Button>
+            <Button variant="text" onclick={copySource}>{UI.ACTION_COPY_SOURCE}</Button>
+          </span>
         {/if}
       </div>
       {#if inspectLoading}
@@ -350,6 +407,8 @@
     {/snippet}
   </Dialog>
 {/if}
+
+<RuleEditorDialog onsaved={onRuleSaved} />
 
 <style>
   .view {
@@ -627,6 +686,16 @@
     font-size: 0.72rem;
     color: var(--color-on-surface);
     word-break: break-all;
+  }
+  .errhead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .srcactions {
+    display: flex;
+    gap: var(--space-1);
   }
 
   .dir {
