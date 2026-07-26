@@ -202,14 +202,10 @@
 </script>
 
 <div class="view">
-  <AppBar title={UI.NAV_EVENTS}>
+  <AppBar route={ROUTES.EVENTS}>
     <span class="count">
       {$events.list.length} {UI.EVENTS_OF} {$events.total} {UI.RESULT_COUNT}
     </span>
-    <Button variant="text" onclick={() => route.go(ROUTES.DASHBOARD)}>{UI.NAV_DASHBOARD}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.GRAPH)}>{UI.NAV_GRAPH}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.RULES)}>{UI.NAV_RULES}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.TIMELINE)}>{UI.NAV_TIMELINE}</Button>
     <Button variant="text" onclick={() => doExport('json')} disabled={exporting !== null}>
       {exporting === 'json' ? UI.EXPORTING : UI.ACTION_EXPORT_JSON}
     </Button>

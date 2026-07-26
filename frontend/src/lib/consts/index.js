@@ -255,6 +255,9 @@ export const UI = Object.freeze({
   WINDOW_MAXIMISE: 'Maximise',
   WINDOW_CLOSE: 'Close',
 
+  NAV_MENU: 'Go to view',
+  NAV_MENU_HINT: 'Switch view',
+  NAV_MORE: 'More actions',
   NAV_DASHBOARD: 'Dashboard',
   NAV_EVENTS: 'Events',
   NAV_GRAPH: 'Graph',
@@ -532,8 +535,9 @@ export const UI = Object.freeze({
   RULE_EDITOR_MOVE_DOWN: 'Move later',
   // Entry points on the rules view
   ACTION_NEW_RULE: 'New rule',
-  ACTION_EDIT_RULE: 'Edit',
-  ACTION_DUPLICATE_RULE: 'Duplicate',
+  ACTION_EDIT_RULE: 'Edit…',
+  ACTION_DUPLICATE_RULE: 'Duplicate…',
+  ACTION_INSPECT_RULE: 'View definition…',
   ACTION_FIX_RULE: 'Fix…',
   RULE_DUPLICATE_HINT: 'Built-in rules cannot be edited in place — this opens an editable copy.',
   RULES_FIX_HINT: 'Open this file in the editor to repair it.',

@@ -4,7 +4,6 @@
   // the stores and the API wrapper — no direct binding calls, no async blocking.
   import { onMount } from 'svelte';
   import { theme } from '../stores/theme.js';
-  import { route } from '../stores/router.js';
   import {
     ingestion,
     progressFraction,
@@ -247,7 +246,7 @@
 </script>
 
 <div class="page">
-<AppBar title={UI.APP_NAME}>
+<AppBar route={ROUTES.DASHBOARD}>
   <span class="stat">{UI.LABEL_EVENTS}: <b>{fmt(stats.events)}</b></span>
   <span class="stat">{UI.LABEL_RELATIONS}: <b>{fmt(stats.relations)}</b></span>
   <!-- The analyst's own tally, kept visually apart from the two derived counts beside it
@@ -260,10 +259,6 @@
       {#if orphans.length}<span class="oflag">+{fmt(orphans.length)} {UI.FINDING_ORPHAN_SHORT}</span>{/if}
     </span>
   {/if}
-  <Button variant="text" onclick={() => route.go(ROUTES.EVENTS)}>{UI.NAV_EVENTS}</Button>
-  <Button variant="text" onclick={() => route.go(ROUTES.GRAPH)}>{UI.NAV_GRAPH}</Button>
-  <Button variant="text" onclick={() => route.go(ROUTES.RULES)}>{UI.NAV_RULES}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.TIMELINE)}>{UI.NAV_TIMELINE}</Button>
   <Button variant="text" onclick={openShortcuts} title={UI.ACTION_SHORTCUTS}>?</Button>
   <Button variant="tonal" onclick={() => theme.toggle()}>
     {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}

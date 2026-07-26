@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { SHORTCUTS, NAV_KEYS, isTypingTarget, matchNavRoute, isHelpKey } from './shortcuts.js';
+import {
+  SHORTCUTS,
+  NAV_KEYS,
+  NAV_ITEMS,
+  navLabel,
+  isTypingTarget,
+  matchNavRoute,
+  isHelpKey,
+} from './shortcuts.js';
 import { ROUTES } from './consts/index.js';
 
 const key = (over = {}) => ({ key: '1', altKey: false, ctrlKey: false, metaKey: false, ...over });
@@ -78,5 +86,40 @@ describe('documented map', () => {
       expect(seen.has(id), `duplicate binding ${id}`).toBe(false);
       seen.add(id);
     }
+  });
+});
+
+describe('navigation menu', () => {
+  // The app bars used to spell this list out as text buttons, four per view. Now one control
+  // renders NAV_ITEMS — so the menu and the keys must describe the same set, or a route
+  // becomes reachable by one and not the other.
+  it('offers exactly the routes the Alt+digit keys reach', () => {
+    expect(NAV_ITEMS.map((i) => i.id).sort()).toEqual(Object.values(NAV_KEYS).sort());
+  });
+
+  it('shows each entry its own key', () => {
+    for (const item of NAV_ITEMS) {
+      const digit = Object.keys(NAV_KEYS).find((d) => NAV_KEYS[d] === item.id);
+      expect(item.keys).toBe(`Alt+${digit}`);
+    }
+  });
+
+  it('labels every entry', () => {
+    for (const item of NAV_ITEMS) {
+      expect(item.label, `no label for ${item.id}`).toBeTruthy();
+      expect(navLabel(item.id)).toBe(item.label);
+    }
+  });
+
+  // Splash and the permission check are deliberately absent: they are states the app puts
+  // you in, not places to navigate to.
+  it('does not offer routes that are not destinations', () => {
+    expect(NAV_ITEMS.map((i) => i.id)).not.toContain(ROUTES.SPLASH);
+    expect(NAV_ITEMS.map((i) => i.id)).not.toContain(ROUTES.PERMISSION);
+  });
+
+  it('returns nothing for a route with no menu entry', () => {
+    expect(navLabel(ROUTES.SPLASH)).toBe('');
+    expect(navLabel('nope')).toBe('');
   });
 });

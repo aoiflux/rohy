@@ -26,6 +26,33 @@ export const NAV_KEYS = Object.freeze({
   5: ROUTES.TIMELINE,
 });
 
+const NAV_LABELS = Object.freeze({
+  [ROUTES.DASHBOARD]: UI.NAV_DASHBOARD,
+  [ROUTES.EVENTS]: UI.NAV_EVENTS,
+  [ROUTES.GRAPH]: UI.NAV_GRAPH,
+  [ROUTES.RULES]: UI.NAV_RULES,
+  [ROUTES.TIMELINE]: UI.NAV_TIMELINE,
+});
+
+/**
+ * NAV_ITEMS is the navigation menu, derived from NAV_KEYS so the menu and the keys cannot
+ * disagree: a route reachable by Alt+<digit> is in the menu, with that key shown beside it,
+ * and one that is not reachable cannot appear.
+ *
+ * Every view used to repeat this list as four text buttons in its app bar, which is what
+ * made the bars crowded before their own actions were even counted.
+ *
+ * @type {ReadonlyArray<{id:string, label:string, keys:string}>}
+ */
+export const NAV_ITEMS = Object.freeze(
+  Object.entries(NAV_KEYS).map(([digit, id]) => ({ id, label: NAV_LABELS[id], keys: `Alt+${digit}` })),
+);
+
+/** navLabel returns a route's display name, for the app bar's current-route trigger. */
+export function navLabel(routeId) {
+  return NAV_LABELS[routeId] || '';
+}
+
 export const SHORTCUTS = Object.freeze([
   { keys: '?', label: UI.SHORTCUTS_TITLE, scope: SHORTCUT_SCOPE.GLOBAL },
   { keys: 'Alt+1', label: UI.NAV_DASHBOARD, scope: SHORTCUT_SCOPE.GLOBAL },

@@ -388,16 +388,13 @@
 <svelte:window {onkeydown} />
 
 <div class="tl">
-  <AppBar title={UI.NAV_TIMELINE}>
+  <AppBar route={ROUTES.TIMELINE}>
     {#if summary}
       <span class="count">
         {fmtNum(summary.dated)}
         {UI.TIMELINE_DATED}
       </span>
     {/if}
-    <Button variant="text" onclick={() => route.go(ROUTES.DASHBOARD)}>{UI.NAV_DASHBOARD}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.EVENTS)}>{UI.NAV_EVENTS}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.GRAPH)}>{UI.NAV_GRAPH}</Button>
     <Button variant="tonal" onclick={() => theme.toggle()}>
       {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}
     </Button>

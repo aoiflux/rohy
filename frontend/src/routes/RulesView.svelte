@@ -18,6 +18,7 @@
   import Button from '../components/material/Button.svelte';
   import Dialog from '../components/material/Dialog.svelte';
   import ProgressBar from '../components/material/ProgressBar.svelte';
+  import Menu from '../components/material/Menu.svelte';
   import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   onMount(() => rules.load());
@@ -69,6 +70,52 @@
   }
 
   const enabled = $derived($rules.list.filter((r) => r.enabled).length);
+
+  // --- Overflow menus ---
+  //
+  // Two levels, same idea: the actions you reach for constantly stay visible, and the ones
+  // you reach for occasionally go behind a ⋯. In the bar that is library maintenance; on a
+  // row it is everything except running that one rule.
+
+  let libraryMenu = $state(false);
+  /** id → the row whose menu is open, so only one is ever up. */
+  let rowMenu = $state('');
+
+  const LIBRARY_ACTIONS = [
+    { id: 'import-files', label: UI.ACTION_IMPORT_RULES },
+    { id: 'import-folder', label: UI.ACTION_IMPORT_RULE_FOLDER },
+    { id: 'reload', label: UI.ACTION_RELOAD_RULES },
+  ];
+
+  function onLibraryAction(id) {
+    if (id === 'import-files') runImport(rules.importFiles);
+    else if (id === 'import-folder') runImport(rules.importFolder);
+    else if (id === 'reload') rules.reload();
+  }
+
+  // A built-in cannot be written to or deleted — it lives in the binary — so its menu offers
+  // the copy instead. Building the list per rule keeps that distinction in one place rather
+  // than spread across conditionals in the markup.
+  function rowActions(rule) {
+    if (rules.isDeletable(rule)) {
+      return [
+        { id: 'edit', label: UI.ACTION_EDIT_RULE },
+        { id: 'duplicate', label: UI.ACTION_DUPLICATE_RULE },
+        { id: 'delete', label: UI.ACTION_DELETE_RULE, danger: true },
+      ];
+    }
+    return [
+      { id: 'duplicate', label: UI.ACTION_DUPLICATE_RULE },
+      { id: 'inspect', label: UI.ACTION_INSPECT_RULE },
+    ];
+  }
+
+  function onRowAction(rule, id) {
+    if (id === 'edit') openEditor(rule);
+    else if (id === 'duplicate') ruleEditor.duplicate(rule);
+    else if (id === 'delete') remove(rule);
+    else if (id === 'inspect') inspect(rule);
+  }
 
   // --- Rule inspector (P19) ---
 
@@ -134,9 +181,6 @@
   });
   let scoped = $state(false);
 
-  // Runs rules and reports what was built. On success the first produced graph becomes
-  // active and the user is offered a jump to the canvas — the run itself never steals the
-  // view, so a build can't yank you out of what you were doing.
   // --- Rule editor (P26) ---
 
   // Editing is only ever offered on a rule that can actually be written to. A built-in lives
@@ -166,6 +210,9 @@
     if (andRun) runRules([result.rule.id]);
   }
 
+  // Runs rules and reports what was built. On success the first produced graph becomes
+  // active and the user is offered a jump to the canvas — the run itself never steals the
+  // view, so a build can't yank you out of what you were doing.
   async function runRules(ruleIds) {
     const filter = scoped && filterActive ? $events.filter : emptyFilter();
     const res = await rules.run(ruleIds, filter);
@@ -207,20 +254,25 @@
 </script>
 
 <div class="view">
-  <AppBar title={UI.NAV_RULES}>
-    <span class="count">
-      {$rules.list.length} {UI.RULES_COUNT_SUFFIX} · {enabled} {UI.RULES_ENABLED_SUFFIX}
-    </span>
-    <Button variant="text" onclick={() => route.go(ROUTES.DASHBOARD)}>{UI.NAV_DASHBOARD}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.GRAPH)}>{UI.NAV_GRAPH}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.TIMELINE)}>{UI.NAV_TIMELINE}</Button>
+  <!-- Two primary actions stay visible; the library-maintenance ones sit behind the overflow.
+       Importing and reloading are things you do occasionally, and each one competing with
+       "Run enabled rules" for attention was what made this bar unreadable. -->
+  <AppBar route={ROUTES.RULES}>
     <Button variant="filled" onclick={() => runRules([])} disabled={$rules.running || enabled === 0}>
       {$rules.running ? UI.RULES_RUNNING : UI.ACTION_RUN_RULES}
     </Button>
     <Button variant="tonal" onclick={() => ruleEditor.createNew()}>{UI.ACTION_NEW_RULE}</Button>
-    <Button variant="text" onclick={() => runImport(rules.importFiles)}>{UI.ACTION_IMPORT_RULES}</Button>
-    <Button variant="text" onclick={() => runImport(rules.importFolder)}>{UI.ACTION_IMPORT_RULE_FOLDER}</Button>
-    <Button variant="text" onclick={() => rules.reload()}>{UI.ACTION_RELOAD_RULES}</Button>
+    <div class="overflow">
+      <button
+        type="button"
+        class="more"
+        aria-haspopup="menu"
+        aria-expanded={libraryMenu}
+        title={UI.NAV_MORE}
+        onclick={() => (libraryMenu = !libraryMenu)}>⋯</button
+      >
+      <Menu bind:open={libraryMenu} align="right" label={UI.NAV_MORE} items={LIBRARY_ACTIONS} onselect={onLibraryAction} />
+    </div>
     <Button variant="tonal" onclick={() => theme.toggle()}>
       {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}
     </Button>
@@ -251,13 +303,20 @@
   {/if}
 
   <div class="body">
+    <!-- The tally lives here rather than in the app bar: it describes the list directly
+         below it, and it was taking bar space from the actions. -->
     <div class="scoperow">
-      <p class="subtitle">{UI.RULES_SUBTITLE}</p>
+      <p class="count">
+        <b>{$rules.list.length}</b>
+        {UI.RULES_COUNT_SUFFIX} · <b>{enabled}</b>
+        {UI.RULES_ENABLED_SUFFIX}
+      </p>
       <label class="scope" class:disabled={!filterActive} title={filterActive ? '' : UI.RULES_SCOPE_NONE}>
         <input type="checkbox" bind:checked={scoped} disabled={!filterActive} />
         <span>{UI.RULES_SCOPE_FILTER}</span>
       </label>
     </div>
+    <p class="subtitle">{UI.RULES_SUBTITLE}</p>
 
     {#if $rules.list.length === 0}
       <p class="msg">{$rules.loading ? UI.SPLASH_LOADING : UI.RULES_EMPTY}</p>
@@ -293,22 +352,35 @@
               </div>
             </button>
 
+            <!-- Running this one rule is the action worth a click; the rest are occasional,
+                 and thirty rows of three buttons was more chrome than library. -->
             <div class="actions">
+              {#if !rules.isDeletable(rule)}
+                <span class="protected" title={UI.RULE_BUILTIN_HINT}>🔒</span>
+              {/if}
               <Button variant="text" onclick={() => runRules([rule.id])} disabled={$rules.running}>
                 {UI.ACTION_RUN_RULE}
               </Button>
-              <!-- A built-in lives in the binary and cannot be written to, so the equivalent
-                   action there is a duplicate: the copy takes a new name and saves as a new
-                   rule, which is the documented way to vary one. -->
-              {#if rules.isDeletable(rule)}
-                <Button variant="text" onclick={() => openEditor(rule)}>{UI.ACTION_EDIT_RULE}</Button>
-                <Button variant="text" onclick={() => remove(rule)}>{UI.ACTION_DELETE_RULE}</Button>
-              {:else}
-                <Button variant="text" title={UI.RULE_DUPLICATE_HINT} onclick={() => openEditor(rule)}>
-                  {UI.ACTION_DUPLICATE_RULE}
-                </Button>
-                <span class="protected" title={UI.RULE_BUILTIN_HINT}>🔒</span>
-              {/if}
+              <div class="overflow">
+                <button
+                  type="button"
+                  class="more"
+                  aria-haspopup="menu"
+                  aria-expanded={rowMenu === rule.id}
+                  aria-label={`${UI.NAV_MORE}: ${rule.name}`}
+                  onclick={() => (rowMenu = rowMenu === rule.id ? '' : rule.id)}>⋮</button
+                >
+                <!-- One shared `rowMenu` id rather than a flag per row, so opening one menu
+                     closes any other. That rules out bind:open, hence onclose. -->
+                <Menu
+                  open={rowMenu === rule.id}
+                  align="right"
+                  label={rule.name}
+                  items={rowActions(rule)}
+                  onselect={(id) => onRowAction(rule, id)}
+                  onclose={() => (rowMenu = '')}
+                />
+              </div>
             </div>
           </li>
         {/each}
@@ -418,10 +490,46 @@
     min-height: 0;
   }
   .count {
+    margin: 0;
     font-family: var(--font-sans);
     font-size: 0.85rem;
-    color: var(--color-on-surface-variant);
-    margin-right: var(--space-3);
+    color: var(--color-on-surface-muted);
+  }
+  .count b {
+    color: var(--color-on-surface);
+  }
+
+  /* Overflow trigger, used both in the app bar and on each row. It is a plain glyph until
+     pointed at, so thirty of them down a list read as texture rather than as thirty
+     buttons competing with the rule names. */
+  .overflow {
+    position: relative;
+    display: inline-flex;
+  }
+  .more {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--color-on-surface-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+  }
+  .more:hover,
+  .more[aria-expanded='true'] {
+    background: var(--color-surface-variant);
+    color: var(--color-primary);
+    border-color: var(--color-outline);
+  }
+  .more:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
   .runbar {
     display: flex;

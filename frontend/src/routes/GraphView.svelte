@@ -5,7 +5,6 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { theme } from '../stores/theme.js';
-  import { route } from '../stores/router.js';
   import { events } from '../stores/events.js';
   import { graph } from '../stores/graph.js';
   import { findings } from '../stores/findings.js';
@@ -168,11 +167,7 @@
 </script>
 
 <div class="gv">
-<AppBar title={UI.NAV_GRAPH}>
-  <Button variant="text" onclick={() => route.go(ROUTES.DASHBOARD)}>{UI.NAV_DASHBOARD}</Button>
-  <Button variant="text" onclick={() => route.go(ROUTES.EVENTS)}>{UI.NAV_EVENTS}</Button>
-  <Button variant="text" onclick={() => route.go(ROUTES.RULES)}>{UI.NAV_RULES}</Button>
-    <Button variant="text" onclick={() => route.go(ROUTES.TIMELINE)}>{UI.NAV_TIMELINE}</Button>
+<AppBar route={ROUTES.GRAPH}>
   <Button variant="text" onclick={loadMapping}>{UI.ACTION_LOAD_MAPPING}</Button>
   <Button variant="text" onclick={saveLayout}>{UI.ACTION_SAVE_LAYOUT}</Button>
   <Button variant="text" onclick={() => graph.clearCanvas()}>{UI.ACTION_CLEAR_CANVAS}</Button>
