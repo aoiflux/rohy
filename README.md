@@ -31,6 +31,10 @@ automatically with correlation rules.
   built in.
 - **Map** events on a graph canvas, by hand or generated from a rule — one rule,
   one graph.
+- **Place** everything in time on a dedicated timeline with zoom, pan, scrub,
+  range selection and lanes — sharing one selection with the graph canvas.
+- **Annotate** with your own findings — a flag, tags and a note per event, kept
+  in a readable sidecar beside the evidence rather than inside it.
 - **See provenance** everywhere: a relation the tool inferred and one you
   asserted never look the same.
 
@@ -45,19 +49,11 @@ the machine.
 | **Events**      | Accurate counts, progressive loading, collapsible search with persisted filters, relation-aware quick filters, CSV/JSON export                                                           |
 | **Rules**       | Portable one-file-per-rule JSON, 30 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored                                                             |
 | **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content                                                                         |
+| **Timeline**    | Backend density histogram (cheap at any size), zoom/pan/scrub, range selection that filters, lanes by provider, channel, user, computer or graph, shared selection with the canvas       |
+| **Findings**    | Per-event flag, tags and note in a plain-JSON sidecar; tag suggestions, finding filters on the event list, and an audit that reports orphaned findings rather than deleting them         |
 | **Correlation** | Sequence matching scoped per computer, non-overlapping, capped; idempotent rebuilds (re-running replaces, never duplicates)                                                              |
 
 ## Install
-
-### Download
-
-Grab the archive for your platform from the [releases page](../../releases) and
-run it. Each release ships `SHA256SUMS.txt` — verify before running:
-
-```bash
-sha256sum -c SHA256SUMS.txt          # Linux
-shasum -a 256 -c SHA256SUMS.txt      # macOS
-```
 
 ```powershell
 Get-FileHash .\rohy.exe -Algorithm SHA256   # Windows — compare against SHA256SUMS.txt
@@ -70,8 +66,9 @@ Get-FileHash .\rohy.exe -Algorithm SHA256   # Windows — compare against SHA256
 
 ### Build from source
 
-Requires **Go 1.23+**, **Node 20+**, and the
-[Wails CLI](https://wails.io/docs/gettingstarted/installation).
+Requires **Go 1.26**, **Node 24**, and the
+[Wails CLI](https://wails.io/docs/gettingstarted/installation) **v2.13.0** — the
+same versions CI builds releases with.
 
 ```bash
 git clone <repo> && cd rohy
@@ -117,6 +114,13 @@ measured.
    canvas.
 4. **Map** — on the Graph page, drag from a node's link handle (or press `C` for
    connect mode and drag from anywhere on a card) to relate two events.
+5. **Place in time** — the Timeline page shows the filtered set chronologically.
+   Drag to pan (or select, depending on mode), scrub the playhead, and group
+   into lanes by provider, channel, user, computer or graph. Selecting an event
+   here focuses it on the canvas. Undated events can't be placed on a timeline,
+   so the page says how many there are and links to them.
+6. **Annotate** — flag an event, tag it, or write a note. Findings are saved to
+   a readable JSON sidecar and can be filtered on from the Events page.
 
 Press <kbd>?</kbd> anywhere for the full keyboard reference.
 
@@ -252,15 +256,16 @@ acting on a graph.
 **Delivered** — ingestion (files, folders, SQLite, live capture with
 pause/resume), event querying with accurate counts and progressive loading, the
 rule engine and built-in library, the dual-mode rule editor, auto-graphing,
-multiple graphs, the graph canvas, relation provenance, keyboard shortcuts, and
-the release pipeline.
+multiple graphs, the graph canvas, relation provenance, the timeline page (zoom,
+pan, scrub, lanes, shared selection with the canvas), analyst findings with
+orphan auditing, keyboard shortcuts, and the release pipeline.
 
 **Next**
 
-- **Dedicated timeline page** — chronological flow with zoom, pan, scrub,
-  grouping, and bidirectional selection with the graph canvas.
 - **Application context menu** and an **active-rules status bar**.
 - **Code signing and notarization** for released binaries.
+- **Manual verification on Linux and macOS** — both build in CI today, but
+  neither has been exercised by hand.
 
 **Deferred, deliberately** — streaming progress for very large rule runs,
 windowed evaluation for very large event sets, a full keyboard-only connect path
