@@ -4,6 +4,7 @@
   "description": "A disabled user account is enabled (4722) and a security-enabled local group then gains a member (4732) — reviving a dormant account and giving it privilege, which leaves no new account behind to notice. Ordinary provisioning emits 4722 as well, and the two events are paired by host and time order rather than by account.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4722", "4732"],
   "labels": ["then added to group"]
 }

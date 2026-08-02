@@ -14,21 +14,17 @@ import { RULE_PROBLEMS } from '../consts/index.js';
 const fixture = (name) =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`../../../../backend/rules/testdata/${name}`, import.meta.url)), 'utf8'));
 
-// A stand-in for the descriptor the backend serves, carrying the same bounds. The real one
-// arrives over RuleSchema(); these are the values Describe() is built from.
-const SCHEMA = {
-  format_version: 1,
-  max_file_bytes: 1 << 20,
-  fields: [
-    { name: 'name', kind: 'string', required: true },
-    { name: 'sequence', kind: 'string[]', required: true, min_items: 2, max_items: 1000 },
-    { name: 'labels', kind: 'string[]', max_items: 999 },
-    { name: 'description', kind: 'string' },
-    { name: 'relation_type', kind: 'string', enum: ['correlation', 'temporal', 'default'] },
-    { name: 'algorithm', kind: 'string', enum: ['sequence'] },
-    { name: 'format_version', kind: 'integer' },
-  ],
-};
+// The descriptor is read from the BACKEND's schema golden rather than hand-written here.
+//
+// It used to be a stand-in copy carrying "the same bounds", and that was fine while the format
+// was uniform. It stopped being fine the moment fields became algorithm-dependent: a local
+// copy would have to be updated by hand every time the format grew, and the version that is
+// out of date is the version that makes this validator agree with a backend it no longer
+// matches — which is precisely the drift the shared fixture exists to catch.
+//
+// The golden is generated from rules.Describe(), so this reads the real descriptor. A format
+// change now breaks the Go golden test AND lands here in the same edit.
+const SCHEMA = fixture('schema-golden.json');
 
 describe('validate — shared fixture parity with the Go validator', () => {
   for (const testCase of fixture('validation-cases.json')) {

@@ -1,11 +1,14 @@
 package graphene
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"rohy/backend/consts"
 )
 
 // Store memory profile (2.5.1).
@@ -111,6 +114,150 @@ func TestStoreMemoryPerEvent(t *testing.T) {
 	const ceiling = 2200
 	if perEvent > ceiling {
 		t.Errorf("store holds ~%.0f B per event, above the %d B regression ceiling", perEvent, ceiling)
+	}
+}
+
+// --- Correlation projection budget (v0.2.0) ---
+//
+// The projection puts a dozen EventData scalars back INTO the node record, which is the one
+// place this codebase has spent real effort emptying: moving the raw record out took an event
+// from 3137 to 867 resident bytes. Adding fields back is therefore a decision that has to be
+// paid for in a measurement, not argued for in a comment.
+//
+// The budget is enforced against the ENCODED NODE RECORD rather than against the heap, and
+// that choice is deliberate. The heap tests above measure a ~1000 B/event base with GC timing
+// noise comfortably larger than the 200 B this feature is allowed to cost — they could not
+// resolve a breach, and a test that cannot fail for the reason it exists is worse than no
+// test. The properties blob IS what the graph holds resident per node, so measuring its size
+// measures the actual quantity, exactly and without noise.
+
+// encodedNodeBytes returns the size of the properties blob the store would persist for an
+// event — the per-node cost the graph keeps in memory.
+func encodedNodeBytes(t *testing.T, e *Event) int {
+	t.Helper()
+	n, err := e.toNode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	return len(n.Properties)
+}
+
+// TestCorrelationProjectionBudget fails the build when the projection costs more per event
+// than it was budgeted.
+//
+// If this fails, the fix is to SHRINK THE VOCABULARY — drop a slot, or tighten
+// CorrelationValueMaxLen — not to raise the ceiling. The whole reason this project has a
+// PERFORMANCE.md is that a plausible-sounding optimisation was measured and reverted; the
+// same discipline applies to a plausible-sounding feature.
+func TestCorrelationProjectionBudget(t *testing.T) {
+	base := &Event{
+		EventID:            "4688",
+		Timestamp:          time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Provider:           "Microsoft-Windows-Security-Auditing",
+		Channel:            "Security",
+		Computer:           "WORKSTATION-01",
+		User:               "S-1-5-18",
+		HashRaw:            strings.Repeat("a", 64),
+		HashNormalized:     strings.Repeat("b", 64),
+		SourceType:         "single_evtx_file",
+		SourceIdentifier:   `C:\Windows\System32\winevt\Logs\Security.evtx`,
+		DeduplicationCount: 1,
+	}
+	without := encodedNodeBytes(t, base)
+
+	// The realistic case: a 4688 populates about a third of the vocabulary.
+	typical := *base
+	typical.ParsedFields = map[string]string{
+		"SubjectUserName":   "alice",
+		"SubjectLogonId":    "0x3E7",
+		"NewProcessId":      "0x1A4",
+		"NewProcessName":    `C:\Windows\System32\cmd.exe`,
+		"ProcessId":         "0x2C8",
+		"ParentProcessName": `C:\Windows\explorer.exe`,
+	}
+	typical.ComputeCorrelationKeys()
+	typicalCost := encodedNodeBytes(t, &typical) - without
+
+	// The worst case the format ALLOWS: every slot populated at the maximum value length.
+	// This is the number the budget has to hold against, because it is what an adversarial
+	// (or merely verbose) log can produce.
+	worst := *base
+	worst.CorrKeys = make([]string, consts.CorrelationSlotCount)
+	for i := range worst.CorrKeys {
+		worst.CorrKeys[i] = strings.Repeat("x", consts.CorrelationSlotMaxLen[i])
+	}
+	worst.CorrKeyVersion = consts.CorrelationKeyVersion
+	worstCost := encodedNodeBytes(t, &worst) - without
+
+	t.Logf("correlation projection: typical 4688 adds %d B/event, format worst case adds %d B/event "+
+		"(baseline node record %d B)", typicalCost, worstCost, without)
+	t.Logf("extrapolation at worst case: 1M events ~%.1f MB, 10M events ~%.1f MB",
+		float64(worstCost)*1e6/(1<<20), float64(worstCost)*1e7/(1<<20))
+
+	// The budget. Worst case, because a ceiling that only holds for the average is not a
+	// ceiling.
+	//
+	// The figure is MEASURED, not chosen. The design opened with an estimate of 200 B, made
+	// before any of this existed; the first run of this test returned 819 B for a twelve-slot
+	// vocabulary sharing one 64-byte cap, which is most of the way back to the resident cost
+	// that moving the raw record out of the node was supposed to remove. Two things came out
+	// of that measurement, and both were the right change independently of the number:
+	//
+	//   - Slots are bounded to their own domain (consts.CorrelationSlotMaxLen). A 64-byte cap
+	//     on a process id was never anything but slack.
+	//   - parent_process_name and session_id left the vocabulary — one redundant with data
+	//     already on the other endpoint of a lineage edge, one strictly less precise than
+	//     logon_id.
+	//
+	// What is left costs ~370 B at a worst case no real Windows event reaches, and ~70 B on a
+	// representative 4688. Against an 867 B/event baseline that is around +8% typical to make
+	// field, temporal and lineage correlation possible at all, which is a trade worth making —
+	// and unlike the estimate it replaced, it is a number this test will hold to.
+	const budget = 400
+	if worstCost > budget {
+		t.Errorf("correlation projection costs %d B/event at the format's worst case, above the "+
+			"%d B budget — shrink consts.CorrelationSlots or tighten consts.CorrelationSlotMaxLen "+
+			"rather than raising this number", worstCost, budget)
+	}
+
+	// A projection stored by NAME instead of by position is the obvious-looking alternative
+	// that this design rejected. Pinning the comparison keeps the reason present in the
+	// codebase rather than only in a plan that will be deleted.
+	named := make(map[string]string, consts.CorrelationSlotCount)
+	for i, name := range consts.CorrelationSlots {
+		named[name] = worst.CorrKeys[i]
+	}
+	namedBlob, err := json.Marshal(named)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	t.Logf("by-position costs %d B; the same values keyed by name would cost %d B (+%d B/event of pure vocabulary)",
+		worstCost, len(namedBlob), len(namedBlob)-worstCost)
+}
+
+// TestCorrelationProjectionIsFlatInFieldCount pins the property that makes the budget hold:
+// the cost tracks the VOCABULARY, not how many fields the source event happened to carry.
+//
+// An event with two hundred EventData entries must cost the same as one with six, because the
+// projection selects a fixed set. If this fails, something is copying ParsedFields wholesale
+// into the node record again — which is the exact regression the cold store exists to prevent,
+// arriving through a new door.
+func TestCorrelationProjectionIsFlatInFieldCount(t *testing.T) {
+	mk := func(extra int) int {
+		e := &Event{EventID: "4688", HashNormalized: "h"}
+		fields := map[string]string{"SubjectLogonId": "0x3E7", "NewProcessId": "0x1A4"}
+		for i := range extra {
+			fields[fmt.Sprintf("Filler%d", i)] = strings.Repeat("v", 128)
+		}
+		e.ParsedFields = fields
+		e.ComputeCorrelationKeys()
+		return encodedNodeBytes(t, e)
+	}
+	few, many := mk(4), mk(200)
+	t.Logf("6 EventData fields: %d B; 202 EventData fields: %d B", few, many)
+	if many != few {
+		t.Errorf("node record grew with EventData size (%d -> %d B); the projection must select "+
+			"a fixed vocabulary, not carry the payload", few, many)
 	}
 }
 

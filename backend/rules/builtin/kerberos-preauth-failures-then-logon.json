@@ -4,6 +4,7 @@
   "description": "Three or more Kerberos pre-authentication failures (4771) followed by a successful logon (4624) — the domain-controller view of password guessing that eventually works. 4771 is written on the domain controller, so this rule matches DC logs rather than the workstation the user sat at, and it is noisier than it looks: an expired password or a service still presenting stale credentials produces runs of 4771 with no attack behind them.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4771", "4771", "4771", "4624"],
   "labels": ["", "", "then succeeds"]
 }

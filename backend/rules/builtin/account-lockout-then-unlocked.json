@@ -4,6 +4,7 @@
   "description": "An account is locked out (4740) and an account is then unlocked (4767) — the tail of a guessing attempt, or a helpdesk unlock granted to whoever asked for it. The unlock is the deliberate act worth attributing: who requested it, and was the lockout theirs? The two events are paired by host and time order, not by account.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4740", "4767"],
   "labels": ["then unlocked"]
 }

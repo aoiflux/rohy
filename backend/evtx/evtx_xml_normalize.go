@@ -93,6 +93,10 @@ func normalizeXMLRecord(raw string) (*graphene.Event, uint64, error) {
 	// and three parsers, and three copies of it would drift. SourceIdentifier is empty here
 	// and the sink recomputes once it is known.
 	ev.ComputeNormalizedHash()
+	// Projected here as well as on the file path, from the same schema-owned extractor, so
+	// the same event correlates identically whether it arrived from an archive or the live
+	// channel — the same guarantee the shared hashing gives dedup.
+	ev.ComputeCorrelationKeys()
 	recordID, _ := strconv.ParseUint(strings.TrimSpace(doc.System.EventRecordID), 10, 64)
 	return ev, recordID, nil
 }

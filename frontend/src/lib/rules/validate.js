@@ -11,7 +11,13 @@
 // test on both sides rather than an editor that quietly accepts something the loader will
 // refuse.
 
-import { RULE_PROBLEMS } from '../consts/index.js';
+import {
+  ALGORITHMS,
+  LINEAGE_MAX_DEPTH,
+  RULE_FIELDS,
+  RULE_PROBLEMS,
+  TEMPORAL_MAX_WINDOW_NS,
+} from '../consts/index.js';
 import { parseText, offsetToLineCol, slug } from './document.js';
 
 /**
@@ -69,7 +75,7 @@ export function validate(source, schema) {
 
   return result(
     problems(value, schema).map(locate),
-    advisories(value, unknownFields).map(locate),
+    advisories(value, unknownFields, schema).map(locate),
     unknownFields,
     value,
   );
@@ -128,10 +134,13 @@ function describeKind(kind) {
  * @returns {Problem[]}
  */
 function problems(value, schema) {
-  const out = [];
   const current = schema?.format_version ?? 1;
   const declared = typeof value.format_version === 'number' ? value.format_version : 0;
-  const version = declared === 0 ? current : declared;
+  const algorithm = algorithmOf(value);
+  const descriptor = algorithmDescriptor(schema, algorithm);
+  // An omitted version means "what this rule needs", not "what this build is" — a rule using
+  // only v1 features must declare 1 so older builds still load it.
+  const version = declared === 0 ? Math.max(1, descriptor?.min_format_version ?? 1) : declared;
 
   if (version > current) {
     // Nothing else is reported for a file from the future: every further complaint would be
@@ -146,14 +155,59 @@ function problems(value, schema) {
     ];
   }
 
+  // The algorithm is resolved first and an unknown one stops the pass, because almost every
+  // remaining check depends on which algorithm this is — whether a sequence is required,
+  // whether match_fields must be present, whether a window is mandatory. Checking against a
+  // guessed algorithm would put confident, wrong complaints beside the real one.
+  if (!descriptor) {
+    return [
+      problem(
+        RULE_PROBLEMS.UNKNOWN_ALGORITHM,
+        RULE_FIELDS.ALGORITHM,
+        -1,
+        `unknown correlation algorithm "${value.algorithm}"`,
+      ),
+    ];
+  }
+
+  const out = [];
+  const minVersion = descriptor.min_format_version ?? 1;
+  if (version < minVersion) {
+    out.push(
+      problem(
+        RULE_PROBLEMS.ALGORITHM_NEEDS_FORMAT,
+        RULE_FIELDS.ALGORITHM,
+        -1,
+        `the "${algorithm}" algorithm requires format_version ${minVersion}, but this file declares ${version}`,
+      ),
+    );
+  }
+
+  if (String(value.name ?? '').trim() === '') {
+    out.push(problem(RULE_PROBLEMS.NAME_REQUIRED, 'name', -1, 'rule name is required'));
+  }
+
+  out.push(...sequenceProblems(value, schema, descriptor));
+  out.push(...scopeProblems(value, schema));
+  out.push(...matchFieldProblems(value, schema, descriptor, algorithm));
+  out.push(...windowProblems(value, descriptor));
+  out.push(...lineageProblems(value, descriptor));
+  out.push(...channelProblems(value));
+  return out;
+}
+
+/** sequenceProblems checks the event-ID sequence, for the algorithms that have one. */
+function sequenceProblems(value, schema, descriptor) {
+  // Lineage reconstructs ancestry from creation records; it has no sequence to check, and a
+  // sequence present anyway is an advisory rather than a rejection.
+  if (descriptor.requires_sequence === false) return [];
+
+  const out = [];
   const sequence = Array.isArray(value.sequence) ? value.sequence : [];
   const labels = Array.isArray(value.labels) ? value.labels : [];
   const min = minItems(schema, 'sequence', 2);
   const max = maxItems(schema, 'sequence', 1000);
 
-  if (String(value.name ?? '').trim() === '') {
-    out.push(problem(RULE_PROBLEMS.NAME_REQUIRED, 'name', -1, 'rule name is required'));
-  }
   if (sequence.length < min) {
     out.push(problem(RULE_PROBLEMS.SEQUENCE_SHORT, 'sequence', -1, `rule sequence needs at least ${min} event IDs`));
   }
@@ -182,18 +236,188 @@ function problems(value, schema) {
       ),
     );
   }
-  const algorithm = String(value.algorithm ?? '').trim();
-  const allowed = enumOf(schema, 'algorithm');
-  if (algorithm !== '' && allowed.length > 0 && !allowed.includes(algorithm)) {
+  return out;
+}
+
+/**
+ * scopeProblems refuses an unrecognized correlation scope.
+ *
+ * Unlike relation_type — which is cosmetic and silently corrected — a scope decides WHICH
+ * events may match each other, so substituting a default would build a graph the author did
+ * not ask for and has no way to notice.
+ */
+function scopeProblems(value, schema) {
+  const scope = String(value[RULE_FIELDS.MATCH_SCOPE] ?? '').trim();
+  if (scope === '') return [];
+  const allowed = enumOf(schema, RULE_FIELDS.MATCH_SCOPE);
+  if (allowed.length === 0 || allowed.includes(scope)) return [];
+  return [
+    problem(
+      RULE_PROBLEMS.UNKNOWN_SCOPE,
+      RULE_FIELDS.MATCH_SCOPE,
+      -1,
+      `unknown match_scope "${value[RULE_FIELDS.MATCH_SCOPE]}" (expected one of: ${allowed.join(', ')})`,
+    ),
+  ];
+}
+
+/** matchFieldProblems checks the correlation fields a match must share. */
+function matchFieldProblems(value, schema, descriptor, algorithm) {
+  const out = [];
+  const fields = Array.isArray(value[RULE_FIELDS.MATCH_FIELDS]) ? value[RULE_FIELDS.MATCH_FIELDS] : [];
+
+  // Field correlation with nothing to correlate on is sequence correlation wearing a
+  // different name, so it is refused rather than quietly downgraded.
+  if (algorithm === ALGORITHMS.FIELD && fields.length === 0) {
     out.push(
-      problem(RULE_PROBLEMS.UNKNOWN_ALGORITHM, 'algorithm', -1, `unknown correlation algorithm "${value.algorithm}"`),
+      problem(
+        RULE_PROBLEMS.MATCH_FIELDS_REQUIRED,
+        RULE_FIELDS.MATCH_FIELDS,
+        -1,
+        `the "${algorithm}" algorithm needs at least one entry in match_fields`,
+      ),
+    );
+  }
+  if (!reads(descriptor, RULE_FIELDS.MATCH_FIELDS)) return out;
+
+  const known = enumOf(schema, RULE_FIELDS.MATCH_FIELDS);
+  const seen = new Set();
+  fields.forEach((raw, i) => {
+    const name = String(raw ?? '').trim();
+    if (known.length > 0 && !known.includes(name)) {
+      out.push(
+        problem(
+          RULE_PROBLEMS.UNKNOWN_MATCH_FIELD,
+          RULE_FIELDS.MATCH_FIELDS,
+          i,
+          `"${raw}" is not a correlation field (available: ${known.join(', ')})`,
+        ),
+      );
+      return;
+    }
+    if (seen.has(name)) {
+      out.push(
+        problem(
+          RULE_PROBLEMS.DUPLICATE_MATCH_FIELD,
+          RULE_FIELDS.MATCH_FIELDS,
+          i,
+          `match_fields lists "${name}" more than once`,
+        ),
+      );
+    }
+    seen.add(name);
+  });
+  return out;
+}
+
+/** windowProblems checks the temporal bounds. */
+function windowProblems(value, descriptor) {
+  if (!reads(descriptor, RULE_FIELDS.WINDOW_WITHIN)) return [];
+
+  const out = [];
+  const rawWithin = String(value[RULE_FIELDS.WINDOW_WITHIN] ?? '').trim();
+  const rawTotal = String(value[RULE_FIELDS.WINDOW_TOTAL] ?? '').trim();
+
+  // An unbounded temporal rule is a slower spelling of a sequence rule, so the window is
+  // required rather than defaulted to infinity.
+  if (rawWithin === '') {
+    out.push(
+      problem(
+        RULE_PROBLEMS.WINDOW_REQUIRED,
+        RULE_FIELDS.WINDOW_WITHIN,
+        -1,
+        `the "${descriptor.name}" algorithm needs a window_within duration (for example "5m")`,
+      ),
+    );
+  }
+  const within = parseGoDuration(rawWithin);
+  const total = parseGoDuration(rawTotal);
+  out.push(...durationProblems(RULE_FIELDS.WINDOW_WITHIN, rawWithin, within));
+  out.push(...durationProblems(RULE_FIELDS.WINDOW_TOTAL, rawTotal, total));
+
+  // A total shorter than the per-step bound can never be satisfied, so the rule would
+  // silently never fire.
+  if (within !== null && total !== null && within > 0 && total > 0 && total < within) {
+    out.push(
+      problem(
+        RULE_PROBLEMS.WINDOW_TOTAL_TOO_SMALL,
+        RULE_FIELDS.WINDOW_TOTAL,
+        -1,
+        `window_total (${rawTotal}) is shorter than window_within (${rawWithin}), so no match could ever complete`,
+      ),
     );
   }
   return out;
 }
 
+/** durationProblems reports one duration field's syntax and bounds. */
+function durationProblems(field, raw, parsed) {
+  if (raw === '') return []; // absent is not malformed; whether it is REQUIRED is the caller's call
+  if (parsed === null) {
+    return [
+      problem(RULE_PROBLEMS.BAD_DURATION, field, -1, `${field} is not a duration (expected a value like "90s", "5m" or "2h")`),
+    ];
+  }
+  if (parsed <= 0) {
+    return [problem(RULE_PROBLEMS.BAD_DURATION, field, -1, `${field} must be greater than zero`)];
+  }
+  // A window measured in weeks is almost always a units slip, and it would make the rule pair
+  // events that have nothing to do with each other.
+  if (parsed > TEMPORAL_MAX_WINDOW_NS) {
+    return [problem(RULE_PROBLEMS.WINDOW_TOO_LARGE, field, -1, `${field} of ${raw} exceeds the maximum — check the units`)];
+  }
+  return [];
+}
+
+/** lineageProblems checks the process-ancestry settings. */
+function lineageProblems(value, descriptor) {
+  if (!reads(descriptor, RULE_FIELDS.LINEAGE_CREATE_IDS)) return [];
+
+  const out = [];
+  const ids = Array.isArray(value[RULE_FIELDS.LINEAGE_CREATE_IDS]) ? value[RULE_FIELDS.LINEAGE_CREATE_IDS] : [];
+  // An empty list is fine — it defaults to 4688 — but a blank entry is a half-finished edit.
+  ids.forEach((id, i) => {
+    if (String(id ?? '').trim() === '') {
+      out.push(
+        problem(
+          RULE_PROBLEMS.LINEAGE_IDS_EMPTY,
+          RULE_FIELDS.LINEAGE_CREATE_IDS,
+          i,
+          `lineage_create_ids contains an empty event ID at position ${i}`,
+        ),
+      );
+    }
+  });
+  const depth = value[RULE_FIELDS.LINEAGE_DEPTH];
+  if (typeof depth === 'number' && (depth < 0 || depth > LINEAGE_MAX_DEPTH)) {
+    out.push(
+      problem(
+        RULE_PROBLEMS.LINEAGE_DEPTH_RANGE,
+        RULE_FIELDS.LINEAGE_DEPTH,
+        -1,
+        `lineage_depth must be between 0 and ${LINEAGE_MAX_DEPTH}`,
+      ),
+    );
+  }
+  return out;
+}
+
+/** channelProblems checks the declared channel list, which every algorithm carries. */
+function channelProblems(value) {
+  const channels = Array.isArray(value[RULE_FIELDS.CHANNELS]) ? value[RULE_FIELDS.CHANNELS] : [];
+  const out = [];
+  channels.forEach((ch, i) => {
+    if (String(ch ?? '').trim() === '') {
+      out.push(
+        problem(RULE_PROBLEMS.CHANNEL_EMPTY, RULE_FIELDS.CHANNELS, i, `channels contains an empty entry at position ${i}`),
+      );
+    }
+  });
+  return out;
+}
+
 /** advisories mirrors Spec.advisories: legal, but worth saying. */
-function advisories(value, unknownFields) {
+function advisories(value, unknownFields, schema) {
   const out = [];
   if (String(value.description ?? '').trim() === '') {
     out.push(
@@ -205,12 +429,141 @@ function advisories(value, unknownFields) {
       ),
     );
   }
+  // A rule that does not say which logs it needs cannot be checked against a case, and silence
+  // from that check would read as "fine".
+  const channels = Array.isArray(value[RULE_FIELDS.CHANNELS]) ? value[RULE_FIELDS.CHANNELS] : [];
+  if (channels.length === 0) {
+    out.push(
+      problem(
+        RULE_PROBLEMS.NO_CHANNELS,
+        RULE_FIELDS.CHANNELS,
+        -1,
+        'this rule does not declare the channels it needs, so rohy cannot tell you when a case is missing the log it depends on',
+      ),
+    );
+  }
+  out.push(...inertFieldAdvisories(value, schema));
   for (const key of unknownFields) {
     out.push(
       problem(RULE_PROBLEMS.UNKNOWN_FIELD, key, -1, `field "${key}" is not used by this build — it is preserved on save but has no effect`),
     );
   }
   return out;
+}
+
+/**
+ * inertFieldAdvisories reports fields the selected algorithm does not read.
+ *
+ * Warnings, never errors — the same rule the format applies to a field it does not recognize
+ * at all: preserved on save, ignored on load. Rejecting a window_within on a sequence rule
+ * would make the editor stricter than the loader, which is the one direction it must never be.
+ *
+ * Saying nothing would be worse than either, though. An author who sets match_fields and
+ * leaves the algorithm at its default gets a rule that looks precise and correlates on
+ * ordering alone, and nothing in the result would tell them.
+ */
+function inertFieldAdvisories(value, schema) {
+  const algorithm = algorithmOf(value);
+  const descriptor = algorithmDescriptor(schema, algorithm);
+  if (!descriptor) return []; // an unknown algorithm is already a hard error; do not pile on
+
+  const out = [];
+  const warn = (field) =>
+    out.push(
+      problem(
+        RULE_PROBLEMS.FIELD_NOT_FOR_ALGORITHM,
+        field,
+        -1,
+        `field "${field}" has no effect for the "${algorithm}" algorithm — it is preserved on save but is not read`,
+      ),
+    );
+
+  const set = (field) => {
+    const v = value[field];
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === 'number') return v !== 0;
+    return String(v ?? '').trim() !== '';
+  };
+
+  for (const field of [
+    RULE_FIELDS.MATCH_FIELDS,
+    RULE_FIELDS.WINDOW_WITHIN,
+    RULE_FIELDS.WINDOW_TOTAL,
+    RULE_FIELDS.LINEAGE_CREATE_IDS,
+    RULE_FIELDS.LINEAGE_DEPTH,
+  ]) {
+    if (set(field) && !reads(descriptor, field)) warn(field);
+  }
+
+  // A sequence on an algorithm that does not match one gets its own code: it is the likeliest
+  // of these to be a genuine misunderstanding of what the algorithm does.
+  const sequence = Array.isArray(value.sequence) ? value.sequence : [];
+  if (sequence.length > 0 && descriptor.requires_sequence === false) {
+    out.push(
+      problem(
+        RULE_PROBLEMS.SEQUENCE_IGNORED,
+        'sequence',
+        -1,
+        `the "${algorithm}" algorithm does not match an event ID sequence, so this rule's sequence is preserved but not read`,
+      ),
+    );
+  }
+  return out;
+}
+
+/** algorithmOf resolves the algorithm a rule selects, defaulting to sequence correlation. */
+function algorithmOf(value) {
+  const a = String(value.algorithm ?? '').trim();
+  return a === '' ? ALGORITHMS.SEQUENCE : a;
+}
+
+/**
+ * algorithmDescriptor looks an algorithm up in the SERVED schema, so the frontend never keeps
+ * its own copy of which fields a matcher reads or what version it needs.
+ */
+function algorithmDescriptor(schema, name) {
+  return (schema?.algorithms || []).find((a) => a.name === name) || null;
+}
+
+/** reads reports whether an algorithm reads a given rule field. */
+function reads(descriptor, field) {
+  return (descriptor?.fields || []).includes(field);
+}
+
+/**
+ * parseGoDuration parses the subset of Go's duration syntax the rule format uses, returning
+ * nanoseconds or null when the text is not a duration.
+ *
+ * It mirrors time.ParseDuration rather than inventing a format, because the backend is what
+ * ultimately reads these values — accepting something here that the loader refuses is exactly
+ * the drift the shared fixture exists to catch.
+ */
+export function parseGoDuration(text) {
+  const s = String(text ?? '').trim();
+  if (s === '') return null;
+
+  const units = { ns: 1, us: 1e3, µs: 1e3, μs: 1e3, ms: 1e6, s: 1e9, m: 6e10, h: 3.6e12 };
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/gy;
+
+  let i = 0;
+  let sign = 1;
+  if (s[i] === '+' || s[i] === '-') {
+    sign = s[i] === '-' ? -1 : 1;
+    i++;
+  }
+  if (s.slice(i) === '0') return 0;
+
+  re.lastIndex = i;
+  let total = 0;
+  let matched = false;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    total += parseFloat(m[1]) * units[m[2]];
+    matched = true;
+    if (re.lastIndex >= s.length) break;
+  }
+  if (!matched || re.lastIndex !== s.length) return null;
+  return sign * total;
 }
 
 /**

@@ -4,6 +4,7 @@
   "description": "A user account is created (4720) and a user account is later deleted (4726) on the same computer — a short-lived account, the disposable-access pattern. Ordinary provisioning and decommissioning produce the same pair, and the events are matched by host and time order rather than by account: check that both records name the same account, and how long it lived.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4720", "4726"],
   "labels": ["then deleted"]
 }

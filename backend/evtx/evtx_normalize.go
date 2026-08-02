@@ -60,6 +60,10 @@ func normalizeRecord(rec *velo.EventRecord) (*graphene.Event, error) {
 	// and three parsers, and three copies of it would drift. SourceIdentifier is empty here
 	// and the sink recomputes once it is known.
 	ev.ComputeNormalizedHash()
+	// The correlation projection is owned by the schema for the same reason, and for one
+	// more: the backfill that projects already-ingested cases lives down there and could not
+	// reach an implementation kept up here.
+	ev.ComputeCorrelationKeys()
 	return ev, nil
 }
 

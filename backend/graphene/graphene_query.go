@@ -43,11 +43,11 @@ type EventFilter struct {
 	// A nil map means "no filtering". A non-nil EMPTY map is deliberately different: it means
 	// nothing matches, which is the correct answer for "show flagged events" in a case where
 	// nothing has been flagged yet.
-	HashIn    map[string]bool
-	HashNotIn map[string]bool
-	Offset        int
-	Limit         int
-	Descending    bool
+	HashIn     map[string]bool
+	HashNotIn  map[string]bool
+	Offset     int
+	Limit      int
+	Descending bool
 }
 
 // propertyFilters translates the EventFilter into graphene property filters. Note
@@ -374,6 +374,40 @@ func (s *Store) RelationsByGraph(graphID uint64) ([]*Relation, error) {
 		return nil, err
 	}
 	edges, err := g.EdgesWithProperties(map[string][]byte{consts.PropGraphID: graphIDValue(graphID)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Relation, 0, len(edges))
+	for _, ed := range edges {
+		r, err := relationFromEdge(ed)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// RelationsByRule returns every relation a given rule produced, across all graphs, using the
+// rule_id edge index (v0.2.0 provenance).
+//
+// It answers a question the graph_id index cannot: which edges came from THIS rule, without
+// first knowing which graph they landed in. That matters because a rule's id is a slug of its
+// name, so renaming a rule strands the graph built under the old id — and the only way to find
+// those edges afterwards is by the id stamped on them.
+//
+// An empty ruleID returns nothing rather than every hand-drawn relation: user-created edges
+// have no rule, and returning them here would make "this rule's edges" include edges no rule
+// produced.
+func (s *Store) RelationsByRule(ruleID string) ([]*Relation, error) {
+	if ruleID == "" {
+		return nil, nil
+	}
+	g, err := s.graph()
+	if err != nil {
+		return nil, err
+	}
+	edges, err := g.EdgesWithProperties(map[string][]byte{consts.PropRuleID: []byte(ruleID)})
 	if err != nil {
 		return nil, err
 	}

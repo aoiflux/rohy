@@ -215,8 +215,14 @@
   },
   {
     "name": "several problems are all reported, in contract order",
+    "source": ["{", "  \"sequence\": [\"\"]", "}"],
+    "codes": ["name_required", "sequence_short", "sequence_empty_id"]
+  },
+  {
+    "name": "an unknown algorithm stops the pass and is reported alone",
+    "why": "Almost every other check depends on WHICH algorithm this is: whether a sequence is required at all, whether match_fields must be present, whether a window is mandatory. Running those against a guessed algorithm would put confident, wrong complaints in front of the author beside the real one. Same reasoning as a from-the-future format_version.",
     "source": ["{", "  \"sequence\": [\"\"],", "  \"algorithm\": \"nope\"", "}"],
-    "codes": ["name_required", "sequence_short", "sequence_empty_id", "unknown_algorithm"]
+    "codes": ["unknown_algorithm"]
   },
   {
     "name": "a field this build does not interpret is preserved, not rejected",
@@ -237,5 +243,286 @@
     "source": ["{", "  \"name\": \"Undocumented\",", "  \"sequence\": [\"4624\", \"1102\"]", "}"],
     "codes": [],
     "warnings": ["no_description"]
+  },
+  {
+    "name": "a rule that declares no channels is valid but flagged",
+    "why": "Silence from the missing-channel check reads as 'fine'. A rule that never says what it needs cannot be checked, so it says so once, here.",
+    "source": ["{", "  \"name\": \"No Channels\",", "  \"description\": \"4624 then 1102.\",", "  \"sequence\": [\"4624\", \"1102\"]", "}"],
+    "codes": [],
+    "warnings": ["no_channels"]
+  },
+
+  {
+    "name": "v2: field algorithm with a correlation field",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Failed Logons Then Success, Same Session\",",
+      "  \"description\": \"4625 then 4624 sharing a logon id.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"logon_id\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "v2: field algorithm with no match_fields is refused",
+    "why": "Field correlation with nothing to correlate on is sequence correlation wearing a different name. Downgrading it silently would make the rule claim a precision it does not have.",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Field Without Fields\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"]",
+      "}"
+    ],
+    "codes": ["match_fields_required"]
+  },
+  {
+    "name": "v2: an unknown correlation field is refused and located",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Bad Field\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"logon_id\", \"not_a_field\"]",
+      "}"
+    ],
+    "codes": ["unknown_match_field"],
+    "locations": [{ "code": "unknown_match_field", "field": "match_fields", "index": 1, "line": 8, "col": 32 }]
+  },
+  {
+    "name": "v2: a repeated correlation field is refused",
+    "why": "Listing a field twice narrows nothing and is almost always a paste error.",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Repeated Field\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"logon_id\", \"logon_id\"]",
+      "}"
+    ],
+    "codes": ["duplicate_match_field"]
+  },
+  {
+    "name": "v2: an algorithm needing format 2 in a file declaring 1 is refused",
+    "why": "The file must announce the version it needs, so an older build refuses it rather than matching only the event IDs and producing a subtly wrong graph.",
+    "source": [
+      "{",
+      "  \"format_version\": 1,",
+      "  \"name\": \"Understated Version\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"logon_id\"]",
+      "}"
+    ],
+    "codes": ["algorithm_needs_format"]
+  },
+  {
+    "name": "v2: an omitted format_version is filled in from what the rule needs",
+    "why": "Not from what the build is. A rule using only v1 features must declare 1 so older builds still load it; only a rule that depends on a v2 matcher should declare 2.",
+    "source": [
+      "{",
+      "  \"name\": \"Version Inferred\",",
+      "  \"description\": \"4625 then 4624 sharing a logon id.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"logon_id\"]",
+      "}"
+    ],
+    "codes": []
+  },
+
+  {
+    "name": "v2: temporal algorithm with a window",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Burst Then Success\",",
+      "  \"description\": \"4625 then 4624 within five minutes.\",",
+      "  \"algorithm\": \"temporal\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"window_within\": \"5m\"",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "v2: temporal without a window is refused",
+    "why": "An unbounded temporal rule is a slower spelling of a sequence rule.",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"No Window\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"temporal\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"]",
+      "}"
+    ],
+    "codes": ["window_required"]
+  },
+  {
+    "name": "v2: an unparseable duration is refused",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Bad Duration\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"temporal\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"window_within\": \"five minutes\"",
+      "}"
+    ],
+    "codes": ["bad_duration"]
+  },
+  {
+    "name": "v2: a window longer than the maximum is refused as a units slip",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Enormous Window\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"temporal\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"window_within\": \"5000h\"",
+      "}"
+    ],
+    "codes": ["window_too_large"]
+  },
+  {
+    "name": "v2: a total window shorter than the per-step window can never complete",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Impossible Window\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"temporal\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"window_within\": \"10m\",",
+      "  \"window_total\": \"2m\"",
+      "}"
+    ],
+    "codes": ["window_total_too_small"]
+  },
+
+  {
+    "name": "v2: lineage needs no sequence",
+    "why": "Lineage reconstructs ancestry from creation records rather than matching an ordered list, so requiring a sequence would force authors to write a meaningless one.",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Process Ancestry\",",
+      "  \"description\": \"Link each process to its creator.\",",
+      "  \"algorithm\": \"lineage\",",
+      "  \"channels\": [\"Security\"]",
+      "}"
+    ],
+    "codes": []
+  },
+  {
+    "name": "v2: a sequence on a lineage rule is preserved, not rejected",
+    "why": "The format ignores what an algorithm does not read (RULES.md section 3). Rejecting it would make the editor stricter than the loader.",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Lineage With Sequence\",",
+      "  \"description\": \"Link each process to its creator.\",",
+      "  \"algorithm\": \"lineage\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4688\", \"4688\"]",
+      "}"
+    ],
+    "codes": [],
+    "warnings": ["sequence_ignored"]
+  },
+  {
+    "name": "v2: a lineage depth beyond the maximum is refused",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Too Deep\",",
+      "  \"description\": \"Link each process to its creator.\",",
+      "  \"algorithm\": \"lineage\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"lineage_depth\": 99",
+      "}"
+    ],
+    "codes": ["lineage_depth_range"]
+  },
+  {
+    "name": "v2: a blank process-creation id is refused",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Blank Create ID\",",
+      "  \"description\": \"Link each process to its creator.\",",
+      "  \"algorithm\": \"lineage\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"lineage_create_ids\": [\"4688\", \"\"]",
+      "}"
+    ],
+    "codes": ["lineage_ids_empty"]
+  },
+
+  {
+    "name": "v2: an unknown scope is refused rather than defaulted",
+    "why": "Unlike relation_type, which is cosmetic and silently corrected, a scope decides WHICH events may match each other. Substituting a default would build a graph the author did not ask for and cannot notice.",
+    "source": [
+      "{",
+      "  \"format_version\": 2,",
+      "  \"name\": \"Bad Scope\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_scope\": \"universe\"",
+      "}"
+    ],
+    "codes": ["unknown_scope"]
+  },
+  {
+    "name": "v2: a blank channel entry is refused",
+    "source": [
+      "{",
+      "  \"name\": \"Blank Channel\",",
+      "  \"description\": \"4624 then 1102.\",",
+      "  \"channels\": [\"Security\", \"\"],",
+      "  \"sequence\": [\"4624\", \"1102\"]",
+      "}"
+    ],
+    "codes": ["channel_empty"]
+  },
+  {
+    "name": "v2: a field belonging to another algorithm is preserved, not rejected",
+    "why": "Same rule as an unrecognized field. But saying nothing would be worse: an author who sets match_fields and leaves the algorithm at its default gets a rule that looks precise and correlates on ordering alone.",
+    "source": [
+      "{",
+      "  \"name\": \"Inert Field\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"sequence\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"logon_id\"]",
+      "}"
+    ],
+    "codes": [],
+    "warnings": ["field_not_for_algorithm"]
   }
 ]

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"rohy/backend/consts"
 )
@@ -35,6 +36,46 @@ type Spec struct {
 	// empty entry (or a missing tail) means an UNTAGGED connection, so a rule may label
 	// only some connections. At most one label per connection (≤ len(Sequence)-1).
 	Labels []string `json:"labels,omitempty"`
+
+	// --- Algorithm-specific matchers (format version 2) ---
+	//
+	// These are flat, prefixed top-level fields rather than nested objects, and that is a
+	// considered choice rather than a shortcut. Three things in this package address a rule
+	// by a FLAT name: scanPositions, which locates a problem at "field" or "field[i]";
+	// ValidationError.Field/Index, which is how the guided form finds the control to
+	// highlight; and the descriptor the raw editor's completion list is generated from.
+	// Nesting would mean changing all three at once and would buy no expressiveness.
+	//
+	// A field belonging to a different algorithm is IGNORED, exactly as any field this build
+	// does not interpret is (RULES.md §3) — reported as an advisory, never as a rejection.
+
+	// MatchFields names correlation fields (consts.CorrelationSlots) that every event in a
+	// match must share. This is what turns a match from "these happened in this order on this
+	// host" into "…and they concern the same logon session / account / process".
+	MatchFields []string `json:"match_fields,omitempty"`
+	// MatchScope partitions events before matching (consts.CorrelationScopes). Defaults to
+	// the originating computer, so a chain is never assembled across unrelated hosts.
+	MatchScope string `json:"match_scope,omitempty"`
+	// WindowWithin bounds the time between consecutive matched steps, as a Go duration
+	// ("90s", "5m", "2h"). WindowTotal optionally bounds first step to last.
+	WindowWithin string `json:"window_within,omitempty"`
+	WindowTotal  string `json:"window_total,omitempty"`
+	// LineageCreateIDs are the event IDs that record a process being created (4688 by
+	// default; Sysmon's is 1). LineageDepth adds transitive ancestor edges above the direct
+	// parent link — 0, the default, emits direct edges only, because transitive links are
+	// derivable by traversing them and emitting them multiplies edge count without adding
+	// information.
+	LineageCreateIDs []string `json:"lineage_create_ids,omitempty"`
+	LineageDepth     int      `json:"lineage_depth,omitempty"`
+
+	// Channels declares the Windows log channels this rule needs. It is metadata — no
+	// algorithm reads it — and it exists so rohy can tell an analyst "this rule cannot fire
+	// on this case, because the log it depends on was never ingested" instead of reporting
+	// zero matches and leaving them to work out why.
+	//
+	// It is an optional field with a safe default, so per RULES.md §5 it does NOT require the
+	// format version bump: it would have been legal in v1.
+	Channels []string `json:"channels,omitempty"`
 }
 
 // LabelFor returns the custom label for the connection leaving sequence step i (the edge
@@ -44,6 +85,90 @@ func (s *Spec) LabelFor(i int) string {
 		return s.Labels[i]
 	}
 	return ""
+}
+
+// AlgorithmOrDefault resolves the algorithm a rule selects, defaulting to sequence
+// correlation. Every reader goes through this rather than reading the field, so an omitted
+// value means the same thing everywhere.
+func (s *Spec) AlgorithmOrDefault() string {
+	if a := trimmed(s.Algorithm); a != "" {
+		return a
+	}
+	return consts.DefaultAlgorithm
+}
+
+// ScopeOrDefault resolves the correlation scope, defaulting to the originating computer.
+func (s *Spec) ScopeOrDefault() string {
+	if sc := trimmed(s.MatchScope); sc != "" {
+		return sc
+	}
+	return consts.DefaultScope
+}
+
+// LineageCreateIDsOrDefault resolves the process-creation event IDs, defaulting to 4688 so
+// the common case is a rule with a name and an algorithm and nothing else.
+func (s *Spec) LineageCreateIDsOrDefault() []string {
+	out := make([]string, 0, len(s.LineageCreateIDs))
+	for _, id := range s.LineageCreateIDs {
+		if id = trimmed(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		return []string{consts.LineageDefaultCreateID}
+	}
+	return out
+}
+
+// Window returns the between-steps and total time bounds. A zero duration means unbounded.
+// Both are re-parsed rather than cached because a Spec is a decoded file, not a compiled
+// object — validation has already established that they parse.
+func (s *Spec) Window() (within, total time.Duration) {
+	within, _ = parseDuration(s.WindowWithin)
+	total, _ = parseDuration(s.WindowTotal)
+	return within, total
+}
+
+// MatchSlots resolves MatchFields to correlation slot indices. ok is false when any name is
+// not part of the vocabulary — which validation already refuses, so a false here means the
+// caller is holding a spec that never passed the loader.
+func (s *Spec) MatchSlots() (slots []int, ok bool) {
+	slots = make([]int, 0, len(s.MatchFields))
+	for _, name := range s.MatchFields {
+		i, found := consts.CorrelationSlotIndex(trimmed(name))
+		if !found {
+			return nil, false
+		}
+		slots = append(slots, i)
+	}
+	return slots, true
+}
+
+// RequiredFormatVersion is the LOWEST format version that can express this rule.
+//
+// It is not the same as the version this build understands, and conflating the two would
+// quietly break portability. A rule using nothing beyond v1 must declare 1, so that a v0.1.0
+// build still loads it; only a rule that actually depends on a v2 matcher should declare 2 and
+// be refused elsewhere. Without this, every rule authored in a v0.2.0 editor would announce
+// itself as unreadable by older builds for no reason.
+//
+// Only the algorithm raises it. The other v2 fields are optional metadata or are ignored by
+// the algorithm that does not read them, so neither changes what an older build would match.
+func (s *Spec) RequiredFormatVersion() int {
+	if algo, ok := consts.AlgorithmByName(s.AlgorithmOrDefault()); ok {
+		return max(1, algo.MinFormatVersion)
+	}
+	return 1
+}
+
+// parseDuration reads one of the rule format's duration fields. An empty value is zero and no
+// error: the field is optional, and "absent" is not "malformed".
+func parseDuration(v string) (time.Duration, error) {
+	v = trimmed(v)
+	if v == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(v)
 }
 
 // Rule is a Spec plus the runtime metadata the registry tracks: a stable id derived from
@@ -90,7 +215,11 @@ func Parse(data []byte) (*Spec, error) {
 // later, whether the file it writes will load.
 func (s *Spec) validate() error {
 	if s.FormatVersion == 0 {
-		s.FormatVersion = consts.RuleFormatVersion // tolerate an omitted version as current
+		// An omitted version means "whatever this rule needs", not "whatever this build is".
+		// Defaulting to the build's current version would stamp every version-less rule as
+		// requiring the newest format — including rules using nothing beyond v1, which would
+		// then be refused by an older build for a feature they do not use.
+		s.FormatVersion = s.RequiredFormatVersion()
 	}
 	if problems := s.problems(); len(problems) > 0 {
 		return errors.New(problems[0].Message)
@@ -117,6 +246,32 @@ func (s *Spec) normalize() {
 	for i := range s.Labels {
 		s.Labels[i] = strings.TrimSpace(s.Labels[i])
 	}
+	// The v2 matcher fields. Trimming here rather than at each reader is what makes
+	// "  logon_id  " and "logon_id" the same rule.
+	for i := range s.MatchFields {
+		s.MatchFields[i] = strings.TrimSpace(s.MatchFields[i])
+	}
+	for i := range s.LineageCreateIDs {
+		s.LineageCreateIDs[i] = strings.TrimSpace(s.LineageCreateIDs[i])
+	}
+	for i := range s.Channels {
+		s.Channels[i] = strings.TrimSpace(s.Channels[i])
+	}
+	s.MatchScope = scopeOrDefault(s.MatchScope)
+	s.WindowWithin = strings.TrimSpace(s.WindowWithin)
+	s.WindowTotal = strings.TrimSpace(s.WindowTotal)
+}
+
+// scopeOrDefault maps an empty scope to the default, leaving an unrecognized one alone so
+// validation can name it. This differs from relationTypeOrDefault deliberately: an unknown
+// relation type is cosmetic (it drives edge colouring) and is silently corrected, whereas an
+// unknown scope would change WHICH events can match each other, so it is refused rather than
+// quietly replaced with something the author did not ask for.
+func scopeOrDefault(scope string) string {
+	if s := strings.TrimSpace(scope); s != "" {
+		return s
+	}
+	return consts.DefaultScope
 }
 
 // relationTypeOrDefault maps an empty/unknown rule relation type to the correlation type

@@ -4,6 +4,7 @@
   "description": "A network share is accessed (5140) and a scheduled task is then created (4698) on that computer — remote execution over SMB, the shape left behind when a task is pushed to a host from elsewhere. 5140 is only recorded where file-share object auditing is enabled and is routine on file servers, so confirm which share was touched and by whom.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["5140", "4698"],
   "labels": ["then creates a task"]
 }

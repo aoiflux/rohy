@@ -60,6 +60,21 @@ type Event struct {
 	// integers stand in for the kilobytes they describe. A zero Payload means the event has
 	// none — a catalogue row, or an event written before the cold store existed.
 	Payload payload.Ref `json:"payload,omitempty"`
+	// CorrKeys is the correlation projection: the handful of EventData values that field,
+	// temporal and lineage rules match on, stored BY POSITION against consts.CorrelationSlots
+	// (see correlate.go). It lives in the node record — unlike ParsedFields, which it is
+	// derived from — because correlation needs it for EVERY event of a build, and reading the
+	// cold store that many times would re-incur the cost the cold store exists to remove.
+	//
+	// Trailing empty slots are trimmed, so an event carrying only a logon id costs one entry.
+	//
+	// CorrKeyVersion records which extraction recipe produced the slots. Zero means the event
+	// was written before the projection existed, or by a different vocabulary — which is a
+	// materially different statement from "this event has no correlation fields", and is what
+	// lets a run say it is under-reporting instead of returning a small number as if it were
+	// the truth.
+	CorrKeys       []string `json:"ck,omitempty"`
+	CorrKeyVersion int      `json:"ckv,omitempty"`
 }
 
 // payloadBlob is the encoded form of the fields held outside the node record.
@@ -157,6 +172,78 @@ type Relation struct {
 	ConfidenceScore float64   `json:"confidence_score"`
 	CreatedBy       string    `json:"created_by"`
 	CreatedAt       time.Time `json:"created_at"`
+
+	// --- Provenance (v0.2.0) ---
+	//
+	// CreatedBy answers "did a rule infer this or did a human assert it", which is the
+	// distinction the whole application is built around. These fields answer the next
+	// question, which v0.1.0 could not: WHICH rule, WHICH occurrence, and on what grounds.
+	//
+	// They are stamped by the backend at persist time, never accepted from a caller — the
+	// same rule CreatedAt already follows, and for the same reason: provenance a caller can
+	// write is not provenance.
+	//
+	// RuleID is the only one that is indexed. It is low-cardinality and it is what finds a
+	// rule's edges without knowing which graph they landed in. MatchID is near-unique and is
+	// deliberately not indexed (see consts.PropMatchID).
+	RuleID    string `json:"rule_id,omitempty"`
+	Algorithm string `json:"algorithm,omitempty"`
+	// MatchID groups every edge produced by one occurrence of a rule, so the inspector can
+	// offer "highlight the other 3 edges of this match". It is derived deterministically from
+	// the match's own endpoints, never randomly, so a rebuild reproduces it exactly and two
+	// builds can be compared.
+	MatchID string `json:"match_id,omitempty"`
+	// StepIndex is which consecutive pair of the rule's sequence this edge is, so the editor
+	// can highlight the step that produced it. Meaningless for lineage, which has no sequence.
+	StepIndex int `json:"step_index,omitempty"`
+	// Basis is the human-readable reason these two events were joined — "logon_id=0x3e7",
+	// "Δt=42s ≤ 5m", "ppid=0x1a4". It is what turns "inferred, not asserted" from a colour on
+	// the canvas into a claim an analyst can check. Bounded by consts.MaxBasisEntries/Len,
+	// because edges arrive by the hundred thousand and this is a per-edge resident cost.
+	Basis []string `json:"basis,omitempty"`
+	// RelVersion is the provenance schema version. Zero means the relation was written before
+	// provenance existed, which the inspector states explicitly rather than showing empty
+	// fields that read as "the rule recorded nothing".
+	RelVersion int `json:"rel_v,omitempty"`
+}
+
+// StampProvenance records which rule, algorithm and occurrence produced this relation, and
+// caps the basis at the documented bounds so one matcher cannot inflate every edge.
+//
+// It is the single place provenance is written, so the caps apply to every algorithm without
+// each one having to remember them.
+func (r *Relation) StampProvenance(ruleID, algorithm, matchID string, stepIndex int, basis []string) {
+	r.RuleID = ruleID
+	r.Algorithm = algorithm
+	r.MatchID = matchID
+	r.StepIndex = stepIndex
+	r.Basis = boundBasis(basis)
+	r.RelVersion = consts.RelationSchemaVersion
+}
+
+// boundBasis trims a basis list to the documented caps, dropping empty entries.
+func boundBasis(basis []string) []string {
+	if len(basis) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(basis))
+	for _, b := range basis {
+		b = strings.TrimSpace(b)
+		if b == "" {
+			continue
+		}
+		if len(b) > consts.MaxBasisLen {
+			b = truncateRunes(b, consts.MaxBasisLen)
+		}
+		out = append(out, b)
+		if len(out) == consts.MaxBasisEntries {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // graphIDValue encodes a graph id for the edge secondary index. The same encoding must
@@ -253,11 +340,23 @@ func (r *Relation) toEdge() (*store.Edge, error) {
 }
 
 // indexValues returns the secondary-index key/value pairs for this relation.
+//
+// rule_id is indexed and the rest of provenance is not, deliberately. Rule id is
+// low-cardinality — one value per rule — and it answers a question nothing else can: "which
+// edges did this rule produce", without first knowing which graph they went into. That is
+// what the relationship inspector, the inertness report, and orphan detection after a rename
+// all need.
+//
+// match_id, algorithm, step_index and basis are not indexed. match_id is near-unique, and a
+// near-unique indexed key is precisely the shape that made store open 8.0s instead of 0.8s
+// when the timestamp key was declared ordered — an open-time cost paid by every user on every
+// launch, to accelerate a query nothing makes.
 func (r *Relation) indexValues() map[string][]byte {
 	return map[string][]byte{
 		consts.PropRelationType: []byte(r.RelationType),
 		consts.PropCreatedBy:    []byte(r.CreatedBy),
 		consts.PropGraphID:      graphIDValue(r.GraphID),
+		consts.PropRuleID:       []byte(r.RuleID),
 	}
 }
 

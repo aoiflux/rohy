@@ -4,6 +4,7 @@
   "description": "A service terminates unexpectedly (7034) and a new service is then installed (7045) — what killing a security agent and replacing it with something else looks like from the Service Control Manager's side. Services also crash for ordinary reasons and 7034 is routine on some hosts, so identify which service died before reading the pair as tampering.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["System"],
   "sequence": ["7034", "7045"],
   "labels": ["then installs a service"]
 }

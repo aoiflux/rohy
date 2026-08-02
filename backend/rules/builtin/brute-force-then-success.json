@@ -4,6 +4,7 @@
   "description": "Three or more failed logon attempts (4625) followed by a successful logon (4624) on the same computer — the classic password-guessing-then-success pattern.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4625", "4625", "4625", "4624"],
   "labels": ["", "", "then succeeds"]
 }

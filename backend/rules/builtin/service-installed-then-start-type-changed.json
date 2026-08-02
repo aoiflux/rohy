@@ -4,6 +4,7 @@
   "description": "A new service is installed (7045) and a service start type is then changed (7040) — a freshly installed service being set to start on its own so it survives a reboot. 7040 is routine on a healthy system (Windows Update alone flips BITS and wuauserv between demand and automatic start), and the two events are not matched by service name, so confirm they concern the same service.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["System"],
   "sequence": ["7045", "7040"],
   "labels": ["then start type changed"]
 }

@@ -4,6 +4,7 @@
   "description": "A rule is added to the Windows Firewall exception list (4946) and a logon follows (4624) — opening a path in and then using it, the tail end of enabling remote access on a host that did not have it. 4946 is routine on a machine that receives software (ordinary installers add their own rules) and needs filtering-platform policy-change auditing enabled, so check which port the rule opened.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4946", "4624"],
   "labels": ["then logs on"]
 }

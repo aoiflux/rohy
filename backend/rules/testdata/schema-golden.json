@@ -1,0 +1,247 @@
+{
+  "format_version": 2,
+  "max_file_bytes": 1048576,
+  "group_order": [
+    "identity",
+    "matcher",
+    "metadata"
+  ],
+  "correlation_fields": [
+    "logon_id",
+    "subject_logon_id",
+    "process_id",
+    "new_process_id",
+    "parent_process_id",
+    "process_name",
+    "target_user",
+    "subject_user",
+    "ip_address",
+    "service_name"
+  ],
+  "algorithms": [
+    {
+      "name": "sequence",
+      "summary": "Match an ordered event-ID sequence chronologically within a scope. Establishes a temporally ordered pairing and nothing more.",
+      "min_format_version": 1,
+      "requires_sequence": true,
+      "fields": [
+        "match_scope"
+      ]
+    },
+    {
+      "name": "field",
+      "summary": "Match an ordered event-ID sequence within a scope AND a shared value for every named correlation field, so a match establishes entity linkage rather than only ordering.",
+      "min_format_version": 2,
+      "requires_sequence": true,
+      "fields": [
+        "match_fields",
+        "match_scope"
+      ]
+    },
+    {
+      "name": "temporal",
+      "summary": "Match an ordered event-ID sequence where each consecutive pair falls within a bounded time window. Composes with match_fields.",
+      "min_format_version": 2,
+      "requires_sequence": true,
+      "fields": [
+        "window_within",
+        "window_total",
+        "match_fields",
+        "match_scope"
+      ]
+    },
+    {
+      "name": "lineage",
+      "summary": "Reconstruct process ancestry from process-creation records, resolving each parent through the PID's lifetime interval so a reused PID cannot produce a wrong link.",
+      "min_format_version": 2,
+      "requires_sequence": false,
+      "fields": [
+        "lineage_create_ids",
+        "lineage_depth",
+        "match_scope"
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "name": "name",
+      "kind": "string",
+      "required": true,
+      "group": "identity",
+      "read_only": false
+    },
+    {
+      "name": "sequence",
+      "kind": "string[]",
+      "required": true,
+      "group": "matcher",
+      "read_only": false,
+      "min_items": 2,
+      "max_items": 1000,
+      "applies_to": [
+        "sequence",
+        "field",
+        "temporal"
+      ]
+    },
+    {
+      "name": "labels",
+      "kind": "string[]",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "max_items": 999,
+      "applies_to": [
+        "sequence",
+        "field",
+        "temporal"
+      ]
+    },
+    {
+      "name": "match_fields",
+      "kind": "string[]",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "enum": [
+        "logon_id",
+        "subject_logon_id",
+        "process_id",
+        "new_process_id",
+        "parent_process_id",
+        "process_name",
+        "target_user",
+        "subject_user",
+        "ip_address",
+        "service_name"
+      ],
+      "max_items": 10,
+      "applies_to": [
+        "field",
+        "temporal"
+      ],
+      "requires_format_version": 2
+    },
+    {
+      "name": "match_scope",
+      "kind": "string",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "default": "computer",
+      "enum": [
+        "computer",
+        "global"
+      ],
+      "applies_to": [
+        "sequence",
+        "field",
+        "temporal",
+        "lineage"
+      ],
+      "requires_format_version": 2
+    },
+    {
+      "name": "window_within",
+      "kind": "string",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "applies_to": [
+        "temporal"
+      ],
+      "requires_format_version": 2
+    },
+    {
+      "name": "window_total",
+      "kind": "string",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "applies_to": [
+        "temporal"
+      ],
+      "requires_format_version": 2
+    },
+    {
+      "name": "lineage_create_ids",
+      "kind": "string[]",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "applies_to": [
+        "lineage"
+      ],
+      "requires_format_version": 2
+    },
+    {
+      "name": "lineage_depth",
+      "kind": "integer",
+      "required": false,
+      "group": "matcher",
+      "read_only": false,
+      "default": 0,
+      "max_items": 16,
+      "applies_to": [
+        "lineage"
+      ],
+      "requires_format_version": 2
+    },
+    {
+      "name": "description",
+      "kind": "string",
+      "required": false,
+      "group": "metadata",
+      "read_only": false,
+      "default": ""
+    },
+    {
+      "name": "relation_type",
+      "kind": "string",
+      "required": false,
+      "group": "metadata",
+      "read_only": false,
+      "default": "correlation",
+      "enum": [
+        "correlation",
+        "temporal",
+        "default"
+      ]
+    },
+    {
+      "name": "algorithm",
+      "kind": "string",
+      "required": false,
+      "group": "metadata",
+      "read_only": false,
+      "default": "sequence",
+      "enum": [
+        "sequence",
+        "field",
+        "temporal",
+        "lineage"
+      ]
+    },
+    {
+      "name": "channels",
+      "kind": "string[]",
+      "required": false,
+      "group": "metadata",
+      "read_only": false,
+      "applies_to": [
+        "sequence",
+        "field",
+        "temporal",
+        "lineage"
+      ]
+    },
+    {
+      "name": "format_version",
+      "kind": "integer",
+      "required": false,
+      "group": "metadata",
+      "read_only": true,
+      "default": 1
+    }
+  ]
+}

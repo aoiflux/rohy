@@ -4,6 +4,7 @@
   "description": "A user account is created (4720) and a security-enabled global group then gains a member (4728) — the domain-level counterpart of the local-group rule, and the shape of a new account being put into a group such as Domain Admins. 4728 is written on the domain controller, so this rule matches DC logs; the two events are paired by host and time order, not by account.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4720", "4728"],
   "labels": ["added to domain group"]
 }

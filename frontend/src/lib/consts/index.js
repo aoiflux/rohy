@@ -131,11 +131,57 @@ export const RULE_PROBLEMS = Object.freeze({
   LABELS_TOO_MANY: 'labels_too_many',
   UNKNOWN_ALGORITHM: 'unknown_algorithm',
   UNSUPPORTED_FORMAT: 'unsupported_format',
+  // Algorithm-specific contract violations (format version 2).
+  ALGORITHM_NEEDS_FORMAT: 'algorithm_needs_format',
+  SEQUENCE_REQUIRED: 'sequence_required',
+  MATCH_FIELDS_REQUIRED: 'match_fields_required',
+  UNKNOWN_MATCH_FIELD: 'unknown_match_field',
+  DUPLICATE_MATCH_FIELD: 'duplicate_match_field',
+  UNKNOWN_SCOPE: 'unknown_scope',
+  WINDOW_REQUIRED: 'window_required',
+  BAD_DURATION: 'bad_duration',
+  WINDOW_TOO_LARGE: 'window_too_large',
+  WINDOW_TOTAL_TOO_SMALL: 'window_total_too_small',
+  LINEAGE_IDS_EMPTY: 'lineage_ids_empty',
+  LINEAGE_DEPTH_RANGE: 'lineage_depth_range',
+  CHANNEL_EMPTY: 'channel_empty',
   // Advisory — never blocks a save.
   UNKNOWN_FIELD: 'unknown_field',
   NO_DESCRIPTION: 'no_description',
   NAME_COLLISION: 'name_collision',
+  FIELD_NOT_FOR_ALGORITHM: 'field_not_for_algorithm',
+  NO_CHANNELS: 'no_channels',
+  SEQUENCE_IGNORED: 'sequence_ignored',
 });
+
+// Rule fields the algorithm-specific matchers use (mirror backend consts.Field*).
+export const RULE_FIELDS = Object.freeze({
+  ALGORITHM: 'algorithm',
+  MATCH_FIELDS: 'match_fields',
+  MATCH_SCOPE: 'match_scope',
+  WINDOW_WITHIN: 'window_within',
+  WINDOW_TOTAL: 'window_total',
+  LINEAGE_CREATE_IDS: 'lineage_create_ids',
+  LINEAGE_DEPTH: 'lineage_depth',
+  CHANNELS: 'channels',
+});
+
+// Correlation algorithms (mirror backend consts.Algo*). The authoritative list — including
+// each one's minimum format version and which fields it reads — is SERVED in the rule schema;
+// these names exist only where the frontend has to branch on one.
+export const ALGORITHMS = Object.freeze({
+  SEQUENCE: 'sequence',
+  FIELD: 'field',
+  TEMPORAL: 'temporal',
+  LINEAGE: 'lineage',
+});
+
+// The maximum window a temporal rule may declare (mirror consts.TemporalMaxWindow), in
+// nanoseconds so it compares directly against a parsed Go duration.
+export const TEMPORAL_MAX_WINDOW_NS = 30 * 24 * 60 * 60 * 1e9;
+
+// The deepest transitive ancestry a lineage rule may request (mirror consts.LineageMaxDepth).
+export const LINEAGE_MAX_DEPTH = 16;
 
 // Rule field groups (mirror backend consts via rules.Group*). The guided editor renders one
 // section per group, which is what keeps metadata visibly separate from the matcher that

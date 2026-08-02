@@ -71,7 +71,222 @@ const (
 	PropSourceType         = "source_type"
 	PropSourceIdentifier   = "source_identifier"
 	PropDeduplicationCount = "deduplication_count"
+	// PropCorrelationKeys / PropCorrelationKeyVersion hold the correlation projection
+	// (see CorrelationSlots). They are short JSON names because they are written on every
+	// event and the graph holds every record in memory.
+	PropCorrelationKeys       = "ck"
+	PropCorrelationKeyVersion = "ckv"
 )
+
+// --- Correlation key projection (v0.2.0) ---
+//
+// Field, temporal and lineage correlation need EventData values — a logon id, a process id,
+// an account name. Those live in ParsedFields, which is deliberately NOT part of the node
+// record: it is ~70% of an event's resident cost and is read only when an analyst opens a
+// single event (see PERFORMANCE.md and the payload cold store). Reading it back for every
+// event of every build would re-incur exactly the cost the cold store exists to remove.
+//
+// So a BOUNDED, SELECTED projection of those values is computed once at normalize time and
+// stored in the node record instead. Two properties make it affordable:
+//
+//   - Values are stored BY POSITION, not by name. A map would repeat twelve key names on
+//     every event forever — around 180 bytes of pure vocabulary per event, comparable to the
+//     entire budget for the feature. A slice costs the values and nothing else.
+//   - The vocabulary is capped at CorrelationSlotCount slots of CorrelationValueMaxLen bytes,
+//     so the worst case is bounded rather than tracking how verbose a log happens to be.
+//
+// CorrelationSlots is APPEND-ONLY. Reordering or reusing a slot silently reinterprets every
+// event already stored: a value written as a logon id would be read back as a process id, and
+// nothing would report an error. A vocabulary change bumps CorrelationKeyVersion, which makes
+// existing events detectably stale and re-runs the backfill.
+const (
+	CorrelationSlotCount = 10
+	// CorrelationValueMaxLen is the widest any single slot may be. It is the ceiling the
+	// per-slot limits below sit under, not a limit anything actually uses — see
+	// CorrelationSlotMaxLen, which is what bounds the cost.
+	CorrelationValueMaxLen = 45
+	// CorrelationKeyVersion identifies the extraction recipe the stored slots were written
+	// against. Bump it in the same change that alters CorrelationSlots, CorrelationSlotSources,
+	// CorrelationSlotMaxLen, or the normalization applied to a value.
+	CorrelationKeyVersion = 1
+)
+
+// Slot indices. These are the wire format — the position a value occupies in an event's
+// stored slice — so they must never be renumbered.
+const (
+	SlotLogonID = iota
+	SlotSubjectLogonID
+	SlotProcessID
+	SlotNewProcessID
+	SlotParentProcessID
+	SlotProcessName
+	SlotTargetUser
+	SlotSubjectUser
+	SlotIPAddress
+	SlotServiceName
+)
+
+// CorrelationSlotMaxLen bounds each slot at the widest value that field can legitimately
+// hold, rather than at one generous number for everything.
+//
+// This is what makes the projection affordable, and the first measurement is why it exists: a
+// uniform 64-byte cap made the format's worst case 819 bytes per event — against a baseline
+// node record of 483 — which is most of the way back to the resident cost that moving the raw
+// record out of the node was supposed to remove. Sizing each slot to its actual domain cuts
+// that by roughly 60% without truncating any real value.
+//
+//	identifiers   18   "0x" plus the 16 hex digits of a uint64; nothing longer is a number
+//	image         40   a basename, not a path — "cmd.exe", "MpCmdRun.exe"
+//	account       32   the SAM account limit is 20; 32 leaves room for the odd long UPN prefix
+//	address       45   the maximum length of an IPv6 literal
+//	service       40   long service names exist; longer ones are display text, not identity
+var CorrelationSlotMaxLen = map[int]int{
+	SlotLogonID:         18,
+	SlotSubjectLogonID:  18,
+	SlotProcessID:       18,
+	SlotNewProcessID:    18,
+	SlotParentProcessID: 18,
+	SlotProcessName:     40,
+	SlotTargetUser:      32,
+	SlotSubjectUser:     32,
+	SlotIPAddress:       45,
+	SlotServiceName:     40,
+}
+
+// CorrelationSlots names each slot for rule authors (a rule's match_fields lists these
+// names). Index into this slice IS the slot index above.
+//
+// What each slot means, precisely, because a rule author choosing one needs to know:
+//
+//	logon_id            the logon session this event belongs to. The single most useful
+//	                    correlation field: it ties a logon to everything done under it.
+//	subject_logon_id    the session of the account that CAUSED the event, when the event
+//	                    distinguishes actor from target (4720, 4728, 4688…).
+//	process_id          the verbatim ProcessId field. Its meaning is event-dependent — on a
+//	                    4688 it is the CREATOR, not the new process — so lineage resolves it
+//	                    through the rule documented on CorrelationSlotSources rather than
+//	                    assuming one reading.
+//	new_process_id      the process created by this event (4688).
+//	parent_process_id   an explicitly named parent/creator (Sysmon 1, and providers that
+//	                    spell it out).
+//	process_name        the image of the process this event is ABOUT, basename only.
+//	target_user         the account acted upon.
+//	subject_user        the account acting.
+//	ip_address          the remote address involved.
+//	service_name        the service involved (7045, 4697…).
+//
+// Two candidates were measured out of the vocabulary rather than kept for completeness:
+//
+//	parent_process_name — redundant. A lineage edge joins the parent's creation event to the
+//	                      child's, so the parent's image is already on the parent event as
+//	                      process_name. Storing it twice bought a slightly shorter basis string
+//	                      and cost 40 bytes on every event in the case.
+//	session_id          — subsumed. logon_id identifies the logon session and is what rules
+//	                      actually need; the terminal session number correlates strictly less
+//	                      precisely, and Session 0 alone would have bucketed every service
+//	                      event on a host together.
+var CorrelationSlots = []string{
+	"logon_id",
+	"subject_logon_id",
+	"process_id",
+	"new_process_id",
+	"parent_process_id",
+	"process_name",
+	"target_user",
+	"subject_user",
+	"ip_address",
+	"service_name",
+}
+
+// CorrelationSlotSources maps each slot to the EventData field names that feed it, tried in
+// order, first non-absent value wins. Matching is case-insensitive.
+//
+// Note the deliberate asymmetry between process_id and process_name on a 4688: process_id is
+// the raw ProcessId field (the creator), while process_name resolves NewProcessName (the
+// child). They are not two views of one process, and pairing them would be wrong. The lineage
+// algorithm therefore derives its pairing explicitly:
+//
+//	child  pid = new_process_id    if present, else process_id
+//	parent pid = parent_process_id if present, else process_id when new_process_id is present
+//
+// which reads a 4688 (child=NewProcessId, creator=ProcessId) and a Sysmon 1 (child=ProcessId,
+// parent=ParentProcessId) correctly without either shape being special-cased.
+var CorrelationSlotSources = map[int][]string{
+	SlotLogonID:         {"TargetLogonId", "LogonId", "TargetLogonID"},
+	SlotSubjectLogonID:  {"SubjectLogonId", "SubjectLogonID"},
+	SlotProcessID:       {"ProcessId", "ProcessID", "ClientProcessId", "SourceProcessId"},
+	SlotNewProcessID:    {"NewProcessId", "NewProcessID"},
+	SlotParentProcessID: {"ParentProcessId", "CreatorProcessId", "ParentProcessID"},
+	SlotProcessName:     {"NewProcessName", "Image", "ProcessName", "Application"},
+	SlotTargetUser:      {"TargetUserName", "AccountName", "MemberName"},
+	SlotSubjectUser:     {"SubjectUserName"},
+	SlotIPAddress:       {"IpAddress", "ClientAddress", "SourceNetworkAddress", "SourceIp"},
+	SlotServiceName:     {"ServiceName", "ServiceFileName"},
+}
+
+// CorrelationAbsentValues are the literals Windows writes to mean "not applicable", for ANY
+// slot. They are treated as ABSENT rather than as values.
+//
+// This matters more than it looks. A hyphen appears in a large fraction of Security records,
+// and bucketing every event that carries one under a shared "-" key would correlate them all
+// with each other — which is precisely how a field matcher turns into a false-positive engine.
+// The null SID is the same problem in a different spelling.
+//
+// Zero is deliberately NOT in this list, because it is only meaningless for SOME slots. A
+// logon id or process id of zero means "none"; a plain numeric zero elsewhere can be a real
+// value. Zero is therefore rejected by the identifier slot class (see CorrelationZeroIsAbsent)
+// rather than universally.
+var CorrelationAbsentValues = []string{
+	"-", "s-1-0-0", "null", "n/a", "(null)",
+}
+
+// Correlation slot classes select how a raw value is canonicalized before it is stored, so
+// that two spellings of the same thing compare equal.
+const (
+	// SlotClassIdentifier canonicalizes a numeric identifier to lowercase 0x-prefixed hex,
+	// accepting either decimal or hex input. This is what lets a process id written "420" by
+	// one provider and "0x1A4" by another correlate at all. Hex is the target form because the
+	// Security channel — the primary evidence source, and where every built-in rule lives —
+	// writes both logon ids and process ids that way, so it is the least surprising rendering
+	// in a relation's basis. A value that does not parse as a number is kept verbatim
+	// (lowercased), so a provider using an opaque identifier still correlates with itself.
+	SlotClassIdentifier = "identifier"
+	// SlotClassImage reduces a path to its lowercased basename, so
+	// C:\Windows\System32\cmd.exe and \Device\HarddiskVolume2\Windows\System32\cmd.exe are the
+	// same image. Correlating on a full path would make the same binary look like two.
+	SlotClassImage = "image"
+	// SlotClassPlain trims and lowercases only.
+	SlotClassPlain = "plain"
+)
+
+// CorrelationSlotClasses assigns each slot its canonicalization.
+var CorrelationSlotClasses = map[int]string{
+	SlotLogonID:         SlotClassIdentifier,
+	SlotSubjectLogonID:  SlotClassIdentifier,
+	SlotProcessID:       SlotClassIdentifier,
+	SlotNewProcessID:    SlotClassIdentifier,
+	SlotParentProcessID: SlotClassIdentifier,
+	SlotProcessName:     SlotClassImage,
+	SlotTargetUser:      SlotClassPlain,
+	SlotSubjectUser:     SlotClassPlain,
+	SlotIPAddress:       SlotClassPlain,
+	SlotServiceName:     SlotClassPlain,
+}
+
+// CorrelationZeroIsAbsent reports whether a numeric zero means "no such thing" for a slot
+// class. It does for identifiers (logon id 0x0, process id 0) and not for anything else.
+func CorrelationZeroIsAbsent(class string) bool { return class == SlotClassIdentifier }
+
+// CorrelationSlotIndex resolves a slot name to its index, or (-1, false) when the name is not
+// part of the vocabulary. Rule validation uses it to reject an unknown match_fields entry.
+func CorrelationSlotIndex(name string) (int, bool) {
+	for i, s := range CorrelationSlots {
+		if s == name {
+			return i, true
+		}
+	}
+	return -1, false
+}
 
 // IndexedNodeKeys is the set of node property keys that are registered in the
 // secondary index at ingest time. Kept intentionally small: raw_xml and
@@ -101,6 +316,36 @@ const (
 	// indexed on the edge so a graph's relations can be queried without scanning all
 	// edges. Event nodes are shared across graphs; only edges + layout are per-graph.
 	PropGraphID = "graph_id"
+	// --- Relation provenance (v0.2.0) ---
+	//
+	// PropRuleID is the ONLY provenance field that is indexed. It is low-cardinality (one
+	// value per rule) and it is what lets a rule's edges be found without knowing which graph
+	// they landed in — needed by the relationship inspector, rule inertness reporting, and
+	// orphan detection after a rename.
+	//
+	// PropMatchID is deliberately NOT indexed. It is near-unique, and a near-unique indexed
+	// key is the exact shape that cost 8.0s instead of 0.8s at store open when the timestamp
+	// key was declared ordered (see graphene_store.go). Nothing queries by match id: the
+	// inspector already holds the edges it needs.
+	PropRuleID    = "rule_id"
+	PropAlgorithm = "algorithm"
+	PropMatchID   = "match_id"
+	PropStepIndex = "step_index"
+	PropBasis     = "basis"
+)
+
+// --- Relation provenance bounds (v0.2.0) ---
+const (
+	// RelationSchemaVersion is stamped on every relation this build writes. A relation
+	// decoding to 0 was written before provenance existed, which is a DIFFERENT statement
+	// from "the rule recorded no basis" — the inspector says so rather than showing a blank
+	// field that reads as an empty answer.
+	RelationSchemaVersion = 1
+	// MaxBasisEntries / MaxBasisLen bound the human-readable "why these two events were
+	// joined" list carried on each edge. Edges arrive by the hundred thousand, so this is a
+	// per-edge resident cost and is capped rather than left to the matcher's discretion.
+	MaxBasisEntries = 4
+	MaxBasisLen     = 64
 )
 
 // --- Multiple graphs (P15) ---
@@ -363,7 +608,15 @@ const (
 	RuleFileExt   = ".json"
 	// RuleFormatVersion is the current rule-file schema version. Files must not declare a
 	// newer version than this build understands (forward-compat guard).
-	RuleFormatVersion = 1
+	//
+	// Raised to 2 in v0.2.0. Per RULES.md §5 a new `algorithm` value is a BREAKING change:
+	// a v0.1.0 build reading a field/temporal/lineage rule would match on the event-ID
+	// sequence alone and produce a graph that is wrong rather than absent. Declaring version 2
+	// is what makes that build refuse the file instead.
+	//
+	// Rules that use only the v1 feature set stay at version 1 and keep loading everywhere —
+	// including the built-in library, which is deliberately not bulk-upgraded.
+	RuleFormatVersion = 2
 	// RuleMinSequence is the fewest event IDs a rule may match (two form one edge);
 	// RuleMaxSequence caps a single rule's length.
 	RuleMinSequence = 2
@@ -385,13 +638,150 @@ const (
 	RuleFormatWidth  = 100
 )
 
-// Auto-graphing algorithm types (P3). A rule selects how its sequence is correlated into
-// edges; only sequence-based correlation ships in v1, but the type is a named, pluggable
-// extension point (field-correlation, temporal-window reserved). AlgoSequence is the
-// default when a rule omits the field.
+// --- Auto-graphing algorithm types (P3, extended in v0.2.0) ---
+//
+// A rule selects how its events are correlated into edges. AlgoSequence is the default when a
+// rule omits the field, which is what keeps every v1 rule loading unchanged.
 const (
-	AlgoSequence     = "sequence"
+	AlgoSequence = "sequence"
+	AlgoField    = "field"
+	AlgoTemporal = "temporal"
+	AlgoLineage  = "lineage"
+
 	DefaultAlgorithm = AlgoSequence
+)
+
+// AlgorithmDescriptor states everything about an algorithm that is NOT its implementation:
+// the format version a rule needs to declare in order to use it, whether it matches an
+// event-ID sequence, and which optional rule fields apply to it.
+//
+// It lives in consts rather than in autograph because the dependency runs autograph → rules,
+// so the validator cannot read the engine's registry. Keeping the vocabulary here lets both
+// sides derive from one list, and a test in autograph asserts the registered implementations
+// and this list agree exactly in both directions — so an algorithm can never be accepted at
+// load but unimplemented, or implemented but rejected at load.
+type AlgorithmDescriptor struct {
+	Name             string
+	MinFormatVersion int
+	// RequiresSequence reports whether the algorithm matches an ordered event-ID sequence.
+	// Lineage does not: it reconstructs ancestry from process-creation records.
+	RequiresSequence bool
+	// Fields are the optional rule fields this algorithm reads. A field belonging to a
+	// different algorithm is a WARNING rather than an error, matching how the format already
+	// treats fields it does not interpret (RULES.md §3).
+	Fields  []string
+	Summary string
+}
+
+// Rule field names for the algorithm-specific matchers (v0.2.0).
+//
+// These are flat, prefixed top-level fields rather than nested objects. Nesting would look
+// tidier and would cost a simultaneous change to four things that are all flat today: the
+// position scanner that locates a problem in the source addresses `field` and `field[i]` only;
+// ValidationError.{Field,Index} is the guided form's control addressing; and the raw editor's
+// completion list is generated from a flat descriptor. Nesting buys no expressiveness.
+const (
+	// FieldAlgorithm is named here as well as being a Spec tag, because validation reports
+	// problems ABOUT the algorithm field and the editor locates the control by that name.
+	FieldAlgorithm        = "algorithm"
+	FieldMatchFields      = "match_fields"
+	FieldMatchScope       = "match_scope"
+	FieldWindowWithin     = "window_within"
+	FieldWindowTotal      = "window_total"
+	FieldLineageCreateIDs = "lineage_create_ids"
+	FieldLineageDepth     = "lineage_depth"
+	FieldChannels         = "channels"
+)
+
+// Correlation scopes. A scope partitions events before matching, so a chain can never be
+// assembled from events on unrelated hosts.
+const (
+	ScopeComputer = "computer"
+	ScopeGlobal   = "global"
+	DefaultScope  = ScopeComputer
+)
+
+// CorrelationScopes is the accepted set for match_scope.
+var CorrelationScopes = []string{ScopeComputer, ScopeGlobal}
+
+// Algorithms is the vocabulary the rule validator accepts and the engine registers against.
+var Algorithms = []AlgorithmDescriptor{
+	{
+		Name:             AlgoSequence,
+		MinFormatVersion: 1,
+		RequiresSequence: true,
+		Fields:           []string{FieldMatchScope},
+		Summary: "Match an ordered event-ID sequence chronologically within a scope. " +
+			"Establishes a temporally ordered pairing and nothing more.",
+	},
+	{
+		Name:             AlgoField,
+		MinFormatVersion: 2,
+		RequiresSequence: true,
+		Fields:           []string{FieldMatchFields, FieldMatchScope},
+		Summary: "Match an ordered event-ID sequence within a scope AND a shared value for " +
+			"every named correlation field, so a match establishes entity linkage rather than " +
+			"only ordering.",
+	},
+	{
+		Name:             AlgoTemporal,
+		MinFormatVersion: 2,
+		RequiresSequence: true,
+		Fields:           []string{FieldWindowWithin, FieldWindowTotal, FieldMatchFields, FieldMatchScope},
+		Summary: "Match an ordered event-ID sequence where each consecutive pair falls within " +
+			"a bounded time window. Composes with match_fields.",
+	},
+	{
+		Name:             AlgoLineage,
+		MinFormatVersion: 2,
+		RequiresSequence: false,
+		Fields:           []string{FieldLineageCreateIDs, FieldLineageDepth, FieldMatchScope},
+		Summary: "Reconstruct process ancestry from process-creation records, resolving each " +
+			"parent through the PID's lifetime interval so a reused PID cannot produce a wrong link.",
+	},
+}
+
+// AlgorithmByName returns the descriptor for an algorithm name.
+func AlgorithmByName(name string) (AlgorithmDescriptor, bool) {
+	for _, a := range Algorithms {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return AlgorithmDescriptor{}, false
+}
+
+// AlgorithmNames returns every accepted algorithm name, in declaration order.
+func AlgorithmNames() []string {
+	out := make([]string, len(Algorithms))
+	for i, a := range Algorithms {
+		out[i] = a.Name
+	}
+	return out
+}
+
+// --- Lineage defaults (v0.2.0) ---
+const (
+	// LineageDefaultCreateID is Windows' "a new process has been created" event. A rule may
+	// override it (Sysmon's process-creation event is 1) but this is what makes the common
+	// case a one-line rule.
+	LineageDefaultCreateID = "4688"
+	// LineageExitID ends a PID's lifetime interval. An interval is otherwise closed by the
+	// next creation of the same PID, or left open.
+	LineageExitID = "4689"
+	// LineageMaxDepth caps transitive ancestor edges. The default depth is 0 — direct edges
+	// only — because transitive links are derivable by traversing the direct ones and emitting
+	// them multiplies edge count without adding information.
+	LineageMaxDepth = 16
+)
+
+// --- Correlation window bounds (v0.2.0) ---
+const (
+	// TemporalMaxWindow bounds window_within / window_total. A window larger than this is
+	// almost certainly a mistake (a units slip: "5" meaning minutes, parsed as nanoseconds,
+	// or "30d" where "30m" was meant) and an unbounded window makes a temporal rule a slower
+	// spelling of a sequence rule.
+	TemporalMaxWindow = 30 * 24 * time.Hour
 )
 
 // AutoGraphMaxMatches caps the number of completed rule occurrences a single Generate call
@@ -400,9 +790,22 @@ const (
 const AutoGraphMaxMatches = 100000
 
 // RuleMatchConfidence is the confidence stamped on edges produced by an exact event-ID
-// sequence match (deterministic structural match → full confidence). Future fuzzy/
-// temporal algorithms will compute partial scores.
+// sequence match (deterministic structural match → full confidence).
 const RuleMatchConfidence = 1.0
+
+// --- What confidence_score means in rohy ---
+//
+// It measures HOW EXACT THE MATCH WAS. It is not, and must never become, an estimate of how
+// likely the activity is to be malicious — an analyst reading "0.9" beside an edge has to be
+// able to know which of those two things they are being told.
+//
+// Every matcher that shipping v0.2.0 offers is exact, so the only value below 1.0 is the one
+// stamped on a transitive lineage edge, which is a link DERIVED from direct links rather than
+// read from a record.
+const (
+	ConfidenceExactMatch        = 1.0
+	ConfidenceLineageTransitive = 0.9
+)
 
 // --- Rule validation problem codes ---
 //
@@ -421,11 +824,35 @@ const (
 	RuleErrLabelsTooMany     = "labels_too_many"
 	RuleErrUnknownAlgorithm  = "unknown_algorithm"
 	RuleErrUnsupportedFormat = "unsupported_format"
+	// --- Algorithm-specific contract violations (v0.2.0) ---
+	RuleErrAlgorithmNeedsFormat = "algorithm_needs_format"
+	RuleErrSequenceRequired     = "sequence_required"
+	RuleErrMatchFieldsRequired  = "match_fields_required"
+	RuleErrUnknownMatchField    = "unknown_match_field"
+	RuleErrDuplicateMatchField  = "duplicate_match_field"
+	RuleErrUnknownScope         = "unknown_scope"
+	RuleErrWindowRequired       = "window_required"
+	RuleErrBadDuration          = "bad_duration"
+	RuleErrWindowTooLarge       = "window_too_large"
+	RuleErrWindowTotalTooSmall  = "window_total_too_small"
+	RuleErrLineageIDsEmpty      = "lineage_ids_empty"
+	RuleErrLineageDepthRange    = "lineage_depth_range"
+	RuleErrChannelEmpty         = "channel_empty"
 	// Advisory only — these never block a save. They exist because a rule can be perfectly
 	// valid and still be a bad rule to hand to another analyst.
 	RuleWarnUnknownField  = "unknown_field"
 	RuleWarnNoDescription = "no_description"
 	RuleWarnNameCollision = "name_collision"
+	// RuleWarnFieldNotForAlgorithm reports a field that belongs to a different algorithm. It
+	// is advisory rather than fatal for the same reason an unrecognized field is (RULES.md
+	// §3): the format ignores what it does not interpret, and the editor must never be
+	// stricter than the loader.
+	RuleWarnFieldNotForAlgorithm = "field_not_for_algorithm"
+	// RuleWarnNoChannels reports a rule that does not declare the channels it needs, so the
+	// missing-channel check cannot say whether it can fire on a given case.
+	RuleWarnNoChannels = "no_channels"
+	// RuleWarnSequenceIgnored reports a sequence on an algorithm that does not match one.
+	RuleWarnSequenceIgnored = "sequence_ignored"
 )
 
 // --- Rule validation / status message templates ---
@@ -443,6 +870,26 @@ const (
 	MsgRuleFileTooLarge      = "rule file is too large (%d bytes, maximum %d)"
 	MsgRuleBuiltinProtected  = "built-in rules cannot be deleted (disable it instead)"
 	// Advisory messages, shown by the editor beside a rule that is valid but questionable.
+	// Algorithm-specific contract messages (v0.2.0).
+	MsgRuleAlgorithmNeedsFormat = "the %q algorithm requires format_version %d, but this file declares %d"
+	MsgRuleSequenceRequired     = "the %q algorithm matches an event ID sequence, which this rule does not have"
+	MsgRuleMatchFieldsRequired  = "the %q algorithm needs at least one entry in match_fields"
+	MsgRuleUnknownMatchField    = "%q is not a correlation field (available: %s)"
+	MsgRuleDuplicateMatchField  = "match_fields lists %q more than once"
+	MsgRuleUnknownScope         = "unknown match_scope %q (expected one of: %s)"
+	MsgRuleWindowRequired       = "the %q algorithm needs a window_within duration (for example \"5m\")"
+	MsgRuleBadDuration          = "%s is not a duration: %v (expected a value like \"90s\", \"5m\" or \"2h\")"
+	MsgRuleWindowNotPositive    = "%s must be greater than zero"
+	MsgRuleWindowTooLarge       = "%s of %s exceeds the maximum of %s — check the units"
+	MsgRuleWindowTotalTooSmall  = "window_total (%s) is shorter than window_within (%s), so no match could ever complete"
+	MsgRuleLineageIDsEmpty      = "lineage_create_ids contains an empty event ID at position %d"
+	MsgRuleLineageDepthRange    = "lineage_depth must be between 0 and %d"
+	MsgRuleChannelEmpty         = "channels contains an empty entry at position %d"
+	// Advisory messages for the algorithm-aware checks.
+	MsgRuleFieldNotForAlgorithm = "field %q has no effect for the %q algorithm — it is preserved on save but is not read"
+	MsgRuleNoChannels           = "this rule does not declare the channels it needs, so rohy cannot tell you when a case is missing the log it depends on"
+	MsgRuleSequenceIgnored      = "the %q algorithm does not match an event ID sequence, so this rule's sequence is preserved but not read"
+
 	MsgRuleUnknownField  = "field %q is not used by this build — it is preserved on save but has no effect"
 	MsgRuleNoDescription = "this rule has no description — the rules list and inspector will say nothing about what it matches"
 	MsgRuleNameCollision = "another rule is already named %q (id %s); saving under this name is refused"

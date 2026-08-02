@@ -103,16 +103,149 @@ func TestSchemaBoundsMatchTheValidator(t *testing.T) {
 	}
 }
 
+// probeRule builds a rule that is valid for the given algorithm, so a probe exercises the one
+// field it is about rather than tripping over that algorithm's other requirements.
+//
+// It exists because the format stopped being uniform: selecting `field` makes match_fields
+// mandatory, `temporal` makes window_within mandatory, and `lineage` removes the sequence
+// entirely. A single fixed probe body could only ever have tested one of the four.
+func probeRule(algorithm string) map[string]any {
+	spec := map[string]any{
+		"name":        "Probe",
+		"description": "4624 then 1102.",
+		"channels":    []string{consts.ChannelSecurity},
+	}
+	algo, ok := consts.AlgorithmByName(algorithm)
+	if !ok {
+		return spec
+	}
+	spec["algorithm"] = algorithm
+	spec["format_version"] = algo.MinFormatVersion
+	if algo.RequiresSequence {
+		spec["sequence"] = []string{"4624", "1102"}
+	}
+	if algorithm == consts.AlgoField {
+		spec["match_fields"] = []string{consts.CorrelationSlots[0]}
+	}
+	if algorithm == consts.AlgoTemporal {
+		spec["window_within"] = "5m"
+	}
+	return spec
+}
+
+// parseProbe encodes and loads a probe rule.
+func parseProbe(t *testing.T, spec map[string]any) error {
+	t.Helper()
+	body, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal probe: %v", err)
+	}
+	_, err = Parse(body)
+	return err
+}
+
+// fieldAlgorithms returns the algorithms a field applies to, defaulting to every algorithm
+// when the descriptor does not narrow it.
+func fieldAlgorithms(f Field) []string {
+	if len(f.AppliesTo) > 0 {
+		return f.AppliesTo
+	}
+	return consts.AlgorithmNames()
+}
+
 // TestSchemaEnumValuesAreAccepted runs every advertised value through the real loader. An
 // enum the form offers but the validator refuses would make the guided editor produce a
 // rule that cannot be saved — the single most confusing failure a form can have.
+//
+// Each value is probed under an algorithm that actually reads the field, because a value can
+// now be legal for one matcher and inert for another.
 func TestSchemaEnumValuesAreAccepted(t *testing.T) {
 	for _, f := range Describe().Fields {
-		for _, value := range f.Enum {
-			body := fmt.Sprintf(`{"name":"Enum Probe","description":"4624 then 1102.",
-				"sequence":["4624","1102"],%q:%q}`, f.Name, value)
-			if _, err := Parse([]byte(body)); err != nil {
-				t.Errorf("%s = %q is offered by the schema but rejected by the loader: %v", f.Name, value, err)
+		if len(f.Enum) == 0 {
+			continue
+		}
+		for _, algorithm := range fieldAlgorithms(f) {
+			for _, value := range f.Enum {
+				spec := probeRule(algorithm)
+				// The algorithm field's own enum names the algorithm to probe under, rather
+				// than being a value set on some other algorithm's rule.
+				if f.Name == consts.FieldAlgorithm {
+					spec = probeRule(value)
+				} else if f.Kind == KindStringArray {
+					spec[f.Name] = []string{value}
+				} else {
+					spec[f.Name] = value
+				}
+				if err := parseProbe(t, spec); err != nil {
+					t.Errorf("%s = %q (under algorithm %q) is offered by the schema but rejected by the loader: %v",
+						f.Name, value, algorithm, err)
+				}
+			}
+		}
+	}
+}
+
+// TestEveryAlgorithmHasAWorkingMinimalRule pins the claim the selector makes: choosing any
+// algorithm and filling in what it asks for produces a rule that loads. An algorithm that
+// cannot be satisfied would be an option in the form that leads nowhere.
+func TestEveryAlgorithmHasAWorkingMinimalRule(t *testing.T) {
+	for _, algo := range consts.Algorithms {
+		if err := parseProbe(t, probeRule(algo.Name)); err != nil {
+			t.Errorf("the minimal %q rule does not load: %v", algo.Name, err)
+		}
+	}
+}
+
+// TestSchemaAlgorithmsMatchTheVocabulary keeps the descriptor's algorithm list and the
+// validator's accepted set the same list. They are derived from one source; this asserts the
+// derivation was not replaced by a hand-written copy.
+func TestSchemaAlgorithmsMatchTheVocabulary(t *testing.T) {
+	schema := Describe()
+	if len(schema.Algorithms) != len(consts.Algorithms) {
+		t.Fatalf("descriptor lists %d algorithms, consts has %d", len(schema.Algorithms), len(consts.Algorithms))
+	}
+	for i, a := range schema.Algorithms {
+		want := consts.Algorithms[i]
+		if a.Name != want.Name || a.MinFormatVersion != want.MinFormatVersion ||
+			a.RequiresSequence != want.RequiresSequence || a.Summary != want.Summary {
+			t.Errorf("algorithm %d: descriptor %+v disagrees with consts %+v", i, a, want)
+		}
+	}
+	// The algorithm field's enum is what the selector renders; it must be the same set.
+	field, ok := schema.FieldByName(consts.FieldAlgorithm)
+	if !ok {
+		t.Fatal("no algorithm field in the descriptor")
+	}
+	if strings.Join(field.Enum, ",") != strings.Join(consts.AlgorithmNames(), ",") {
+		t.Errorf("algorithm enum = %v, want %v", field.Enum, consts.AlgorithmNames())
+	}
+	// match_fields offers the correlation vocabulary; an option the extractor never populates
+	// would be a field the author can select and that silently matches nothing.
+	mf, ok := schema.FieldByName(consts.FieldMatchFields)
+	if !ok {
+		t.Fatal("no match_fields in the descriptor")
+	}
+	if strings.Join(mf.Enum, ",") != strings.Join(consts.CorrelationSlots, ",") {
+		t.Errorf("match_fields enum = %v, want the correlation slots %v", mf.Enum, consts.CorrelationSlots)
+	}
+}
+
+// TestAppliesToNamesRealAlgorithms stops a descriptor from restricting a field to an
+// algorithm that does not exist, which would hide the control in every form forever.
+func TestAppliesToNamesRealAlgorithms(t *testing.T) {
+	for _, f := range Describe().Fields {
+		for _, name := range f.AppliesTo {
+			if _, ok := consts.AlgorithmByName(name); !ok {
+				t.Errorf("field %q applies_to unknown algorithm %q", f.Name, name)
+			}
+		}
+	}
+	// And the other way: every field an algorithm claims to read must exist in the descriptor,
+	// or the algorithm advertises a setting the editor cannot offer.
+	for _, algo := range consts.Algorithms {
+		for _, field := range algo.Fields {
+			if _, ok := Describe().FieldByName(field); !ok {
+				t.Errorf("algorithm %q reads field %q, which has no descriptor", algo.Name, field)
 			}
 		}
 	}

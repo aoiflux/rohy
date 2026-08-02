@@ -4,6 +4,7 @@
   "description": "Remote Desktop reports a successful network authentication (1149) and a logon follows (4624) — the pair that ties an incoming RDP connection to the session it became. 1149 carries the source address the Security log does not, which is the point of correlating them; it comes from the TerminalServices-RemoteConnectionManager channel, which must be ingested, and it is broad in that it fires for every RDP connection, routine ones included.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational", "Security"],
   "sequence": ["1149", "4624"],
   "labels": ["becomes session"]
 }

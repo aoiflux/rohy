@@ -4,6 +4,7 @@
   "description": "The security audit log is cleared (1102) and the system time is then changed (4616) — two individually rare events whose pairing points at deliberate timeline tampering.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["1102", "4616"],
   "labels": ["then changes system time"]
 }

@@ -297,4 +297,3 @@ func TestDeleteEventCascadeRemovesEdgeIndexEntries(t *testing.T) {
 		t.Errorf("index inconsistent after cascade delete: %v", err)
 	}
 }
-

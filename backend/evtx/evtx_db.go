@@ -120,6 +120,11 @@ func normalizeDBRow(row dbsource.Row, catalogue bool) *graphene.Event {
 		// message is the discriminator that keeps two distinct entries from collapsing into
 		// one another under the undated rule.
 		ev.ComputeNormalizedHash(row.Message)
+		// A catalogue row describes what an event id MEANS; it records no occurrence, so it
+		// projects to nothing. It is still stamped with the current recipe version, because
+		// "projected, and there was nothing there" is a finished answer — leaving it at zero
+		// would make every catalogue row look permanently un-backfilled.
+		ev.ComputeCorrelationKeys()
 		return ev
 	}
 
@@ -128,6 +133,7 @@ func normalizeDBRow(row dbsource.Row, catalogue bool) *graphene.Event {
 	// and three parsers, and three copies of it would drift. SourceIdentifier is empty here
 	// and the sink recomputes once it is known.
 	ev.ComputeNormalizedHash()
+	ev.ComputeCorrelationKeys()
 	return ev
 }
 

@@ -63,6 +63,14 @@ type Result struct {
 	// registering their index entries. Normally zero. A non-zero value is not an error, but
 	// it does mean a previous build did not finish, so it is surfaced rather than absorbed.
 	RepairedRelations int `json:"repaired_relations"`
+	// StaleCorrelationKeys is how many of the evaluated events carry no correlation projection
+	// from the current recipe — events ingested before the projection existed, or by an older
+	// vocabulary. Rules matching on fields under-report against those events.
+	//
+	// It is surfaced because the alternative is the worst kind of wrong answer: a field rule
+	// over an un-backfilled case returns a small number of matches and looks like a clean
+	// result. A run that cannot see the data has to say so.
+	StaleCorrelationKeys int `json:"stale_correlation_keys"`
 }
 
 // Progress reports how far a run has got, so a long build can show movement rather than
@@ -173,12 +181,31 @@ func (b *Builder) RunWithProgress(ctx context.Context, req Request, now time.Tim
 		res.SkippedUndated = n
 	}
 
+	// Prepare ONCE for the whole run. Before this, every rule dropped undated events, grouped
+	// by scope and sorted each group itself — so a build of twenty rules sorted the same case
+	// twenty times. What gets prepared is the union of what the SELECTED rules read, so a
+	// build of sequence-only rules pays nothing for machinery it will not touch.
+	specs := make([]*rules.Spec, len(selected))
+	for i, rule := range selected {
+		specs[i] = &rule.Spec
+	}
+	dataset := autograph.Prepare(events, autograph.RequirementsFor(specs))
+
+	// The two undated counts are ADDED, not one replacing the other, because they count
+	// disjoint sets: the store count above is what the filter excluded before the engine ever
+	// saw it, and this one is what reached the engine anyway. The second should always be
+	// zero — the filter states the exclusion and the engine guards it again, independently.
+	// Summing means that if the filter ever stops excluding them, the reported total stays
+	// truthful instead of the guard's catch being silently discarded.
+	res.SkippedUndated += dataset.SkippedUndated
+	res.StaleCorrelationKeys = dataset.StaleCorrelationKeys
+
 	relations := 0
 	for i, rule := range selected {
 		if err := ctx.Err(); err != nil {
 			return res, err
 		}
-		outcome, err := b.runRule(ctx, rule, events, now)
+		outcome, err := b.runRule(ctx, rule, dataset, now)
 		if err != nil {
 			return res, err
 		}
@@ -199,7 +226,7 @@ func (b *Builder) RunWithProgress(ctx context.Context, req Request, now time.Tim
 }
 
 // runRule builds one rule's graph: locate/create it, clear it, generate, persist.
-func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, events []*graphene.Event, now time.Time) (RuleOutcome, error) {
+func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, dataset *autograph.Dataset, now time.Time) (RuleOutcome, error) {
 	out := RuleOutcome{RuleID: rule.ID, RuleName: rule.Name}
 
 	graph, err := b.graphs.EnsureForRule(rule.ID, rule.Name, rule.Description, now)
@@ -215,7 +242,7 @@ func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, events []*graph
 	}
 	out.Removed = removed
 
-	gen := autograph.Generate(&rule.Spec, events)
+	gen := autograph.GenerateWith(&rule.Spec, dataset)
 	out.Matches, out.Truncated, out.Dropped = gen.Matches, gen.Truncated, gen.Dropped
 
 	// Persist in chunks rather than one relation at a time. Each write is durable, so a
@@ -243,6 +270,14 @@ func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, events []*graph
 		rel := gen.Relations[i]
 		rel.GraphID = graph.ID
 		rel.CreatedAt = now
+		// Provenance is stamped HERE, by the backend, never taken from the algorithm's own
+		// idea of which rule it is — the same discipline CreatedAt already follows. An
+		// algorithm supplies the match identity and the basis (WHY these two events joined);
+		// the workflow supplies the rule identity, because it is the thing that knows which
+		// rule it is running.
+		rel.RuleID = rule.ID
+		rel.Algorithm = rule.Spec.AlgorithmOrDefault()
+		rel.RelVersion = consts.RelationSchemaVersion
 		batch = append(batch, &rel)
 		if len(batch) >= consts.RelationBatchSize {
 			if err := flush(); err != nil {

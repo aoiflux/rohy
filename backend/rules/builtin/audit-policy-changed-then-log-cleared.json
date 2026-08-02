@@ -4,6 +4,7 @@
   "description": "The system audit policy is changed (4719) and the security audit log is then cleared (1102) — stopping the recording and then removing what was already recorded. Both are rare on a settled host; policy deployment and a deliberate administrative clear produce the same pair, so establish who made the change before reading it as tampering.",
   "relation_type": "correlation",
   "algorithm": "sequence",
+  "channels": ["Security"],
   "sequence": ["4719", "1102"],
   "labels": ["then clears the audit log"]
 }
