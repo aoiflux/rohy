@@ -303,6 +303,9 @@ export const GRAPH = Object.freeze({
   AUTO_LAYOUT_GAP_X: 268,
   AUTO_LAYOUT_GAP_Y: 168,
   AUTO_LAYOUT_COLS: 5,
+  // World-space padding between a cluster's cards and the hull drawn around them. Wide enough
+  // that the outline never touches a card border and is not mistaken for one.
+  HULL_PAD: 26,
   // How many analyst tags a node card shows before it would start crowding the event data
   // it exists to display (P25).
   NODE_TAG_LIMIT: 3,
@@ -788,6 +791,30 @@ export const UI = Object.freeze({
   ARRANGE_EMPTY: 'Add events to the canvas first.',
   ARRANGE_PARTIAL: 'nodes could not be placed — the canvas changed since this was computed.',
   ARRANGE_FAILED: 'Could not arrange this graph:',
+
+  // --- Clusters (P29) ---
+  CLUSTER_TITLE: 'Group',
+  CLUSTER_MODE: 'Group by',
+  CLUSTER_FIELD: 'Field',
+  CLUSTER_SHOW: 'Show groups',
+  CLUSTER_HIDE: 'Hide groups',
+  CLUSTER_COLLAPSE_ALL: 'Fold all',
+  CLUSTER_EXPAND_ALL: 'Unfold all',
+  CLUSTER_COLLAPSE: 'Fold',
+  CLUSTER_EXPAND: 'Unfold',
+  CLUSTER_EVENTS: 'events',
+  CLUSTER_NOT_ON_CANVAS: 'not on this canvas',
+  CLUSTER_NONE: 'Nothing to group — add events to the canvas first.',
+  CLUSTER_OVERLAPS:
+    'An event can belong to more than one rule, so these groups overlap. Folding one takes any ' +
+    'shared events with it.',
+  CLUSTER_INTERNAL_HIDDEN: 'links inside folded groups are not drawn.',
+  CLUSTER_FAILED: 'Could not group this graph:',
+  CLUSTER_MODE_LABEL: Object.freeze({
+    component: 'What is joined to what',
+    rule: 'Which rule found it',
+    slot: 'Which session or account',
+  }),
   ACTION_LOAD_MAPPING: 'Load saved mapping',
   ACTION_SAVE_LAYOUT: 'Save layout',
   ACTION_CLEAR_CANVAS: 'Clear canvas',

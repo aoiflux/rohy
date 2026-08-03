@@ -6,6 +6,18 @@ export function ActiveGraph() {
   return window['go']['api']['GraphAPI']['ActiveGraph']();
 }
 
+export function ClusterModes() {
+  return window['go']['api']['GraphAPI']['ClusterModes']();
+}
+
+export function Clusters(arg1) {
+  return window['go']['api']['GraphAPI']['Clusters'](arg1);
+}
+
+export function ComputeLayout(arg1) {
+  return window['go']['api']['GraphAPI']['ComputeLayout'](arg1);
+}
+
 export function CreateGraph(arg1) {
   return window['go']['api']['GraphAPI']['CreateGraph'](arg1);
 }
@@ -40,6 +52,14 @@ export function GetRelations() {
 
 export function InspectRelation(arg1) {
   return window['go']['api']['GraphAPI']['InspectRelation'](arg1);
+}
+
+export function LayoutFields() {
+  return window['go']['api']['GraphAPI']['LayoutFields']();
+}
+
+export function LayoutProfiles() {
+  return window['go']['api']['GraphAPI']['LayoutProfiles']();
 }
 
 export function ListGraphs() {

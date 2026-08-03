@@ -7,6 +7,9 @@ import TestbenchPanel from './rules/TestbenchPanel.svelte';
 import CorrelationNotice from './rules/CorrelationNotice.svelte';
 import RelationInspector from './graph/RelationInspector.svelte';
 import AutoLayoutPanel from './graph/AutoLayoutPanel.svelte';
+import ClusterPanel from './graph/ClusterPanel.svelte';
+import GraphHulls from './graph/GraphHulls.svelte';
+import ClusterCard from './graph/ClusterCard.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -326,4 +329,45 @@ describe('graph / AutoLayoutPanel', () => {
   // the state it is in before the backend answers, which is also the state it is in when the
   // backend is unavailable. That branch has to draw rather than throw.
   renders('renders before its options have loaded', AutoLayoutPanel, {});
+});
+
+describe('graph / clustering', () => {
+  const CLUSTERS = [
+    { id: 'a', label: 'Group of 2', node_ids: [1, 2], size: 2 },
+    { id: 'b', label: 'brute-force', node_ids: [3], size: 1, overlapping: true },
+  ];
+  const NODES = { 1: { x: 0, y: 0 }, 2: { x: 300, y: 200 }, 3: { x: 700, y: 0 } };
+
+  renders('renders hulls for a grouping', GraphHulls, { clusters: CLUSTERS, nodes: NODES });
+
+  it('draws no hull for a folded group — its card is the group', () => {
+    const out = render(GraphHulls, {
+      props: { clusters: CLUSTERS, nodes: NODES, collapsed: new Set(['a', 'b']) },
+    });
+    expect(out.body).not.toContain('Group of 2');
+  });
+
+  it('survives a cluster naming nodes that are no longer on the canvas', () => {
+    // A grouping computed a moment ago can outlive the nodes it names.
+    expect(() =>
+      render(GraphHulls, { props: { clusters: [{ id: 'z', label: 'gone', node_ids: [99], size: 1 }], nodes: NODES } }),
+    ).not.toThrow();
+  });
+
+  it('shows the count on a folded card, always', () => {
+    // 🔒 A folded group must never be able to hide how much it contains.
+    const out = render(ClusterCard, {
+      props: { card: { id: 'c:a', clusterId: 'a', label: 'Group of 40', size: 40, onCanvas: 40, x: 0, y: 0 } },
+    });
+    expect(out.body).toContain('40');
+  });
+
+  it('says when some members are not on this canvas rather than implying they are', () => {
+    const out = render(ClusterCard, {
+      props: { card: { id: 'c:a', clusterId: 'a', label: 'g', size: 10, onCanvas: 4, x: 0, y: 0 } },
+    });
+    expect(out.body).toContain('6');
+  });
+
+  renders('renders the cluster panel before its options have loaded', ClusterPanel, {});
 });

@@ -188,6 +188,16 @@ export function layoutProfiles() {
 export function layoutFields() {
   return call(GRAPH, 'LayoutFields');
 }
+/** How a graph's nodes group — connected components, by rule, or by a correlation field.
+ *  @param {{graph_id?:number, mode:string, slot?:string}} req
+ *  @returns {Promise<{id:string,label:string,node_ids:number[],size:number,overlapping?:boolean}[]>} */
+export function clusters(req) {
+  return call(GRAPH, 'Clusters', req);
+}
+/** @returns {Promise<string[]>} */
+export function clusterModes() {
+  return call(GRAPH, 'ClusterModes');
+}
 
 // --- Graph management (multiple graphs, P15) ---
 

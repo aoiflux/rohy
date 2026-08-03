@@ -7,6 +7,8 @@
   import { graph, LAYOUT } from '../../stores/graph.js';
   import { selection as sel, highlightedEdges } from '../../stores/selection.js';
   import { relationsOfSelection, stepRelation } from '../../lib/graph/relations.js';
+  import { clusters } from '../../stores/clusters.js';
+  import { memberIndex, proxyCards, remapEdges } from '../../lib/graph/clusters.js';
   import * as api from '../../lib/api/index.js';
   import { findings } from '../../stores/findings.js';
   import { snackbar } from '../../stores/snackbar.js';
@@ -24,6 +26,8 @@
   import { GRAPH, RELATIONS, RELATION_LABEL, NODE_ACTION, UI } from '../../lib/consts/index.js';
   import GraphNode from './GraphNode.svelte';
   import GraphEdges from './GraphEdges.svelte';
+  import GraphHulls from './GraphHulls.svelte';
+  import ClusterCard from './ClusterCard.svelte';
   import Menu from '../material/Menu.svelte';
   import Dialog from '../material/Dialog.svelte';
   import Button from '../material/Button.svelte';
@@ -61,8 +65,49 @@
   const vp = $derived($graph.viewport);
   const nodeList = $derived(Object.values($graph.nodes));
   const selection = $derived(new Set($graph.selection));
-  const visibleNodes = $derived(nodeList.filter((n) => isNodeVisible(n, vp, w, h)));
-  const visibleIds = $derived(new Set(visibleNodes.map((n) => n.event.id)));
+
+  // --- Clustering (P29) ---
+  //
+  // Folding a group is done entirely by REMAPPING what the existing layers are handed: the
+  // members drop out of the node list, one card takes their place, and every edge that crossed
+  // the group's boundary is re-pointed at that card. GraphEdges and GraphNode learn nothing
+  // about clusters, which is what keeps a feature that changes the whole picture from
+  // reaching into the parts that draw it.
+  const clusterGeom = { width: GRAPH.NODE_WIDTH, height: GRAPH.NODE_HEIGHT, pad: GRAPH.HULL_PAD };
+  const folded = $derived($clusters.visible ? $clusters.collapsed : new Set());
+  const memberOf = $derived(memberIndex($clusters.list, folded));
+  const clusterCards = $derived(proxyCards($clusters.list, folded, $graph.nodes, clusterGeom));
+  const remapped = $derived(remapEdges($graph.edges, memberOf));
+
+  // A folded member is not drawn, but it is still ON the canvas — it stays in $graph.nodes, so
+  // unfolding restores it exactly and nothing about the graph itself has changed.
+  const shownNodes = $derived(nodeList.filter((n) => !memberOf.has(String(n.event.id))));
+  const visibleNodes = $derived(shownNodes.filter((n) => isNodeVisible(n, vp, w, h)));
+  const visibleIds = $derived.by(() => {
+    const ids = new Set(visibleNodes.map((n) => n.event.id));
+    // Cluster cards are always "visible" for edge purposes: they are few, and an edge into a
+    // folded group disappearing because its card is off-screen would read as the group having
+    // no outside links at all.
+    for (const c of clusterCards) ids.add(c.id);
+    return ids;
+  });
+  // What fit-to-content measures: the cards actually on screen.
+  const fitTargets = $derived.by(() => {
+    if (clusterCards.length === 0) return $graph.nodes;
+    const out = {};
+    for (const n of shownNodes) out[n.event.id] = n;
+    for (const c of clusterCards) out[c.id] = { x: c.x, y: c.y };
+    return out;
+  });
+
+  // The node map the edge layer resolves endpoints through, with a cluster card standing in for
+  // each folded group.
+  const edgeNodes = $derived.by(() => {
+    if (clusterCards.length === 0) return $graph.nodes;
+    const out = { ...$graph.nodes };
+    for (const c of clusterCards) out[c.id] = { x: c.x, y: c.y };
+    return out;
+  });
 
   // The live preview follows the cursor, but LOCKS ON to a snapped target's centre so the
   // user can see the link has committed before releasing — the feedback half of forgiving
@@ -116,9 +161,12 @@
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
+  // Hit-testing runs over the SHOWN nodes, not every node on the canvas. A folded member is
+  // still in the graph but is not on screen, and a click that selected and dragged something
+  // invisible — underneath the cluster card standing in for it — would be unexplainable.
   function hitNode(world) {
-    for (let i = nodeList.length - 1; i >= 0; i--) {
-      const n = nodeList[i];
+    for (let i = shownNodes.length - 1; i >= 0; i--) {
+      const n = shownNodes[i];
       if (world.x >= n.x && world.x <= n.x + GRAPH.NODE_WIDTH && world.y >= n.y && world.y <= n.y + GRAPH.NODE_HEIGHT) {
         return n.event.id;
       }
@@ -229,7 +277,9 @@
   }
 
   function selectAll() {
-    graph.setSelection(nodeList.map((n) => n.event.id));
+    // Same rule as hit-testing: what is on screen is what gets selected. A count including
+    // folded members would not match anything the analyst can see or act on.
+    graph.setSelection(shownNodes.map((n) => n.event.id));
   }
 
   function onpointerdown(e) {
@@ -437,7 +487,9 @@
   // fitView frames every node. It replaces the old "jump to world origin" reset, which
   // could land on empty canvas exactly when the user was lost and reached for it.
   function fitView() {
-    graph.setViewport(fitToNodes($graph.nodes, w, h));
+    // Fit to what is drawn: the shown nodes plus any cluster cards. Fitting to folded members
+    // would zoom out to cover cards that are not there.
+    graph.setViewport(fitToNodes(fitTargets, w, h));
   }
   /**
    * inspectEdge selects a relation and pulls in everything the inspector shows.
@@ -507,9 +559,19 @@
   {oncontextmenu}
 >
   <div class="world" style="transform: translate({vp.x}px, {vp.y}px) scale({vp.zoom})">
+    {#if $clusters.visible}
+      <!-- Beneath the edges and cards: a hull is context for the evidence, not a thing drawn
+           over it. -->
+      <GraphHulls
+        clusters={$clusters.list}
+        nodes={$graph.nodes}
+        collapsed={folded}
+        ontoggle={(id) => clusters.toggle(id)}
+      />
+    {/if}
     <GraphEdges
-      edges={$graph.edges}
-      nodes={$graph.nodes}
+      edges={remapped.edges}
+      nodes={edgeNodes}
       {visibleIds}
       {tempEdge}
       freshEdges={$graph.fresh.edges}
@@ -526,6 +588,9 @@
         entering={$graph.fresh.nodes.has(n.event.id)}
         finding={$findings.byKey[n.event.hash_normalized]}
       />
+    {/each}
+    {#each clusterCards as c (c.id)}
+      <ClusterCard card={c} onexpand={(id) => clusters.toggle(id)} />
     {/each}
   </div>
 

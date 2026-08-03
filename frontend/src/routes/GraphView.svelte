@@ -25,6 +25,7 @@
   import GraphCanvas from '../components/graph/GraphCanvas.svelte';
   import RelationInspector from '../components/graph/RelationInspector.svelte';
   import AutoLayoutPanel from '../components/graph/AutoLayoutPanel.svelte';
+  import ClusterPanel from '../components/graph/ClusterPanel.svelte';
   import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   const onCanvas = $derived(new Set(Object.keys($graph.nodes).map(Number)));
@@ -241,6 +242,7 @@
     <!-- Arranging sits above the event picker because it acts on what is already on the canvas,
          and below the graph switcher because it acts on ONE graph. -->
     <AutoLayoutPanel />
+    <ClusterPanel />
 
     <div class="paneltitle">
       <h3>{UI.PANEL_EVENTS}</h3>

@@ -4,6 +4,7 @@
 // the canvas binds to, preventing canvas/DB divergence.
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
+import { clusters } from './clusters.js';
 
 export const LAYOUT = Object.freeze({
   MANUAL: 'manual',
@@ -89,6 +90,11 @@ function create() {
   // clearCanvas empties the canvas (nodes/edges/selection/viewport) but keeps the graph
   // registry + active graph — used on graph switch and by the "Clear canvas" action.
   function clearCanvas() {
+    // Grouping is scoped to the canvas it was computed for, and cluster ids come from
+    // membership. Left in place across a graph switch it would draw graph A's outlines over
+    // graph B — or worse, leave a folded card standing for events that are no longer here.
+    // Bound to the funnel rather than to each caller, so a new path cannot forget it.
+    clusters.reset();
     update((s) => ({
       ...s,
       nodes: {},
