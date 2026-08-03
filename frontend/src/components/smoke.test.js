@@ -15,6 +15,7 @@ import ReplayBar from './graph/ReplayBar.svelte';
 import SnapshotPanel from './graph/SnapshotPanel.svelte';
 import GraphAnnotations from './graph/GraphAnnotations.svelte';
 import LayerPanel from './graph/LayerPanel.svelte';
+import MaintenanceView from '../routes/MaintenanceView.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -503,5 +504,25 @@ describe('graph / annotations', () => {
   it('tells the analyst what a layer is NOT, since a finding looks the same from outside', () => {
     const out = render(LayerPanel, {});
     expect(out.body).toContain('finding');
+  });
+});
+
+describe('routes / MaintenanceView', () => {
+  // onMount does not run on the server, so this renders the screen before any check has been
+  // run — which is also the state it is in when the backend is unavailable.
+  renders('renders before any check has been run', MaintenanceView, {});
+
+  it('says no check has run rather than showing an unqualified all-clear', () => {
+    // 🔒 An empty report and no report at all must not look alike. "Nothing wrong found" before
+    // anything has been checked would be the most damaging thing this screen could say.
+    const out = render(MaintenanceView, {});
+    expect(out.body).toContain('No check has been run');
+    expect(out.body).not.toContain('Nothing wrong found');
+  });
+
+  it('offers both depths as separate buttons', () => {
+    const out = render(MaintenanceView, {});
+    expect(out.body).toContain('Check case');
+    expect(out.body).toContain('Deep check');
   });
 });

@@ -6,10 +6,30 @@ import { THEMES, DEFAULT_THEME, applyTheme } from '../lib/consts/theme.js';
 
 const STORAGE_KEY = 'rohy:theme';
 
+// storage returns a usable localStorage, or null.
+//
+// It feature-detects the METHOD rather than the object, because `typeof localStorage !==
+// 'undefined'` is not the same question. Node defines a localStorage global whose methods throw
+// unless the runtime was started with a backing file, so the object test passes and the call
+// still fails — which is exactly how a component smoke test found this.
+//
+// Reading and writing are also wrapped: a browser in private mode, or with storage disabled by
+// policy, throws on setItem. A theme preference is not worth taking the app down for.
+function storage() {
+  try {
+    if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') return null;
+    return localStorage;
+  } catch (_) {
+    return null;
+  }
+}
+
 function initialTheme() {
-  if (typeof localStorage !== 'undefined') {
-    const saved = localStorage.getItem(STORAGE_KEY);
+  try {
+    const saved = storage()?.getItem(STORAGE_KEY);
     if (saved === THEMES.LIGHT || saved === THEMES.DARK) return saved;
+  } catch (_) {
+    // Fall through to the default.
   }
   return DEFAULT_THEME;
 }
@@ -21,7 +41,11 @@ function create() {
   function apply(name) {
     const next = name === THEMES.LIGHT ? THEMES.LIGHT : THEMES.DARK;
     if (typeof document !== 'undefined') applyTheme(next);
-    if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, next);
+    try {
+      storage()?.setItem(STORAGE_KEY, next);
+    } catch (_) {
+      // Storage full, disabled, or read-only. The theme still applies for this session.
+    }
     set(next);
   }
 

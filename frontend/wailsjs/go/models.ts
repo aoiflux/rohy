@@ -1,5 +1,201 @@
+export namespace annotate {
+	
+	export class Anchor {
+	    kind: string;
+	    hash?: string;
+	    x?: number;
+	    y?: number;
+	    w?: number;
+	    h?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Anchor(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.hash = source["hash"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.w = source["w"];
+	        this.h = source["h"];
+	    }
+	}
+	export class Item {
+	    id: string;
+	    layer: string;
+	    kind: string;
+	    anchor: Anchor;
+	    to?: Anchor;
+	    text?: string;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    updated_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Item(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layer = source["layer"];
+	        this.kind = source["kind"];
+	        this.anchor = this.convertValues(source["anchor"], Anchor);
+	        this.to = this.convertValues(source["to"], Anchor);
+	        this.text = source["text"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.updated_at = this.convertValues(source["updated_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Layer {
+	    id: string;
+	    name: string;
+	    colour?: string;
+	    visible: boolean;
+	    z: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Layer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.colour = source["colour"];
+	        this.visible = source["visible"];
+	        this.z = source["z"];
+	    }
+	}
+	export class Document {
+	    annotations_version: number;
+	    graph_id: number;
+	    layers: Layer[];
+	    items: Item[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Document(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.annotations_version = source["annotations_version"];
+	        this.graph_id = source["graph_id"];
+	        this.layers = this.convertValues(source["layers"], Layer);
+	        this.items = this.convertValues(source["items"], Item);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+
+}
+
 export namespace api {
 	
+	export class AnnotationRequest {
+	    graph_id: number;
+	    item: annotate.Item;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnnotationRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.graph_id = source["graph_id"];
+	        this.item = this.convertValues(source["item"], annotate.Item);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AnnotationView {
+	    document?: annotate.Document;
+	    node_of: Record<string, number>;
+	    orphaned: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AnnotationView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.document = this.convertValues(source["document"], annotate.Document);
+	        this.node_of = source["node_of"];
+	        this.orphaned = source["orphaned"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class EventQuery {
 	    event_id: string;
 	    provider: string;
@@ -169,6 +365,18 @@ export namespace api {
 		    return a;
 		}
 	}
+	export class GraphAPI {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new GraphAPI(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
 	export class GraphRequest {
 	    id: number;
 	    name: string;
@@ -263,6 +471,79 @@ export namespace api {
 	        this.error = source["error"];
 	    }
 	}
+	export class IntegrityDeps {
+	    // Go type: findings
+	    Findings?: any;
+	    // Go type: graphreg
+	    Graphs?: any;
+	    // Go type: rules
+	    Rules?: any;
+	    LayoutDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IntegrityDeps(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Findings = this.convertValues(source["Findings"], null);
+	        this.Graphs = this.convertValues(source["Graphs"], null);
+	        this.Rules = this.convertValues(source["Rules"], null);
+	        this.LayoutDir = source["LayoutDir"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LayerDeletion {
+	    annotations: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LayerDeletion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.annotations = source["annotations"];
+	    }
+	}
+	export class LayerRequest {
+	    graph_id: number;
+	    id?: string;
+	    name: string;
+	    colour?: string;
+	    visible: boolean;
+	    z: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LayerRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.graph_id = source["graph_id"];
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.colour = source["colour"];
+	        this.visible = source["visible"];
+	        this.z = source["z"];
+	    }
+	}
 	export class LayoutProfileInfo {
 	    name: string;
 	    label: string;
@@ -295,6 +576,18 @@ export namespace api {
 	        this.graph_id = source["graph_id"];
 	        this.profile = source["profile"];
 	        this.slot = source["slot"];
+	    }
+	}
+	export class MaintenanceAPI {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new MaintenanceAPI(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
 	    }
 	}
 	export class RelationDetail {
@@ -520,6 +813,98 @@ export namespace api {
 	        this.events = source["events"];
 	        this.relations = source["relations"];
 	    }
+	}
+
+}
+
+export namespace caseintegrity {
+	
+	export class Counts {
+	    events: number;
+	    relations: number;
+	    graphs: number;
+	    enabled_rules: number;
+	    channels: number;
+	    findings: number;
+	    rules_unchecked: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Counts(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.events = source["events"];
+	        this.relations = source["relations"];
+	        this.graphs = source["graphs"];
+	        this.enabled_rules = source["enabled_rules"];
+	        this.channels = source["channels"];
+	        this.findings = source["findings"];
+	        this.rules_unchecked = source["rules_unchecked"];
+	    }
+	}
+	export class Finding {
+	    code: string;
+	    severity: string;
+	    subject?: string;
+	    message: string;
+	    action?: string;
+	    count?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Finding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.severity = source["severity"];
+	        this.subject = source["subject"];
+	        this.message = source["message"];
+	        this.action = source["action"];
+	        this.count = source["count"];
+	    }
+	}
+	export class Report {
+	    // Go type: time
+	    ran_at: any;
+	    deep: boolean;
+	    findings: Finding[];
+	    counts: Counts;
+	    duration_ms: number;
+	    errors?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ran_at = this.convertValues(source["ran_at"], null);
+	        this.deep = source["deep"];
+	        this.findings = this.convertValues(source["findings"], Finding);
+	        this.counts = this.convertValues(source["counts"], Counts);
+	        this.duration_ms = source["duration_ms"];
+	        this.errors = source["errors"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

@@ -55,3 +55,5 @@ export function SaveLayout(arg1:number,arg2:layout.Layout):Promise<void>;
 export function SetActiveGraph(arg1:number):Promise<void>;
 
 export function UpdateRelation(arg1:api.RelationUpdate):Promise<graphene.Relation>;
+
+export function WithCascades(arg1:Array<api.GraphCascade>):Promise<api.GraphAPI>;

@@ -10,6 +10,10 @@ export function CancelMaintenance() {
   return window['go']['api']['MaintenanceAPI']['CancelMaintenance']();
 }
 
+export function CheckIntegrity(arg1) {
+  return window['go']['api']['MaintenanceAPI']['CheckIntegrity'](arg1);
+}
+
 export function CorrelationKeyStatus() {
   return window['go']['api']['MaintenanceAPI']['CorrelationKeyStatus']();
 }
@@ -18,6 +22,18 @@ export function IsRunningMaintenance() {
   return window['go']['api']['MaintenanceAPI']['IsRunningMaintenance']();
 }
 
+export function RebuildIndexes() {
+  return window['go']['api']['MaintenanceAPI']['RebuildIndexes']();
+}
+
+export function RepairRelationIndex() {
+  return window['go']['api']['MaintenanceAPI']['RepairRelationIndex']();
+}
+
 export function Startup(arg1) {
   return window['go']['api']['MaintenanceAPI']['Startup'](arg1);
+}
+
+export function WithIntegrity(arg1) {
+  return window['go']['api']['MaintenanceAPI']['WithIntegrity'](arg1);
 }

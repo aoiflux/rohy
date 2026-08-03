@@ -101,3 +101,7 @@ export function SetActiveGraph(arg1) {
 export function UpdateRelation(arg1) {
   return window['go']['api']['GraphAPI']['UpdateRelation'](arg1);
 }
+
+export function WithCascades(arg1) {
+  return window['go']['api']['GraphAPI']['WithCascades'](arg1);
+}

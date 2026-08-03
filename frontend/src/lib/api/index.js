@@ -477,6 +477,27 @@ export function isRunningMaintenance() {
   return call(MAINTENANCE, 'IsRunningMaintenance');
 }
 
+// --- Case integrity (P30). Reads and reports; the fixes are separate, explicit calls. Nothing
+// here runs on startup, and nothing repairs as a side effect of checking.
+
+/** Runs the case checks. `deep` adds the index verification, which is proportional to the whole
+ *  store — off by default for the reason PERFORMANCE.md §12a records.
+ *  @param {boolean} deep
+ *  @returns {Promise<{ran_at:string, deep:boolean, duration_ms:number, errors?:string[],
+ *    findings:{code:string,severity:string,subject?:string,message:string,action?:string,count?:number}[],
+ *    counts:Record<string, number>}>} */
+export function checkIntegrity(deep) {
+  return call(MAINTENANCE, 'CheckIntegrity', Boolean(deep));
+}
+/** Re-registers relation index entries a crashed run left behind. Additive only. @returns {Promise<number>} */
+export function repairRelationIndex() {
+  return call(MAINTENANCE, 'RepairRelationIndex');
+}
+/** Re-derives the property index from the stored records. The heaviest maintenance action. */
+export function rebuildIndexes() {
+  return call(MAINTENANCE, 'RebuildIndexes');
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

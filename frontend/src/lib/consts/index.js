@@ -111,6 +111,7 @@ export const ROUTES = Object.freeze({
   RULES: 'rules',
   TIMELINE: 'timeline',
   ALGORITHMS: 'algorithms',
+  MAINTENANCE: 'maintenance',
 });
 
 // Labels and copy for the correlation-algorithms explainer.
@@ -395,6 +396,7 @@ export const UI = Object.freeze({
   NAV_RULES: 'Rules',
   NAV_TIMELINE: 'Timeline',
   NAV_ALGORITHMS: 'Algorithms',
+  NAV_MAINTENANCE: 'Maintenance',
 
   // Timeline page (P24)
   TIMELINE_DATED: 'on the timeline',
@@ -833,6 +835,82 @@ export const UI = Object.freeze({
   HEATMAP_FAILED: 'Could not build the heatmap:',
   TIMELINE_PLAYHEAD_OUTSIDE:
     'The playhead is set outside the range shown here — the graph covers events this filter excludes.',
+
+  // --- Maintenance & case integrity (P30) ---
+  //
+  // 🔒 Every action here is a button. Nothing runs on startup, and nothing repairs as a side
+  // effect of checking — so the copy never says a check "fixed" anything.
+  MAINT_TITLE: 'Case maintenance',
+  MAINT_INTRO:
+    'These checks read the case and report what they find. Nothing is repaired or deleted ' +
+    'unless you ask for it.',
+  MAINT_CHECK: 'Check case',
+  MAINT_CHECK_DEEP: 'Deep check',
+  MAINT_CHECK_DEEP_HINT:
+    'Also verifies the whole property index. Proportional to the size of the case, so it is a ' +
+    'separate button rather than something every check pays for.',
+  MAINT_CHECKING: 'Checking…',
+  MAINT_NOT_RUN: 'No check has been run yet.',
+  MAINT_RAN: 'Checked',
+  MAINT_TOOK: 'took',
+  MAINT_CANCEL: 'Stop',
+  MAINT_LOOKED_AT: 'What was checked',
+
+  // Verdicts. The all-clear is always qualified by how much was actually looked at.
+  MAINT_OK: 'Nothing wrong found.',
+  MAINT_OK_QUICK: 'The index itself was not verified — run a deep check for that.',
+  MAINT_OK_DEEP: 'The property index verified clean.',
+  MAINT_HAS_ERRORS: 'problems need attention.',
+  MAINT_HAS_WARNINGS: 'things are worth knowing about.',
+  MAINT_INCOMPLETE:
+    'Part of this check could not run, so it did not look everywhere. Read this as "unknown", ' +
+    'not as "clean".',
+
+  MAINT_SEV: Object.freeze({
+    error: 'Problems',
+    warning: 'Worth knowing',
+    info: 'For information',
+  }),
+  MAINT_COUNT: Object.freeze({
+    events: 'events',
+    relations: 'relations',
+    graphs: 'graphs',
+    enabled_rules: 'enabled rules',
+    channels: 'log channels',
+    findings: 'findings',
+    rules_unchecked: 'rules did not declare which logs they need, so they could not be checked',
+  }),
+
+  // Actions. Only the three the app can actually perform are buttons; the rest are advice, and
+  // are worded as advice.
+  MAINT_ACTION: Object.freeze({
+    backfill: 'Fill in correlation fields',
+    repair_relation_index: 'Repair the relation index',
+    rebuild_indexes: 'Rebuild the indexes',
+  }),
+  MAINT_ADVICE: Object.freeze({
+    ingest: 'Ingest the missing logs to resolve this.',
+    review: 'Worth a look; rohy will not change anything on its own.',
+  }),
+  MAINT_RUNNING: Object.freeze({
+    check: 'Checking the case…',
+    backfill: 'Filling in correlation fields…',
+    repair: 'Repairing the relation index…',
+    rebuild: 'Rebuilding the indexes…',
+  }),
+  MAINT_DONE: Object.freeze({
+    backfill: 'Correlation fields filled in.',
+    repair: 'Relation index repaired.',
+    rebuild: 'Indexes rebuilt.',
+  }),
+  MAINT_PROJECTION_TITLE: 'Correlation fields',
+  MAINT_PROJECTION_OK: 'Every event carries the correlation fields this build uses.',
+  MAINT_PROJECTION_STALE:
+    'events were ingested before rohy recorded correlation fields. Field, temporal and lineage ' +
+    'rules cannot match them until this is filled in — they will report zero, which is not the ' +
+    'same as a clean result.',
+  MAINT_FAILED: 'That did not work:',
+  MAINT_DISMISS: 'Dismiss',
 
   // --- Annotations (P29) ---
   //

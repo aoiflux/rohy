@@ -15,6 +15,7 @@
   import RulesView from './routes/RulesView.svelte';
   import TimelineView from './routes/TimelineView.svelte';
   import AlgorithmsView from './routes/AlgorithmsView.svelte';
+  import MaintenanceView from './routes/MaintenanceView.svelte';
   import TitleBar from './components/material/TitleBar.svelte';
   import SnackbarHost from './components/material/SnackbarHost.svelte';
   import ShortcutsHelp from './components/material/ShortcutsHelp.svelte';
