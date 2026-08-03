@@ -820,6 +820,81 @@ const (
 	LineageMaxDepth = 16
 )
 
+// --- Graph layout profiles (v0.2.0) ---
+//
+// A profile answers "arrange these nodes to show me X", where X is the thing the analyst is
+// currently reading the graph FOR. They are computed in Go rather than in the canvas so they
+// are deterministic, unit-testable, and reusable by anything that needs positions without a
+// browser (an export, a snapshot thumbnail).
+const (
+	// LayoutSequence ranks nodes by their position in the edge DAG: x is topological rank,
+	// y is chronological within the rank. This is the profile for "what led to what".
+	LayoutSequence = "sequence"
+	// LayoutLineage lays a process tree out tidily: roots (no incoming edge) at the top, each
+	// parent centred over its children. Reads as ancestry rather than as a mesh.
+	LayoutLineage = "lineage"
+	// LayoutResource puts one column per distinct value of a correlation slot — a column per
+	// logon session, per account, per host. Requires the correlation projection.
+	LayoutResource = "resource"
+	// LayoutTemporal maps timestamp to x and assigns lanes greedily so cards never overlap.
+	// Undated events get their own explicitly labelled lane; see LayoutUndatedLabel.
+	LayoutTemporal = "temporal"
+
+	DefaultLayoutProfile = LayoutSequence
+)
+
+// LayoutProfiles is the accepted set, in the order the UI offers them.
+var LayoutProfiles = []string{LayoutSequence, LayoutLineage, LayoutResource, LayoutTemporal}
+
+// Layout geometry. These mirror the canvas card size plus a gutter (frontend GRAPH.NODE_WIDTH
+// is 208 and NODE_HEIGHT 104) so a computed layout lands on the same visual rhythm as the
+// hand-placed one. They are spacing, not policy: a caller may override them.
+const (
+	LayoutGapX = 268.0
+	LayoutGapY = 168.0
+	// LayoutTemporalSpan is the world-space width the whole time range maps onto. Wide enough
+	// that a busy hour does not collapse into one column, and bounded so a case spanning years
+	// does not produce a canvas nothing can pan across.
+	LayoutTemporalSpan = 12000.0
+	// LayoutMaxNodes caps what one Compute call will arrange. Beyond this the answer is a
+	// filter, not a layout — every profile is at least O(n log n) and the result would be
+	// unreadable long before it was slow.
+	LayoutMaxNodes = 20000
+)
+
+// LayoutUndatedLabel names the tray that undated events are laid out in. They are given a lane
+// of their own rather than an x of zero, which would place them at the start of the timeline
+// and assert a time the evidence does not carry.
+const LayoutUndatedLabel = "No timestamp"
+
+// --- Cluster modes (v0.2.0) ---
+//
+// A cluster is a set of nodes the canvas can outline and collapse. The three modes answer three
+// different questions and are deliberately not interchangeable: what is JOINED to what, what one
+// RULE touched, and what shares an ENTITY.
+const (
+	ClusterComponent = "component"
+	ClusterRule      = "rule"
+	ClusterSlot      = "slot"
+
+	DefaultClusterMode = ClusterComponent
+)
+
+// ClusterModes is the accepted set, in the order the UI offers them.
+var ClusterModes = []string{ClusterComponent, ClusterRule, ClusterSlot}
+
+// ClusterNoRuleLabel names the cluster holding nodes no rule edge touches — hand-drawn links and
+// nodes placed but never connected. They are collected rather than dropped: a clustering that
+// silently omitted part of the canvas would read as "these nodes are not here".
+const ClusterNoRuleLabel = "Not from a rule"
+
+const MsgClusterUnknownMode = "unknown cluster mode %q (expected one of: %s)"
+
+// LayoutAbsentLabel names the resource-profile column for events that do not carry the slot
+// being grouped by. Absent is not a value shared with other absences (see CorrelationAbsentValues),
+// so they are collected under one explicitly-named column rather than correlated with each other.
+const LayoutAbsentLabel = "Not recorded"
+
 // --- Correlation window bounds (v0.2.0) ---
 const (
 	// TemporalMaxWindow bounds window_within / window_total. A window larger than this is
@@ -939,6 +1014,17 @@ const (
 	// MsgRuleOutsideRulesDir guards the by-path read the editor uses to repair a file that
 	// failed to load: only files in the rules directory are readable that way.
 	MsgRuleOutsideRulesDir = "%q is not in the rules directory"
+)
+
+// --- Layout (v0.2.0) ---
+const (
+	MsgLayoutUnknownProfile = "unknown layout profile %q (expected one of: %s)"
+	MsgLayoutTooManyNodes   = "this graph has %d nodes; auto-layout is capped at %d — narrow the graph with a filter first"
+	MsgLayoutUnknownSlot    = "unknown correlation field %q (expected one of: %s)"
+	// MsgLayoutNoProjection is what the resource profile says when nothing carries the slot it
+	// was asked to group by. Reporting it is the difference between "this case has no logon
+	// sessions" and "this case was ingested before rohy recorded them".
+	MsgLayoutNoProjection = "no event in this graph carries %q, so every node is in the \"%s\" column — a case ingested before v0.2.0 needs the correlation backfill first"
 )
 
 // --- File picker (native dialogs) ---

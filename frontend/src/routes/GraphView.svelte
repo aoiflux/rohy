@@ -24,6 +24,7 @@
   import TextField from '../components/material/TextField.svelte';
   import GraphCanvas from '../components/graph/GraphCanvas.svelte';
   import RelationInspector from '../components/graph/RelationInspector.svelte';
+  import AutoLayoutPanel from '../components/graph/AutoLayoutPanel.svelte';
   import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   const onCanvas = $derived(new Set(Object.keys($graph.nodes).map(Number)));
@@ -236,6 +237,10 @@
         </Button>
       </div>
     </div>
+
+    <!-- Arranging sits above the event picker because it acts on what is already on the canvas,
+         and below the graph switcher because it acts on ONE graph. -->
+    <AutoLayoutPanel />
 
     <div class="paneltitle">
       <h3>{UI.PANEL_EVENTS}</h3>

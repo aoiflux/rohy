@@ -770,6 +770,24 @@ export const UI = Object.freeze({
   SELECTION_COUNT_SUFFIX: 'selected',
   MARQUEE_HINT: 'Shift+drag on empty space to box-select · Ctrl+A all · Esc clears',
   ACTION_AUTO_LAYOUT: 'Auto-layout',
+
+  // --- Arrange (auto-layout profiles, P29) ---
+  //
+  // The wording throughout is built around one fact: node positions are the only thing on this
+  // canvas placed by hand, and there is no undo for them. So nothing here says "apply" — it says
+  // preview, keep, or put back.
+  ARRANGE_TITLE: 'Arrange',
+  ARRANGE_PROFILE: 'Arrange by',
+  ARRANGE_FIELD: 'Group by field',
+  ARRANGE_PREVIEW: 'Preview',
+  ARRANGE_KEEP: 'Keep',
+  ARRANGE_REVERT: 'Put back',
+  ARRANGE_PREVIEWING: 'Previewing — nothing is saved until you keep it.',
+  ARRANGE_KEPT: 'Layout saved.',
+  ARRANGE_REVERTED: 'Positions restored.',
+  ARRANGE_EMPTY: 'Add events to the canvas first.',
+  ARRANGE_PARTIAL: 'nodes could not be placed — the canvas changed since this was computed.',
+  ARRANGE_FAILED: 'Could not arrange this graph:',
   ACTION_LOAD_MAPPING: 'Load saved mapping',
   ACTION_SAVE_LAYOUT: 'Save layout',
   ACTION_CLEAR_CANVAS: 'Clear canvas',

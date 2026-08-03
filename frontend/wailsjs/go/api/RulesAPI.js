@@ -6,6 +6,10 @@ export function DeleteRule(arg1) {
   return window['go']['api']['RulesAPI']['DeleteRule'](arg1);
 }
 
+export function ExportRules(arg1) {
+  return window['go']['api']['RulesAPI']['ExportRules'](arg1);
+}
+
 export function FormatRule(arg1, arg2) {
   return window['go']['api']['RulesAPI']['FormatRule'](arg1, arg2);
 }

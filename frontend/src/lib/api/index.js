@@ -170,6 +170,25 @@ export function loadLayout(graphId) {
   return call(GRAPH, 'LoadLayout', graphId);
 }
 
+// --- Auto-layout (P29). Computing is not applying: ComputeLayout returns positions and writes
+// nothing, so a profile can be previewed and abandoned without costing hand placement, which has
+// no undo. Persisting is still saveLayout, made only when the analyst keeps the arrangement.
+
+/** @param {{graph_id?:number, profile:string, slot?:string}} req
+ *  @returns {Promise<{profile:string, positions:Record<number,{x:number,y:number}>, groups:{label:string,node_ids:number[],undated?:boolean}[], note?:string}>} */
+export function computeLayout(req) {
+  return call(GRAPH, 'ComputeLayout', req);
+}
+/** The pickable layout profiles, generated from the same list the backend dispatches on.
+ *  @returns {Promise<{name:string,label:string,summary:string,needs_slot:boolean}[]>} */
+export function layoutProfiles() {
+  return call(GRAPH, 'LayoutProfiles');
+}
+/** The correlation fields the resource profile can group by. @returns {Promise<string[]>} */
+export function layoutFields() {
+  return call(GRAPH, 'LayoutFields');
+}
+
 // --- Graph management (multiple graphs, P15) ---
 
 export function listGraphs() {

@@ -6,6 +6,7 @@ import ListField from './rules/ListField.svelte';
 import TestbenchPanel from './rules/TestbenchPanel.svelte';
 import CorrelationNotice from './rules/CorrelationNotice.svelte';
 import RelationInspector from './graph/RelationInspector.svelte';
+import AutoLayoutPanel from './graph/AutoLayoutPanel.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -318,4 +319,11 @@ describe('rules / GuidedEditorPanel', () => {
     });
     expect(out.body).toContain('max_gap_seconds');
   });
+});
+
+describe('graph / AutoLayoutPanel', () => {
+  // The panel loads its options in onMount, which does not run on the server — so this renders
+  // the state it is in before the backend answers, which is also the state it is in when the
+  // backend is unavailable. That branch has to draw rather than throw.
+  renders('renders before its options have loaded', AutoLayoutPanel, {});
 });
