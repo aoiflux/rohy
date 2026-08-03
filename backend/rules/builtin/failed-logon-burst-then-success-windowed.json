@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 1,
   "name": "Failed Logon Burst Then Success Within Five Minutes",
   "description": "Three failed logons (4625) followed by a success (4624) where each step is within five minutes of the one before. The unbounded version of this pattern pairs failures with a success that may be days later, which is a very different claim; bounding the gaps is what makes it read as one burst. It does NOT establish that the failures and the success concern the same account — a failed logon creates no session, so there is no session id to correlate on, and the account name on a 4625 is attacker-supplied.",
   "relation_type": "correlation",

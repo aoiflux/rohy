@@ -34,6 +34,9 @@ type App struct {
 	Build    *api.BuildAPI
 	Findings *api.FindingsAPI
 	System   *api.SystemAPI
+	// Maintenance is opt-in work over the whole case — currently the correlation-key backfill.
+	// Separate from System because System never touches case data.
+	Maintenance *api.MaintenanceAPI
 }
 
 // migrateGraphs guarantees a Default graph exists and folds any pre-P15 single-graph
@@ -99,6 +102,7 @@ func NewApp() (*App, error) {
 		Build:       api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
 		Findings:    api.NewFindingsAPI(findingStore, store),
 		System:      api.NewSystemAPI(),
+		Maintenance: api.NewMaintenanceAPI(store),
 	}, nil
 }
 
@@ -111,6 +115,7 @@ func (a *App) startup(ctx context.Context) {
 	a.Rules.Startup(ctx)
 	a.Build.Startup(ctx)
 	a.System.Startup(ctx)
+	a.Maintenance.Startup(ctx)
 	go a.initialize()
 }
 

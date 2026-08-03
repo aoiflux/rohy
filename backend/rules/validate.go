@@ -109,7 +109,7 @@ func ValidateSource(data []byte) ValidationReport {
 	// a normalization the loader does not perform.
 	normalized := spec
 	if normalized.FormatVersion == 0 {
-		normalized.FormatVersion = normalized.RequiredFormatVersion()
+		normalized.FormatVersion = consts.RuleFormatVersion
 	}
 	normalized.normalize()
 	report.Valid = true
@@ -125,7 +125,7 @@ func (s *Spec) problems() []ValidationError {
 
 	version := s.FormatVersion
 	if version == 0 {
-		version = s.RequiredFormatVersion() // an omitted version means "what this rule needs" (RULES.md §5)
+		version = consts.RuleFormatVersion // an omitted version means "current" (RULES.md §5)
 	}
 	if version > consts.RuleFormatVersion {
 		// Nothing else is reported for a file from the future. The remaining checks would be
@@ -153,15 +153,9 @@ func (s *Spec) problems() []ValidationError {
 			Message: fmt.Sprintf(consts.MsgRuleUnknownAlgorithm, s.Algorithm),
 		}}
 	}
-	// A rule may not use a matcher its declared format version does not contain. This is the
-	// author-facing half of the forward-compatibility guard: the file must announce the
-	// version it needs, so an older build refuses it rather than matching it wrongly.
-	if version < algo.MinFormatVersion {
-		out = append(out, ValidationError{
-			Code: consts.RuleErrAlgorithmNeedsFormat, Field: consts.FieldAlgorithm, Index: -1,
-			Message: fmt.Sprintf(consts.MsgRuleAlgorithmNeedsFormat, algoName, algo.MinFormatVersion, version),
-		})
-	}
+	// There is no per-algorithm version gate, and that is the point of having one version: an
+	// algorithm a build does not implement is refused BY NAME above, which is both sufficient
+	// and more useful than a version number — it says which matcher is missing.
 
 	if trimmed(s.Name) == "" {
 		out = append(out, ValidationError{

@@ -36,7 +36,6 @@ And the same idea made precise, so that a match means something stronger:
 
 ```json
 {
-  "format_version": 2,
   "name": "Failed Logons Then Success, Same Session",
   "description": "Repeated 4625 then a 4624 sharing one logon session.",
   "algorithm": "field",
@@ -53,12 +52,11 @@ And the same idea made precise, so that a match means something stronger:
 | Field | Required | Default | Meaning |
 |---|:---:|---|---|
 | `name` | **yes** | — | Human-readable name. Also the rule's identity: its id is a slug of the name, so two rules with the same name collide. |
-| `format_version` | no | the minimum this rule needs | The schema version this file targets. See §5. |
+| `format_version` | no | current (`1`) | The schema version this file targets. See §5. |
 | `description` | no | `""` | Free text shown in the rules list and inspector. |
 | `relation_type` | no | `correlation` | Edge type for the relations produced: `correlation`, `temporal`, or `default`. An empty or unrecognized value becomes `correlation`. |
 | `algorithm` | no | `sequence` | How this rule's events are correlated. See §7 and §8. |
 | `channels` | no | none | The Windows log channels this rule needs in order to fire. No algorithm reads it — see below. |
-| `match_scope` | no | `computer` | How events are partitioned before matching: `computer` or `global`. |
 
 ### Read by the sequence-matching algorithms (`sequence`, `field`, `temporal`)
 
@@ -66,6 +64,12 @@ And the same idea made precise, so that a match means something stronger:
 |---|:---:|---|---|
 | `sequence` | **yes** | — | Ordered list of event IDs (as strings) to match in chronological order. |
 | `labels` | no | none | Optional per-connection labels; `labels[i]` labels the edge from `sequence[i]` to `sequence[i+1]`. See §6. |
+
+### Read by `field`, `temporal` and `lineage`
+
+| Field | Required | Default | Meaning |
+|---|:---:|---|---|
+| `match_scope` | no | `computer` | How events are partitioned before matching: `computer` or `global`. Not available to `sequence` — see §5. |
 
 ### Read by `field` and `temporal`
 
@@ -105,8 +109,7 @@ A file must satisfy all of these, or it is rejected with a message naming the pr
 
 - `name` is present and not blank.
 - `algorithm`, if given, is one this build implements (§7).
-- `format_version` is not greater than the version this rohy understands, and not lower than
-  the version the chosen algorithm requires (§5).
+- `format_version` is not greater than the version this rohy understands (§5).
 - `match_scope`, if given, is `computer` or `global`.
 - `channels`, if given, contains no blank entries.
 
@@ -147,31 +150,34 @@ refuses a file above a size cap, so a stray large file cannot stall the load.
 
 `format_version` is how a rule file and the software agree on what the file means.
 
-- The current version is **`2`**.
-- **Declare the lowest version your rule needs, not the newest that exists.** A rule using only
-  sequence matching should say `1`, so older builds still load it. Omit the field and rohy
-  fills in the minimum the rule's algorithm requires — which is `1` for `sequence` and `2` for
-  `field`, `temporal` and `lineage`.
+- The current version is **`1`**, and it is the only one. A file that omits it is treated as
+  current.
 - A file declaring a version **higher** than this rohy understands is **refused with an
   explanation** — never partially matched. A newer rule may rely on a matcher this build does
   not have, and silently ignoring that would produce a graph that is wrong rather than absent.
-- A file declaring a version **lower than its algorithm requires** is also refused, naming both.
-  That is the same guard from the other side: the file has to announce what it needs.
+
+**Why v0.2.0 did not bump it, despite adding three algorithms.** A new `algorithm` value looks
+like a breaking change, and by the policy below it is one: an older build reading a `field` rule
+and matching on the event-ID sequence alone would produce a wrong graph. But it cannot get that
+far — **the algorithm name is itself the guard.** A build that does not implement `field`
+refuses the rule by name and says which matcher is missing, which is more useful than a version
+number. A bump would have bought nothing and cost every author a second concept to reason about.
+
+This is only true because every v0.2.0 field is read by a *new* algorithm. The one exception was
+`match_scope`, which would have applied to `sequence` as well — an older build would have ignored
+it and quietly scoped by computer. Rather than carry a version to protect one combination, that
+combination was removed: `match_scope` belongs to `field`, `temporal` and `lineage` only. Global
+scope is meaningless without `match_fields` anyway, and a `sequence` rule has none.
 
 **Version-bump policy** (what forces a new `format_version`):
 
-- Adding a new **optional** field with a safe default is **not** a breaking change and does
-  not bump the version. Older builds ignore the field (§3). `channels` was added this way.
-- Adding a field that changes what an existing rule **matches**, or a new required field, or
-  a new `algorithm` value, **is** breaking and bumps the version — so an older build refuses
-  the file rather than matching it wrongly.
-
-**Version history:**
-
-| Version | Added |
-|---|---|
-| 1 | `sequence` correlation. |
-| 2 | The `field`, `temporal` and `lineage` algorithms, and the fields they read: `match_fields`, `match_scope`, `window_within`, `window_total`, `lineage_create_ids`, `lineage_depth`. |
+- Adding a new **optional** field with a safe default is **not** breaking and does not bump the
+  version. Older builds ignore the field (§3). `channels` was added this way.
+- Adding a **new `algorithm` value** does not bump it either, for the reason above: the name is
+  refused by any build that lacks the implementation.
+- Adding a field that changes what an **existing** algorithm matches, or a new required field,
+  **is** breaking and bumps the version — because an older build would ignore it and match
+  differently rather than refusing. This is the case the mechanism exists for, and the only one.
 
 ## 6. Labels
 
@@ -195,12 +201,12 @@ untagged.
 
 ## 7. The algorithms
 
-| Algorithm | Version | Matches | Also reads |
-|---|:---:|---|---|
-| `sequence` | 1 | An ordered event-ID sequence, chronologically, within the scope. | — |
-| `field` | 2 | The same, **plus** a shared value for every named correlation field. | `match_fields` |
-| `temporal` | 2 | The same, **plus** a bounded time gap between consecutive steps. Composes with `match_fields`. | `window_within`, `window_total` |
-| `lineage` | 2 | Process ancestry reconstructed from process-creation records. No sequence. | `lineage_create_ids`, `lineage_depth` |
+| Algorithm | Matches | Also reads |
+|---|---|---|
+| `sequence` | An ordered event-ID sequence, chronologically, on one computer. | — |
+| `field` | The same, **plus** a shared value for every named correlation field. | `match_fields`, `match_scope` |
+| `temporal` | The same, **plus** a bounded time gap between consecutive steps. Composes with `match_fields`. | `window_within`, `window_total`, `match_scope` |
+| `lineage` | Process ancestry reconstructed from process-creation records. No sequence. | `lineage_create_ids`, `lineage_depth`, `match_scope` |
 
 Any value other than these is rejected at load, so a rule can never half-run on a matcher that
 does not exist.

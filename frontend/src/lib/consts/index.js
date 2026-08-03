@@ -20,6 +20,9 @@ export const CHANNELS = Object.freeze({
   RULES_COMPLETE: 'rules:complete',
   RULES_CANCELLED: 'rules:cancelled',
   PERMISSION_WARN: 'permission:warn',
+  // Case maintenance: opt-in work proportional to the store, which must show movement.
+  MAINTENANCE_PROGRESS: 'maintenance:progress',
+  MAINTENANCE_COMPLETE: 'maintenance:complete',
 });
 
 // Application initialization phases (mirror backend consts.InitPhase*). The window opens
@@ -190,7 +193,6 @@ export const RULE_PROBLEMS = Object.freeze({
   UNKNOWN_ALGORITHM: 'unknown_algorithm',
   UNSUPPORTED_FORMAT: 'unsupported_format',
   // Algorithm-specific contract violations (format version 2).
-  ALGORITHM_NEEDS_FORMAT: 'algorithm_needs_format',
   SEQUENCE_REQUIRED: 'sequence_required',
   MATCH_FIELDS_REQUIRED: 'match_fields_required',
   UNKNOWN_MATCH_FIELD: 'unknown_match_field',
@@ -633,7 +635,25 @@ export const UI = Object.freeze({
   RULE_EDITOR_INERT: 'not used here',
   RULE_EDITOR_INERT_HINT:
     'The selected algorithm does not read this field. It is preserved when you save, but it has no effect.',
-  RULE_EDITOR_SET_FORMAT_VERSION: 'Set format_version to',
+  // --- Correlation-key backfill ---
+  //
+  // The wording avoids "stale" and "projection": what an analyst needs to know is that part of
+  // the case cannot be correlated on fields yet, not what the internal representation is called.
+  BACKFILL_STALE_HEADLINE: 'events cannot be correlated on fields yet',
+  BACKFILL_STALE_DETAIL:
+    'They were ingested before rohy extracted correlation fields. Rules using field, temporal or ' +
+    'lineage matching will under-report against them until this is filled in. Reading the events ' +
+    'once is all it takes; nothing is re-ingested and nothing is lost.',
+  BACKFILL_RUN: 'Fill in correlation fields',
+  BACKFILL_RUNNING: 'Reading events for correlation fields…',
+  BACKFILL_CANCEL: 'Stop',
+  BACKFILL_DONE: 'Correlation fields filled in for',
+  BACKFILL_PARTIAL: 'Stopped. What was read is kept — run it again to continue from there.',
+  // Appended to a rules-run summary when the run could not see part of the case.
+  RULES_RUN_NO_KEYS: 'events lacked a matched field',
+  RULES_RUN_UNRESOLVED: 'processes had no resolvable parent',
+  RULES_RUN_STALE: 'events have no correlation fields yet',
+
   RULE_EDITOR_LIST_ADD: 'Add',
   RULE_EDITOR_LIST_REMOVE: 'Remove',
   // --- Rule testbench ---

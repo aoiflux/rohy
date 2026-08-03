@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 1,
   "name": "Logon Then Process Creation, Same Session",
   "description": "A logon (4624) followed by a process creation (4688) carrying the SAME logon session id. Unlike the ordering-only rules, a match here does establish that the process was run under that specific logon — so this is the rule to start from when you need to know what a session actually did. Requires process creation auditing to be enabled; on a host where it is, 4688 is high volume, so expect many matches and treat the chain as a starting point rather than a finding.",
   "relation_type": "correlation",

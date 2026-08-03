@@ -74,9 +74,6 @@ type Field struct {
 	// no effect. A field silently vanishing along with its value would be the one thing worse
 	// than showing it.
 	AppliesTo []string `json:"applies_to,omitempty"`
-	// RequiresFormatVersion is the lowest rule format version that understands this field, so
-	// the editor can say what setting it will cost in portability before it is set.
-	RequiresFormatVersion int `json:"requires_format_version,omitempty"`
 }
 
 // Algorithm is one correlation algorithm as the editor needs to present it: the name a rule
@@ -85,7 +82,6 @@ type Field struct {
 type Algorithm struct {
 	Name             string   `json:"name"`
 	Summary          string   `json:"summary"`
-	MinFormatVersion int      `json:"min_format_version"`
 	RequiresSequence bool     `json:"requires_sequence"`
 	Fields           []string `json:"fields"`
 }
@@ -160,14 +156,13 @@ func Describe() Schema {
 				Example: []string{"", "", "then succeeds"},
 			},
 			{
-				Name:                  consts.FieldMatchFields,
-				Kind:                  KindStringArray,
-				Group:                 GroupMatcher,
-				Enum:                  consts.CorrelationSlots,
-				MaxItems:              consts.CorrelationSlotCount,
-				AppliesTo:             []string{consts.AlgoField, consts.AlgoTemporal},
-				RequiresFormatVersion: 2,
-				Description:           "Correlation fields every event in a match must share.",
+				Name:        consts.FieldMatchFields,
+				Kind:        KindStringArray,
+				Group:       GroupMatcher,
+				Enum:        consts.CorrelationSlots,
+				MaxItems:    consts.CorrelationSlotCount,
+				AppliesTo:   []string{consts.AlgoField, consts.AlgoTemporal},
+				Description: "Correlation fields every event in a match must share.",
 				Guidance: "This is what turns a match from 'these happened in this order on this host' " +
 					"into 'and they concern the same logon session'. An event that carries no value for a " +
 					"listed field is EXCLUDED from matching rather than grouped with the others, and the " +
@@ -176,14 +171,13 @@ func Describe() Schema {
 				Example: []string{"logon_id"},
 			},
 			{
-				Name:                  consts.FieldMatchScope,
-				Kind:                  KindString,
-				Group:                 GroupMatcher,
-				Default:               consts.DefaultScope,
-				Enum:                  consts.CorrelationScopes,
-				AppliesTo:             consts.AlgorithmNames(),
-				RequiresFormatVersion: 2,
-				Description:           "How events are partitioned before matching.",
+				Name:        consts.FieldMatchScope,
+				Kind:        KindString,
+				Group:       GroupMatcher,
+				Default:     consts.DefaultScope,
+				Enum:        consts.CorrelationScopes,
+				AppliesTo:   consts.AlgorithmNames(),
+				Description: "How events are partitioned before matching.",
 				Guidance: "'" + consts.ScopeComputer + "' matches within one host, which is almost always " +
 					"what you want — a chain assembled across unrelated machines is not evidence of " +
 					"anything. '" + consts.ScopeGlobal + "' drops that partition and should be paired with " +
@@ -191,12 +185,11 @@ func Describe() Schema {
 				Example: consts.ScopeComputer,
 			},
 			{
-				Name:                  consts.FieldWindowWithin,
-				Kind:                  KindString,
-				Group:                 GroupMatcher,
-				AppliesTo:             []string{consts.AlgoTemporal},
-				RequiresFormatVersion: 2,
-				Description:           "Maximum time between consecutive matched steps, as a duration.",
+				Name:        consts.FieldWindowWithin,
+				Kind:        KindString,
+				Group:       GroupMatcher,
+				AppliesTo:   []string{consts.AlgoTemporal},
+				Description: "Maximum time between consecutive matched steps, as a duration.",
 				Guidance: "Written like \"90s\", \"5m\" or \"2h\". Required by the temporal algorithm: an " +
 					"unbounded window would make it a slower spelling of the sequence algorithm. Choose it " +
 					"from the behaviour you are describing — a password-guessing burst is minutes, a " +
@@ -204,38 +197,35 @@ func Describe() Schema {
 				Example: "5m",
 			},
 			{
-				Name:                  consts.FieldWindowTotal,
-				Kind:                  KindString,
-				Group:                 GroupMatcher,
-				AppliesTo:             []string{consts.AlgoTemporal},
-				RequiresFormatVersion: 2,
-				Description:           "Optional maximum time from the first matched step to the last.",
+				Name:        consts.FieldWindowTotal,
+				Kind:        KindString,
+				Group:       GroupMatcher,
+				AppliesTo:   []string{consts.AlgoTemporal},
+				Description: "Optional maximum time from the first matched step to the last.",
 				Guidance: "Bounds the whole chain, not each hop. Useful for a long sequence where every " +
 					"individual gap is plausible but the total span is not. Must be at least as long as " +
 					"window_within, or no match could ever complete.",
 				Example: "30m",
 			},
 			{
-				Name:                  consts.FieldLineageCreateIDs,
-				Kind:                  KindStringArray,
-				Group:                 GroupMatcher,
-				AppliesTo:             []string{consts.AlgoLineage},
-				RequiresFormatVersion: 2,
-				Description:           "Event IDs that record a process being created.",
+				Name:        consts.FieldLineageCreateIDs,
+				Kind:        KindStringArray,
+				Group:       GroupMatcher,
+				AppliesTo:   []string{consts.AlgoLineage},
+				Description: "Event IDs that record a process being created.",
 				Guidance: "Defaults to " + consts.LineageDefaultCreateID + " (Windows process creation), so " +
 					"most lineage rules do not set it. Override it to read a different provider — Sysmon's " +
 					"process-creation event is 1.",
 				Example: []string{consts.LineageDefaultCreateID},
 			},
 			{
-				Name:                  consts.FieldLineageDepth,
-				Kind:                  KindInt,
-				Group:                 GroupMatcher,
-				Default:               0,
-				MaxItems:              consts.LineageMaxDepth,
-				AppliesTo:             []string{consts.AlgoLineage},
-				RequiresFormatVersion: 2,
-				Description:           "How many ancestor levels above the direct parent to link.",
+				Name:        consts.FieldLineageDepth,
+				Kind:        KindInt,
+				Group:       GroupMatcher,
+				Default:     0,
+				MaxItems:    consts.LineageMaxDepth,
+				AppliesTo:   []string{consts.AlgoLineage},
+				Description: "How many ancestor levels above the direct parent to link.",
 				Guidance: "0 — the default — emits only direct parent→child edges. Transitive links are " +
 					"derivable by walking those, so raising this multiplies the edge count without adding " +
 					"information; it is worth doing only when you want ancestry visible without traversal. " +
@@ -299,11 +289,11 @@ func Describe() Schema {
 				ReadOnly:    true,
 				Default:     1,
 				Description: "The rule-format version this file targets.",
-				Guidance: "Declare the LOWEST version your rule needs, not the newest that exists: a rule " +
-					"using only sequence matching should say 1, so older builds still load it. Omit it and " +
-					"rohy fills in the minimum the rule's algorithm requires. A file declaring a version " +
-					"HIGHER than the build reading it is refused with an explanation rather than partially " +
-					"matched, because a newer rule may rely on a matcher that build does not have.",
+				Guidance: "There is one version, and omitting the field means it. A file declaring a " +
+					"version HIGHER than the build reading it is refused with an explanation rather than " +
+					"partially matched, because a newer rule may rely on a matcher that build does not " +
+					"have. Choosing an algorithm does NOT change the version a rule needs: a build that " +
+					"lacks a matcher refuses it by name, which is the guard a version would otherwise be.",
 				Example: 1,
 			},
 		},
@@ -319,7 +309,6 @@ func describeAlgorithms() []Algorithm {
 		out = append(out, Algorithm{
 			Name:             a.Name,
 			Summary:          a.Summary,
-			MinFormatVersion: a.MinFormatVersion,
 			RequiresSequence: a.RequiresSequence,
 			Fields:           a.Fields,
 		})

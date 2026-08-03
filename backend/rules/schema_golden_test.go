@@ -35,17 +35,16 @@ var updateGolden = flag.Bool("update-schema-golden", false,
 
 // goldenField is the structural projection of one field descriptor.
 type goldenField struct {
-	Name                  string    `json:"name"`
-	Kind                  FieldKind `json:"kind"`
-	Required              bool      `json:"required"`
-	Group                 string    `json:"group"`
-	ReadOnly              bool      `json:"read_only"`
-	Default               any       `json:"default,omitempty"`
-	Enum                  []string  `json:"enum,omitempty"`
-	MinItems              int       `json:"min_items,omitempty"`
-	MaxItems              int       `json:"max_items,omitempty"`
-	AppliesTo             []string  `json:"applies_to,omitempty"`
-	RequiresFormatVersion int       `json:"requires_format_version,omitempty"`
+	Name      string    `json:"name"`
+	Kind      FieldKind `json:"kind"`
+	Required  bool      `json:"required"`
+	Group     string    `json:"group"`
+	ReadOnly  bool      `json:"read_only"`
+	Default   any       `json:"default,omitempty"`
+	Enum      []string  `json:"enum,omitempty"`
+	MinItems  int       `json:"min_items,omitempty"`
+	MaxItems  int       `json:"max_items,omitempty"`
+	AppliesTo []string  `json:"applies_to,omitempty"`
 }
 
 // goldenSchema is the structural projection of the whole descriptor.
@@ -69,17 +68,16 @@ func structuralSchema() goldenSchema {
 	}
 	for _, f := range s.Fields {
 		out.Fields = append(out.Fields, goldenField{
-			Name:                  f.Name,
-			Kind:                  f.Kind,
-			Required:              f.Required,
-			Group:                 f.Group,
-			ReadOnly:              f.ReadOnly,
-			Default:               f.Default,
-			Enum:                  f.Enum,
-			MinItems:              f.MinItems,
-			MaxItems:              f.MaxItems,
-			AppliesTo:             f.AppliesTo,
-			RequiresFormatVersion: f.RequiresFormatVersion,
+			Name:      f.Name,
+			Kind:      f.Kind,
+			Required:  f.Required,
+			Group:     f.Group,
+			ReadOnly:  f.ReadOnly,
+			Default:   f.Default,
+			Enum:      f.Enum,
+			MinItems:  f.MinItems,
+			MaxItems:  f.MaxItems,
+			AppliesTo: f.AppliesTo,
 		})
 	}
 	return out

@@ -47,6 +47,14 @@ type RuleOutcome struct {
 	// filled was removed rather than left behind empty. GraphID still names the graph that
 	// briefly existed, so a caller can tell "removed the empty graph 7" from "never had one".
 	GraphDiscarded bool `json:"graph_discarded"`
+	// SkippedNoKeys and UnresolvedParents are what THIS rule could not consider.
+	//
+	// They are per rule rather than only per run because attribution is the whole point: in a
+	// build of twenty rules, one field rule excluding most of the case and nineteen sequence
+	// rules unaffected is a completely different situation from every rule being blind, and a
+	// single run-level total cannot tell them apart.
+	SkippedNoKeys     int `json:"skipped_no_keys"`
+	UnresolvedParents int `json:"unresolved_parents"`
 }
 
 // Result is the outcome of a whole run: one entry per rule, plus the size of the dataset
@@ -255,6 +263,7 @@ func (b *Builder) runRule(ctx context.Context, rule *rules.Rule, dataset *autogr
 
 	gen := autograph.GenerateWith(&rule.Spec, dataset)
 	out.Matches, out.Truncated, out.Dropped = gen.Matches, gen.Truncated, gen.Dropped
+	out.SkippedNoKeys, out.UnresolvedParents = gen.SkippedNoKeys, gen.UnresolvedParents
 
 	// Persist in chunks rather than one relation at a time. Each write is durable, so a
 	// per-relation loop pays a separate committed write for every edge; batching folds a

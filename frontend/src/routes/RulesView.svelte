@@ -12,7 +12,8 @@
   import { events, emptyFilter } from '../stores/events.js';
   import { graph } from '../stores/graph.js';
   import { snackbar } from '../stores/snackbar.js';
-  import { UI, ROUTES, THEMES, RULE_SOURCES } from '../lib/consts/index.js';
+  import { UI, ROUTES, THEMES, RULE_SOURCES, CHANNELS } from '../lib/consts/index.js';
+  import * as api from '../lib/api/index.js';
 
   import AppBar from '../components/material/AppBar.svelte';
   import Button from '../components/material/Button.svelte';
@@ -20,8 +21,48 @@
   import ProgressBar from '../components/material/ProgressBar.svelte';
   import Menu from '../components/material/Menu.svelte';
   import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
+  import CorrelationNotice from '../components/rules/CorrelationNotice.svelte';
 
-  onMount(() => rules.load());
+  // Correlation-key coverage. Asked on mount rather than waiting for somebody to wonder why a
+  // field rule found so little — the whole point is that a small result and a blind run look
+  // identical unless the page says which it was.
+  let keyStatus = $state(/** @type {any} */ (null));
+  let backfilling = $state(false);
+  let backfillProgress = $state(/** @type {any} */ (null));
+
+  async function refreshKeyStatus() {
+    try {
+      keyStatus = await api.correlationKeyStatus();
+    } catch {
+      // A case with no store yet, or a browser-only dev run. Silence is right here: this is a
+      // caveat about the data, and inventing one when the data cannot be read would be worse
+      // than saying nothing.
+      keyStatus = null;
+    }
+  }
+
+  async function runBackfill() {
+    backfilling = true;
+    backfillProgress = null;
+    const off = api.on(CHANNELS.MAINTENANCE_PROGRESS, (p) => (backfillProgress = p));
+    try {
+      const res = await api.backfillCorrelationKeys();
+      if (res?.cancelled) snackbar.info(UI.BACKFILL_PARTIAL);
+      else snackbar.success(`${UI.BACKFILL_DONE} ${res?.projected ?? 0}`);
+    } catch (err) {
+      snackbar.error(String(err?.message ?? err));
+    } finally {
+      off?.();
+      backfilling = false;
+      backfillProgress = null;
+      await refreshKeyStatus();
+    }
+  }
+
+  onMount(() => {
+    rules.load();
+    refreshKeyStatus();
+  });
 
   // Renders a rule as its chain: 4625 → 4625 —then succeeds→ 4624. A connection without a
   // custom label shows the bare arrow; a labeled one shows the user's own text.
@@ -227,15 +268,26 @@
     }
     const relations = outcomes.reduce((n, o) => n + (o.relations || 0), 0);
     if (relations === 0) {
+      // The one case where "no matches" is most likely to be misread. Refreshing the coverage
+      // first means the notice is on screen alongside the empty result rather than after it.
+      refreshKeyStatus();
       snackbar.info(UI.RULES_RUN_EMPTY);
       return;
     }
     const truncated = outcomes.some((o) => o.truncated);
     // Undated events cannot take part in time-ordered correlation. Saying so keeps a run
     // that appears to have "missed" events explicable rather than arbitrary (P23.5).
-    const skipped = res.skipped_undated
-      ? ` · ${res.skipped_undated} ${UI.RULES_RUN_SKIPPED_UNDATED}`
-      : '';
+    // What the run could NOT see. These change how the match count should be read, so they
+    // travel with it rather than being left for somebody to go looking for.
+    const noKeys = outcomes.reduce((n, o) => n + (o.skipped_no_keys || 0), 0);
+    const unresolved = outcomes.reduce((n, o) => n + (o.unresolved_parents || 0), 0);
+    const caveats = [
+      res.skipped_undated ? `${res.skipped_undated} ${UI.RULES_RUN_SKIPPED_UNDATED}` : '',
+      noKeys ? `${noKeys} ${UI.RULES_RUN_NO_KEYS}` : '',
+      unresolved ? `${unresolved} ${UI.RULES_RUN_UNRESOLVED}` : '',
+      res.stale_correlation_keys ? `${res.stale_correlation_keys} ${UI.RULES_RUN_STALE}` : '',
+    ].filter(Boolean);
+    const skipped = caveats.length ? ` · ${caveats.join(' · ')}` : '';
     const summary =
       `${outcomes.length} ${UI.RULES_RUN_GRAPHS} · ${relations} ${UI.RULES_RUN_RELATIONS} ` +
       `${res.events} ${UI.RULES_RUN_EVENTS}${truncated ? ` · ${UI.RULES_RUN_TRUNCATED}` : ''}${skipped}`;
@@ -277,6 +329,16 @@
       {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}
     </Button>
   </AppBar>
+
+  <!-- Placed under the bar, above the library: a caveat that changes how every run should be
+       read has to be visible when the run button is, not discovered afterwards. -->
+  <CorrelationNotice
+    status={keyStatus}
+    running={backfilling}
+    progress={backfillProgress}
+    onbackfill={runBackfill}
+    oncancel={() => api.cancelMaintenance()}
+  />
 
   {#if $rules.running}
     <!-- A build over many rules reports per-rule movement, so a long run is visibly

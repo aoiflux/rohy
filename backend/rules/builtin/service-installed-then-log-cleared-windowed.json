@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 1,
   "name": "Service Installed Then Security Log Cleared Within An Hour",
   "description": "A service installation (7045, System) followed within an hour by the Security log being cleared (1102). Both events are individually unremarkable on a server that is being administered; the tight window is what makes the pairing worth reading, because clearing the audit log shortly after installing a service is the shape of an install being covered up rather than of routine maintenance.",
   "relation_type": "correlation",

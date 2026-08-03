@@ -555,6 +555,12 @@ const (
 	EventInitState = "init:state"
 	// Rule-run lifecycle (P6 streaming progress): a build over many rules reports per-rule
 	// movement rather than freezing the UI until it finishes.
+	// Case maintenance (v0.2.0): long, opt-in operations over the whole store — currently the
+	// correlation-key backfill. They report progress for the same reason ingestion does: work
+	// proportional to the case size must show movement rather than looking hung.
+	EventMaintenanceProgress = "maintenance:progress"
+	EventMaintenanceComplete = "maintenance:complete"
+
 	EventRulesStarted   = "rules:started"
 	EventRulesProgress  = "rules:progress"
 	EventRulesComplete  = "rules:complete"
@@ -570,6 +576,9 @@ const (
 	DryRunDefaultSamples = 20
 	DryRunMaxSamples     = 200
 )
+
+// MsgMaintenanceInProgress guards against two concurrent maintenance passes over one store.
+const MsgMaintenanceInProgress = "a maintenance task is already running"
 
 // MsgRuleRunInProgress guards against two concurrent builds racing on the same graphs.
 const MsgRuleRunInProgress = "a rule run is already in progress"
@@ -638,14 +647,16 @@ const (
 	// RuleFormatVersion is the current rule-file schema version. Files must not declare a
 	// newer version than this build understands (forward-compat guard).
 	//
-	// Raised to 2 in v0.2.0. Per RULES.md §5 a new `algorithm` value is a BREAKING change:
-	// a v0.1.0 build reading a field/temporal/lineage rule would match on the event-ID
-	// sequence alone and produce a graph that is wrong rather than absent. Declaring version 2
-	// is what makes that build refuse the file instead.
+	// STILL 1 AFTER v0.2.0, DELIBERATELY. The three new algorithms looked like a breaking
+	// change — an older build reading a field rule and matching on the event-ID sequence alone
+	// would produce a graph that is wrong rather than absent, which is exactly what a version
+	// bump exists to prevent. But it cannot happen: the algorithm name is itself the guard. A
+	// build that does not implement `field` refuses the rule by name, and says which matcher is
+	// missing, which is more useful than a version number.
 	//
-	// Rules that use only the v1 feature set stay at version 1 and keep loading everywhere —
-	// including the built-in library, which is deliberately not bulk-upgraded.
-	RuleFormatVersion = 2
+	// So a bump would have bought nothing, at the cost of a second concept in the format and a
+	// built-in library split across two versions. See RULES.md §5 for what WOULD force one.
+	RuleFormatVersion = 1
 	// RuleMinSequence is the fewest event IDs a rule may match (two form one edge);
 	// RuleMaxSequence caps a single rule's length.
 	RuleMinSequence = 2
@@ -690,8 +701,7 @@ const (
 // and this list agree exactly in both directions — so an algorithm can never be accepted at
 // load but unimplemented, or implemented but rejected at load.
 type AlgorithmDescriptor struct {
-	Name             string
-	MinFormatVersion int
+	Name string
 	// RequiresSequence reports whether the algorithm matches an ordered event-ID sequence.
 	// Lineage does not: it reconstructs ancestry from process-creation records.
 	RequiresSequence bool
@@ -737,15 +747,23 @@ var CorrelationScopes = []string{ScopeComputer, ScopeGlobal}
 var Algorithms = []AlgorithmDescriptor{
 	{
 		Name:             AlgoSequence,
-		MinFormatVersion: 1,
 		RequiresSequence: true,
-		Fields:           []string{FieldMatchScope},
-		Summary: "Match an ordered event-ID sequence chronologically within a scope. " +
+		// match_scope is deliberately NOT here.
+		//
+		// It is the one v0.2.0 field that would change what an ALREADY EXISTING algorithm
+		// matches, and that is precisely the shape a format version exists to guard: an older
+		// build would ignore the unknown field, scope by computer, and silently produce a
+		// narrower graph than the rule asks for. Rather than carry a whole version concept to
+		// protect one combination, the combination is removed — and it is one RULES.md §7
+		// already advises against, since global scope is only meaningful alongside match_fields
+		// and a sequence rule has none. Neither old nor new builds read it here, so there is no
+		// divergence left to protect against.
+		Fields: nil,
+		Summary: "Match an ordered event-ID sequence chronologically on one computer. " +
 			"Establishes a temporally ordered pairing and nothing more.",
 	},
 	{
 		Name:             AlgoField,
-		MinFormatVersion: 2,
 		RequiresSequence: true,
 		Fields:           []string{FieldMatchFields, FieldMatchScope},
 		Summary: "Match an ordered event-ID sequence within a scope AND a shared value for " +
@@ -754,7 +772,6 @@ var Algorithms = []AlgorithmDescriptor{
 	},
 	{
 		Name:             AlgoTemporal,
-		MinFormatVersion: 2,
 		RequiresSequence: true,
 		Fields:           []string{FieldWindowWithin, FieldWindowTotal, FieldMatchFields, FieldMatchScope},
 		Summary: "Match an ordered event-ID sequence where each consecutive pair falls within " +
@@ -762,7 +779,6 @@ var Algorithms = []AlgorithmDescriptor{
 	},
 	{
 		Name:             AlgoLineage,
-		MinFormatVersion: 2,
 		RequiresSequence: false,
 		Fields:           []string{FieldLineageCreateIDs, FieldLineageDepth, FieldMatchScope},
 		Summary: "Reconstruct process ancestry from process-creation records, resolving each " +
@@ -854,19 +870,18 @@ const (
 	RuleErrUnknownAlgorithm  = "unknown_algorithm"
 	RuleErrUnsupportedFormat = "unsupported_format"
 	// --- Algorithm-specific contract violations (v0.2.0) ---
-	RuleErrAlgorithmNeedsFormat = "algorithm_needs_format"
-	RuleErrSequenceRequired     = "sequence_required"
-	RuleErrMatchFieldsRequired  = "match_fields_required"
-	RuleErrUnknownMatchField    = "unknown_match_field"
-	RuleErrDuplicateMatchField  = "duplicate_match_field"
-	RuleErrUnknownScope         = "unknown_scope"
-	RuleErrWindowRequired       = "window_required"
-	RuleErrBadDuration          = "bad_duration"
-	RuleErrWindowTooLarge       = "window_too_large"
-	RuleErrWindowTotalTooSmall  = "window_total_too_small"
-	RuleErrLineageIDsEmpty      = "lineage_ids_empty"
-	RuleErrLineageDepthRange    = "lineage_depth_range"
-	RuleErrChannelEmpty         = "channel_empty"
+	RuleErrSequenceRequired    = "sequence_required"
+	RuleErrMatchFieldsRequired = "match_fields_required"
+	RuleErrUnknownMatchField   = "unknown_match_field"
+	RuleErrDuplicateMatchField = "duplicate_match_field"
+	RuleErrUnknownScope        = "unknown_scope"
+	RuleErrWindowRequired      = "window_required"
+	RuleErrBadDuration         = "bad_duration"
+	RuleErrWindowTooLarge      = "window_too_large"
+	RuleErrWindowTotalTooSmall = "window_total_too_small"
+	RuleErrLineageIDsEmpty     = "lineage_ids_empty"
+	RuleErrLineageDepthRange   = "lineage_depth_range"
+	RuleErrChannelEmpty        = "channel_empty"
 	// Advisory only — these never block a save. They exist because a rule can be perfectly
 	// valid and still be a bad rule to hand to another analyst.
 	RuleWarnUnknownField  = "unknown_field"
@@ -900,20 +915,19 @@ const (
 	MsgRuleBuiltinProtected  = "built-in rules cannot be deleted (disable it instead)"
 	// Advisory messages, shown by the editor beside a rule that is valid but questionable.
 	// Algorithm-specific contract messages (v0.2.0).
-	MsgRuleAlgorithmNeedsFormat = "the %q algorithm requires format_version %d, but this file declares %d"
-	MsgRuleSequenceRequired     = "the %q algorithm matches an event ID sequence, which this rule does not have"
-	MsgRuleMatchFieldsRequired  = "the %q algorithm needs at least one entry in match_fields"
-	MsgRuleUnknownMatchField    = "%q is not a correlation field (available: %s)"
-	MsgRuleDuplicateMatchField  = "match_fields lists %q more than once"
-	MsgRuleUnknownScope         = "unknown match_scope %q (expected one of: %s)"
-	MsgRuleWindowRequired       = "the %q algorithm needs a window_within duration (for example \"5m\")"
-	MsgRuleBadDuration          = "%s is not a duration: %v (expected a value like \"90s\", \"5m\" or \"2h\")"
-	MsgRuleWindowNotPositive    = "%s must be greater than zero"
-	MsgRuleWindowTooLarge       = "%s of %s exceeds the maximum of %s — check the units"
-	MsgRuleWindowTotalTooSmall  = "window_total (%s) is shorter than window_within (%s), so no match could ever complete"
-	MsgRuleLineageIDsEmpty      = "lineage_create_ids contains an empty event ID at position %d"
-	MsgRuleLineageDepthRange    = "lineage_depth must be between 0 and %d"
-	MsgRuleChannelEmpty         = "channels contains an empty entry at position %d"
+	MsgRuleSequenceRequired    = "the %q algorithm matches an event ID sequence, which this rule does not have"
+	MsgRuleMatchFieldsRequired = "the %q algorithm needs at least one entry in match_fields"
+	MsgRuleUnknownMatchField   = "%q is not a correlation field (available: %s)"
+	MsgRuleDuplicateMatchField = "match_fields lists %q more than once"
+	MsgRuleUnknownScope        = "unknown match_scope %q (expected one of: %s)"
+	MsgRuleWindowRequired      = "the %q algorithm needs a window_within duration (for example \"5m\")"
+	MsgRuleBadDuration         = "%s is not a duration: %v (expected a value like \"90s\", \"5m\" or \"2h\")"
+	MsgRuleWindowNotPositive   = "%s must be greater than zero"
+	MsgRuleWindowTooLarge      = "%s of %s exceeds the maximum of %s — check the units"
+	MsgRuleWindowTotalTooSmall = "window_total (%s) is shorter than window_within (%s), so no match could ever complete"
+	MsgRuleLineageIDsEmpty     = "lineage_create_ids contains an empty event ID at position %d"
+	MsgRuleLineageDepthRange   = "lineage_depth must be between 0 and %d"
+	MsgRuleChannelEmpty        = "channels contains an empty entry at position %d"
 	// Advisory messages for the algorithm-aware checks.
 	MsgRuleFieldNotForAlgorithm = "field %q has no effect for the %q algorithm — it is preserved on save but is not read"
 	MsgRuleNoChannels           = "this rule does not declare the channels it needs, so rohy cannot tell you when a case is missing the log it depends on"

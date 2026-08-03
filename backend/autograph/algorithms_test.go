@@ -28,7 +28,7 @@ func edgeSet(res Result) map[[2]uint64]bool {
 // --- field correlation ---
 
 func TestFieldCorrelationRequiresSharedValue(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"same session","algorithm":"field",
+	s := spec(t, `{"name":"same session","algorithm":"field",
 		"sequence":["4625","4624"],"match_fields":["logon_id"]}`)
 
 	// Two interleaved sessions. Sequence correlation would pair 1→2 (the first 4625 with the
@@ -59,7 +59,7 @@ func TestFieldCorrelationRequiresSharedValue(t *testing.T) {
 // the empty string, every event that happens not to carry the field would correlate with every
 // other one. That failure looks exactly like a working rule.
 func TestFieldCorrelationExcludesEventsWithNoValue(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"same session","algorithm":"field",
+	s := spec(t, `{"name":"same session","algorithm":"field",
 		"sequence":["4625","4624"],"match_fields":["logon_id"]}`)
 
 	events := []*graphene.Event{
@@ -81,7 +81,7 @@ func TestFieldCorrelationExcludesEventsWithNoValue(t *testing.T) {
 }
 
 func TestFieldCorrelationAcrossMultipleFields(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"same session and user","algorithm":"field",
+	s := spec(t, `{"name":"same session and user","algorithm":"field",
 		"sequence":["4625","4624"],"match_fields":["logon_id","target_user"]}`)
 
 	events := []*graphene.Event{
@@ -101,7 +101,7 @@ func TestFieldCorrelationAcrossMultipleFields(t *testing.T) {
 }
 
 func TestFieldCorrelationRecordsItsBasis(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"same session","algorithm":"field",
+	s := spec(t, `{"name":"same session","algorithm":"field",
 		"sequence":["4625","4624"],"match_fields":["logon_id"]}`)
 	res := Generate(s, []*graphene.Event{
 		evk(1, "4625", "H", 0, map[string]string{"TargetLogonId": "0x3E7"}),
@@ -126,7 +126,7 @@ func TestFieldCorrelationRecordsItsBasis(t *testing.T) {
 // exists for. A forward-greedy matcher anchors on the FIRST 4625, finds the 4624 outside the
 // window, and gives up — walking straight past a valid pairing.
 func TestTemporalFindsTheMatchGreedyWouldMiss(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"burst then success","algorithm":"temporal",
+	s := spec(t, `{"name":"burst then success","algorithm":"temporal",
 		"sequence":["4625","4624"],"window_within":"1m"}`)
 
 	events := []*graphene.Event{
@@ -146,7 +146,7 @@ func TestTemporalFindsTheMatchGreedyWouldMiss(t *testing.T) {
 }
 
 func TestTemporalRejectsPairsOutsideTheWindow(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"burst then success","algorithm":"temporal",
+	s := spec(t, `{"name":"burst then success","algorithm":"temporal",
 		"sequence":["4625","4624"],"window_within":"1m"}`)
 	res := Generate(s, []*graphene.Event{
 		ev(1, "4625", "H", 0),
@@ -158,7 +158,7 @@ func TestTemporalRejectsPairsOutsideTheWindow(t *testing.T) {
 }
 
 func TestTemporalWindowBoundaryIsInclusive(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"exact","algorithm":"temporal",
+	s := spec(t, `{"name":"exact","algorithm":"temporal",
 		"sequence":["4625","4624"],"window_within":"60s"}`)
 	res := Generate(s, []*graphene.Event{
 		ev(1, "4625", "H", 0),
@@ -172,7 +172,7 @@ func TestTemporalWindowBoundaryIsInclusive(t *testing.T) {
 func TestTemporalTotalWindowBoundsTheWholeChain(t *testing.T) {
 	// Every individual gap is well inside window_within, but the chain spans more than
 	// window_total — which is exactly the case window_total exists for.
-	s := spec(t, `{"format_version":2,"name":"long chain","algorithm":"temporal",
+	s := spec(t, `{"name":"long chain","algorithm":"temporal",
 		"sequence":["4625","4625","4624"],"window_within":"5m","window_total":"6m"}`)
 
 	res := Generate(s, []*graphene.Event{
@@ -186,7 +186,7 @@ func TestTemporalTotalWindowBoundsTheWholeChain(t *testing.T) {
 }
 
 func TestTemporalIsNonOverlapping(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"pairs","algorithm":"temporal",
+	s := spec(t, `{"name":"pairs","algorithm":"temporal",
 		"sequence":["4625","4624"],"window_within":"5m"}`)
 	res := Generate(s, []*graphene.Event{
 		ev(1, "4625", "H", 0),
@@ -204,7 +204,7 @@ func TestTemporalIsNonOverlapping(t *testing.T) {
 }
 
 func TestTemporalComposesWithFields(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"session in a window","algorithm":"temporal",
+	s := spec(t, `{"name":"session in a window","algorithm":"temporal",
 		"sequence":["4625","4624"],"window_within":"5m","match_fields":["logon_id"]}`)
 
 	events := []*graphene.Event{
@@ -224,7 +224,7 @@ func TestTemporalComposesWithFields(t *testing.T) {
 }
 
 func TestTemporalScopeIsolation(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"per host","algorithm":"temporal",
+	s := spec(t, `{"name":"per host","algorithm":"temporal",
 		"sequence":["4625","4624"],"window_within":"5m"}`)
 	res := Generate(s, []*graphene.Event{
 		ev(1, "4625", "HOST-A", 0),
@@ -247,7 +247,7 @@ func proc(id uint64, computer string, offsetSec int, creatorPID, newPID, image s
 }
 
 func TestLineageLinksChildToCreator(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage"}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage"}`)
 	events := []*graphene.Event{
 		proc(1, "H", 0, "0x4", "0x100", `C:\Windows\explorer.exe`),
 		proc(2, "H", 10, "0x100", "0x200", `C:\Windows\System32\cmd.exe`),
@@ -270,7 +270,7 @@ func TestLineageLinksChildToCreator(t *testing.T) {
 // around. Windows recycles PIDs constantly; joining on the parent PID alone produces a
 // confidently wrong graph, and every wrong edge looks exactly like a right one.
 func TestLineageDoesNotLinkAcrossPIDReuse(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage"}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage"}`)
 	events := []*graphene.Event{
 		// PID 0x100 is explorer.exe, created at t=0.
 		proc(1, "H", 0, "0x4", "0x100", `C:\Windows\explorer.exe`),
@@ -297,7 +297,7 @@ func TestLineageDoesNotLinkAcrossPIDReuse(t *testing.T) {
 // exited but before the PID is reused has no parent at all, and must not be attached to the
 // process that previously held the number.
 func TestLineageRespectsExitBeforeReuse(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage"}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage"}`)
 	events := []*graphene.Event{
 		proc(1, "H", 0, "0x4", "0x100", `C:\Windows\explorer.exe`),
 		evk(2, "4689", "H", 50, map[string]string{"ProcessId": "0x100"}),
@@ -318,7 +318,7 @@ func TestLineageRespectsExitBeforeReuse(t *testing.T) {
 }
 
 func TestLineageCountsUnresolvedParentsRatherThanGuessing(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage"}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage"}`)
 	// The parent was created before the ingest window opened — overwhelmingly the common case
 	// at the start of any case.
 	res := Generate(s, []*graphene.Event{
@@ -336,7 +336,7 @@ func TestLineageCountsUnresolvedParentsRatherThanGuessing(t *testing.T) {
 // provider convention: ProcessId is the CHILD and ParentProcessId names the parent, the
 // opposite of a Windows 4688.
 func TestLineageReadsSysmonShape(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage",
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage",
 		"lineage_create_ids":["1"]}`)
 	events := []*graphene.Event{
 		evk(1, "1", "H", 0, map[string]string{"ProcessId": "0x100", "Image": `C:\Windows\explorer.exe`}),
@@ -350,7 +350,7 @@ func TestLineageReadsSysmonShape(t *testing.T) {
 }
 
 func TestLineageTransitiveEdgesAreLowerConfidence(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage","lineage_depth":2}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage","lineage_depth":2}`)
 	events := []*graphene.Event{
 		proc(1, "H", 0, "0x4", "0x100", `C:\Windows\explorer.exe`),
 		proc(2, "H", 10, "0x100", "0x200", `C:\Windows\System32\cmd.exe`),
@@ -377,7 +377,7 @@ func TestLineageTransitiveEdgesAreLowerConfidence(t *testing.T) {
 }
 
 func TestLineageDefaultDepthEmitsOnlyDirectEdges(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage"}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage"}`)
 	res := Generate(s, []*graphene.Event{
 		proc(1, "H", 0, "0x4", "0x100", `a.exe`),
 		proc(2, "H", 10, "0x100", "0x200", `b.exe`),
@@ -389,7 +389,7 @@ func TestLineageDefaultDepthEmitsOnlyDirectEdges(t *testing.T) {
 }
 
 func TestLineageScopeIsolation(t *testing.T) {
-	s := spec(t, `{"format_version":2,"name":"ancestry","algorithm":"lineage"}`)
+	s := spec(t, `{"name":"ancestry","algorithm":"lineage"}`)
 	// The same PID on two hosts is two different processes.
 	res := Generate(s, []*graphene.Event{
 		proc(1, "HOST-A", 0, "0x4", "0x100", `explorer.exe`),
@@ -407,7 +407,7 @@ func TestAllAlgorithmsReportStaleCorrelationKeys(t *testing.T) {
 	stale := ev(1, "4625", "H", 0)
 	fresh := evk(2, "4624", "H", 1, map[string]string{"TargetLogonId": "0x3E7"})
 
-	s := spec(t, `{"format_version":2,"name":"session","algorithm":"field",
+	s := spec(t, `{"name":"session","algorithm":"field",
 		"sequence":["4625","4624"],"match_fields":["logon_id"]}`)
 	res := Generate(s, []*graphene.Event{stale, fresh})
 
@@ -449,7 +449,7 @@ func TestGlobalScopeIsOnePartition(t *testing.T) {
 		t.Fatalf("global scope must be one partition holding everything, got %d groups", len(groups))
 	}
 
-	s := spec(t, `{"format_version":2,"name":"cross host","sequence":["4625","4624"],
+	s := spec(t, `{"name":"cross host","sequence":["4625","4624"],
 		"match_scope":"global"}`)
 	res := GenerateWith(s, ds)
 	if res.Matches != 1 {

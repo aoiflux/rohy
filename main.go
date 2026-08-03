@@ -43,6 +43,7 @@ func main() {
 			app.Build,
 			app.Findings,
 			app.System,
+			app.Maintenance,
 		},
 	})
 

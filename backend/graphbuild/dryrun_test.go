@@ -168,7 +168,7 @@ func TestDryRunSurfacesWhatItCouldNotConsider(t *testing.T) {
 	b, _ := dryRunBuilder(t, logonChain()) // no correlation fields on any event
 
 	res, err := b.DryRun(DryRunRequest{
-		Source: `{"format_version":2,"name":"Session Probe","description":"d","channels":["Security"],
+		Source: `{"name":"Session Probe","description":"d","channels":["Security"],
 			"algorithm":"field","sequence":["4625","4624"],"match_fields":["logon_id"]}`,
 		Samples: 5,
 	})

@@ -34,7 +34,14 @@ func TestV1RulesProduceIdenticalEdges(t *testing.T) {
 	events := v1Fixture()
 
 	for _, rule := range reg.List() {
-		if rule.FormatVersion != 1 {
+		// Filtered by ALGORITHM, not by format version. The format has one version, so a
+		// version filter now selects everything — including the field, temporal and lineage
+		// rules, which this reference implementation does not model and which it would either
+		// mis-compare or (for a rule with no sequence at all) index straight off the end of.
+		//
+		// v0.1.0 had exactly one matcher, so "what v0.1.0 would have produced" is defined only
+		// for sequence rules. That is what this test is about.
+		if rule.AlgorithmOrDefault() != consts.AlgoSequence {
 			continue
 		}
 		// The reference: match the rule by hand, with the semantics v0.1.0 had — group by

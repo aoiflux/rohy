@@ -1,6 +1,6 @@
 // Which controls the guided form should show, and what each one is worth showing as.
 //
-// The rule format stopped being uniform in v2: selecting `lineage` removes the sequence
+// The rule format is not uniform across algorithms: selecting `lineage` removes the sequence
 // entirely, `field` makes match_fields mandatory, `temporal` adds a window. A form that showed
 // every field the format has would invite an author to fill in controls that do nothing, and
 // the result would be a rule that looks precise and matches on something else.
@@ -14,13 +14,12 @@
  * @property {string} name
  * @property {string} kind
  * @property {string[]} [applies_to]
- * @property {number} [requires_format_version]
  */
 
 /**
  * algorithmOf resolves the algorithm a rule value selects, defaulting the way the loader does.
  * @param {any} value the parsed rule
- * @param {{algorithms?: {name:string, min_format_version:number}[]}} schema
+ * @param {{algorithms?: {name:string}[]}} schema
  */
 export function algorithmOf(value, schema) {
   const named = String(value?.algorithm ?? '').trim();
@@ -76,33 +75,6 @@ export function visibleFields(fields, algorithm, value) {
     if (isSet(value, field)) out.push({ ...field, inert: true });
   }
   return out;
-}
-
-/**
- * requiredFormatVersion is the lowest version that can express this rule — driven by the
- * algorithm, since that is the only thing that changes what an older build would match.
- */
-export function requiredFormatVersion(value, schema) {
-  const name = algorithmOf(value, schema);
-  const algo = (schema?.algorithms || []).find((a) => a.name === name);
-  return Math.max(1, algo?.min_format_version ?? 1);
-}
-
-/**
- * formatVersionShortfall reports that a rule selects an algorithm its declared version cannot
- * express, and by how much.
- *
- * It exists so the form can offer the correction rather than only reporting the problem. The
- * author picked an algorithm; being told "that needs version 2" and left to find the version
- * field themselves is a worse experience than a button that sets it.
- *
- * @returns {{declared:number, required:number}|null}
- */
-export function formatVersionShortfall(value, schema) {
-  const declared = typeof value?.format_version === 'number' ? value.format_version : 0;
-  if (declared === 0) return null; // an omitted version is filled in with what the rule needs
-  const required = requiredFormatVersion(value, schema);
-  return declared < required ? { declared, required } : null;
 }
 
 /**

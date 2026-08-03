@@ -144,23 +144,6 @@ func (s *Spec) MatchSlots() (slots []int, ok bool) {
 	return slots, true
 }
 
-// RequiredFormatVersion is the LOWEST format version that can express this rule.
-//
-// It is not the same as the version this build understands, and conflating the two would
-// quietly break portability. A rule using nothing beyond v1 must declare 1, so that a v0.1.0
-// build still loads it; only a rule that actually depends on a v2 matcher should declare 2 and
-// be refused elsewhere. Without this, every rule authored in a v0.2.0 editor would announce
-// itself as unreadable by older builds for no reason.
-//
-// Only the algorithm raises it. The other v2 fields are optional metadata or are ignored by
-// the algorithm that does not read them, so neither changes what an older build would match.
-func (s *Spec) RequiredFormatVersion() int {
-	if algo, ok := consts.AlgorithmByName(s.AlgorithmOrDefault()); ok {
-		return max(1, algo.MinFormatVersion)
-	}
-	return 1
-}
-
 // parseDuration reads one of the rule format's duration fields. An empty value is zero and no
 // error: the field is optional, and "absent" is not "malformed".
 func parseDuration(v string) (time.Duration, error) {
@@ -215,11 +198,7 @@ func Parse(data []byte) (*Spec, error) {
 // later, whether the file it writes will load.
 func (s *Spec) validate() error {
 	if s.FormatVersion == 0 {
-		// An omitted version means "whatever this rule needs", not "whatever this build is".
-		// Defaulting to the build's current version would stamp every version-less rule as
-		// requiring the newest format — including rules using nothing beyond v1, which would
-		// then be refused by an older build for a feature they do not use.
-		s.FormatVersion = s.RequiredFormatVersion()
+		s.FormatVersion = consts.RuleFormatVersion // tolerate an omitted version as current
 	}
 	if problems := s.problems(); len(problems) > 0 {
 		return errors.New(problems[0].Message)

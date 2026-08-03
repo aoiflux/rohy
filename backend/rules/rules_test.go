@@ -183,11 +183,11 @@ func TestBuiltinsLoadCleanly(t *testing.T) {
 		if len(r.Channels) == 0 {
 			t.Errorf("%s: builtin rules must declare their channels", r.ID)
 		}
-		// A builtin using a v2 matcher must say so, or an older build would match it on the
-		// event IDs alone and produce a graph that is wrong rather than absent.
-		if r.FormatVersion < algo.MinFormatVersion {
-			t.Errorf("%s: declares format_version %d but %q needs %d",
-				r.ID, r.FormatVersion, algo.Name, algo.MinFormatVersion)
+		// The format has ONE version, so every builtin declares it. An algorithm a build does
+		// not implement is refused by name, which is what makes a second version unnecessary.
+		if r.FormatVersion != consts.RuleFormatVersion {
+			t.Errorf("%s: declares format_version %d, want %d",
+				r.ID, r.FormatVersion, consts.RuleFormatVersion)
 		}
 	}
 }

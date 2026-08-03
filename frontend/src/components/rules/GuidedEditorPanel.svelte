@@ -12,12 +12,7 @@
   // rejected, and it survives a save.
   import { RULE_FIELD_GROUPS, UI } from '../../lib/consts/index.js';
   import { slug } from '../../lib/rules/document.js';
-  import {
-    algorithmOf,
-    formatVersionShortfall,
-    listValue,
-    visibleFields,
-  } from '../../lib/rules/fields.js';
+  import { algorithmOf, listValue, visibleFields } from '../../lib/rules/fields.js';
   import FieldRow from './FieldRow.svelte';
   import ListField from './ListField.svelte';
   import SequenceBuilder from './SequenceBuilder.svelte';
@@ -51,7 +46,6 @@
   // marked inert: the value is still there and still saved, and a control that vanished along
   // with its value would leave no way to remove it.
   const algorithm = $derived(algorithmOf(value, schema));
-  const shortfall = $derived(formatVersionShortfall(value, schema));
 
   const groups = $derived(
     (schema?.group_order || []).map((group) => ({
@@ -144,18 +138,6 @@
                      cannot infer from a name in a dropdown. -->
                 <p class="algo-summary">{algorithmSummary}</p>
               {/if}
-              {#if field.name === 'algorithm' && shortfall}
-                <!-- The author picked an algorithm; telling them it needs a newer version and
-                     leaving them to find the version field is a worse experience than offering
-                     the correction. -->
-                <button
-                  type="button"
-                  class="fixver"
-                  onclick={() => onfield?.('format_version', shortfall.required)}
-                >
-                  {UI.RULE_EDITOR_SET_FORMAT_VERSION} {shortfall.required}
-                </button>
-              {/if}
             {:else if field.read_only}
               <!-- format_version is shown, not edited. Declaring a version this build does
                    not understand makes the file refuse to load here, and there is no reason
@@ -247,20 +229,6 @@
     color: var(--color-on-surface-muted);
     border-left: 2px solid var(--color-primary);
     padding-left: var(--space-3);
-  }
-  .fixver {
-    margin-top: var(--space-2);
-    border: 1px solid var(--color-primary);
-    background: transparent;
-    color: var(--color-primary);
-    border-radius: var(--radius-sm);
-    padding: var(--space-1) var(--space-3);
-    font-family: var(--font-sans);
-    font-size: 0.78rem;
-    cursor: pointer;
-  }
-  .fixver:hover {
-    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   input,

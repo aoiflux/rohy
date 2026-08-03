@@ -1,15 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  algorithmOf,
-  appliesTo,
-  formatVersionShortfall,
-  isSet,
-  listValue,
-  requiredFormatVersion,
-  visibleFields,
-} from './fields.js';
+import { algorithmOf, appliesTo, isSet, listValue, visibleFields } from './fields.js';
 
 // The descriptor is read from the backend's schema golden rather than hand-written, so these
 // tests run against the real field set — including `applies_to`, which is the whole subject.
@@ -124,26 +116,24 @@ describe('isSet', () => {
 });
 
 describe('format version', () => {
-  it('reports the minimum an algorithm needs', () => {
-    expect(requiredFormatVersion({ algorithm: 'sequence' }, SCHEMA)).toBe(1);
-    for (const name of ['field', 'temporal', 'lineage']) {
-      expect(requiredFormatVersion({ algorithm: name }, SCHEMA)).toBe(2);
+  // The format has ONE version, and that is a decision rather than an accident: the three
+  // algorithms added in v0.2.0 looked like a breaking change, but a build that does not
+  // implement one refuses it BY NAME, which is both sufficient and more useful than a version
+  // number. A second version would have bought nothing and cost a concept.
+  it('is a single version the whole descriptor shares', () => {
+    expect(SCHEMA.format_version).toBe(1);
+  });
+
+  it('does not vary by algorithm', () => {
+    for (const a of SCHEMA.algorithms) {
+      expect(a.min_format_version, `${a.name} still carries a per-algorithm version`).toBeUndefined();
     }
   });
 
-  it('flags a rule whose declared version cannot express its algorithm', () => {
-    const short = formatVersionShortfall({ algorithm: 'field', format_version: 1 }, SCHEMA);
-    expect(short).toEqual({ declared: 1, required: 2 });
-  });
-
-  it('does not flag a rule that declares enough', () => {
-    expect(formatVersionShortfall({ algorithm: 'field', format_version: 2 }, SCHEMA)).toBeNull();
-    expect(formatVersionShortfall({ algorithm: 'sequence', format_version: 1 }, SCHEMA)).toBeNull();
-  });
-
-  it('does not flag an omitted version, which the loader fills in', () => {
-    // Offering to "fix" a version the author never wrote would push every rule to declare one.
-    expect(formatVersionShortfall({ algorithm: 'field' }, SCHEMA)).toBeNull();
+  it('does not vary by field', () => {
+    for (const f of SCHEMA.fields) {
+      expect(f.requires_format_version, `${f.name} still carries a per-field version`).toBeUndefined();
+    }
   });
 });
 

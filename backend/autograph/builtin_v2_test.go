@@ -176,20 +176,22 @@ func TestBuiltinProcessAncestryResolvesThroughPIDLifetimes(t *testing.T) {
 	}
 }
 
-// TestV2BuiltinsDeclareTheVersionTheyNeed is the portability guard for the shipped library: a
-// rule using a v2 matcher must declare 2 so a v0.1.0 build refuses it, and a rule using only v1
-// features must NOT declare 2, or it becomes unreadable by older builds for no reason.
-func TestV2BuiltinsDeclareTheVersionTheyNeed(t *testing.T) {
+// TestBuiltinsShareOneFormatVersion is the portability guard for the shipped library.
+//
+// The format has a single version, so every rule declares it — including the ones using the
+// algorithms added in v0.2.0. That is safe because a build without those algorithms refuses
+// them BY NAME, which is both sufficient and more useful than a version number: it says which
+// matcher is missing. A rule declaring anything else would be refused by this build or would
+// needlessly claim to be unreadable by another.
+func TestBuiltinsShareOneFormatVersion(t *testing.T) {
 	builtins, _ := rules.Builtins()
 	for _, r := range builtins {
-		algo, ok := consts.AlgorithmByName(r.AlgorithmOrDefault())
-		if !ok {
+		if _, ok := consts.AlgorithmByName(r.AlgorithmOrDefault()); !ok {
 			t.Fatalf("%s: unknown algorithm", r.ID)
 		}
-		if r.FormatVersion != algo.MinFormatVersion {
-			t.Errorf("%s: declares format_version %d, but %q needs exactly %d — declaring more "+
-				"costs portability, declaring less is refused at load",
-				r.ID, r.FormatVersion, algo.Name, algo.MinFormatVersion)
+		if r.FormatVersion != consts.RuleFormatVersion {
+			t.Errorf("%s: declares format_version %d, want %d",
+				r.ID, r.FormatVersion, consts.RuleFormatVersion)
 		}
 	}
 }

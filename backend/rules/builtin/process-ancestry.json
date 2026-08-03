@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 1,
   "name": "Process Ancestry",
   "description": "Links each created process (4688) to the creation event of the process that spawned it, resolving the parent through the PID's lifetime rather than by matching the number. Windows reuses process IDs constantly, so a plain parent-PID join produces confident but wrong ancestry over a case spanning days. A process whose parent was created before the log begins is reported as unresolved rather than attached to whichever process last held that PID. Requires process creation auditing; on a busy host this builds a large graph, so scope the run with a filter.",
   "relation_type": "correlation",

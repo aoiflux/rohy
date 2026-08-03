@@ -120,7 +120,6 @@ func probeRule(algorithm string) map[string]any {
 		return spec
 	}
 	spec["algorithm"] = algorithm
-	spec["format_version"] = algo.MinFormatVersion
 	if algo.RequiresSequence {
 		spec["sequence"] = []string{"4624", "1102"}
 	}
@@ -206,7 +205,7 @@ func TestSchemaAlgorithmsMatchTheVocabulary(t *testing.T) {
 	}
 	for i, a := range schema.Algorithms {
 		want := consts.Algorithms[i]
-		if a.Name != want.Name || a.MinFormatVersion != want.MinFormatVersion ||
+		if a.Name != want.Name ||
 			a.RequiresSequence != want.RequiresSequence || a.Summary != want.Summary {
 			t.Errorf("algorithm %d: descriptor %+v disagrees with consts %+v", i, a, want)
 		}

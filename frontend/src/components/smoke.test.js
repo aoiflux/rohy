@@ -4,6 +4,7 @@ import { render } from 'svelte/server';
 import ScenarioPlayer from './learn/ScenarioPlayer.svelte';
 import ListField from './rules/ListField.svelte';
 import TestbenchPanel from './rules/TestbenchPanel.svelte';
+import CorrelationNotice from './rules/CorrelationNotice.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -125,6 +126,43 @@ describe('rules / TestbenchPanel', () => {
     });
     expect(out.body).not.toContain('NaN');
     expect(out.body).not.toContain('Invalid Date');
+  });
+});
+
+describe('rules / CorrelationNotice', () => {
+  // Svelte emits hydration markers even for a component that draws nothing, so "silent" means
+  // no MARKUP rather than no output.
+  const visible = (out) => out.body.replace(/<!--.*?-->/g, '').trim();
+
+  // The notice must be SILENT when there is nothing to say. A permanent banner would train
+  // people to scroll past it, which is the one thing a caveat cannot afford.
+  it('renders nothing when the case is fully projected', () => {
+    const out = render(CorrelationNotice, { props: { status: { total: 10, current: 10, stale: 0 } } });
+    expect(visible(out)).toBe('');
+  });
+
+  it('renders nothing before the status is known', () => {
+    const out = render(CorrelationNotice, { props: { status: null } });
+    expect(visible(out)).toBe('');
+  });
+
+  it('names the number that cannot be correlated', () => {
+    const out = render(CorrelationNotice, { props: { status: { total: 100, current: 40, stale: 60 } } });
+    expect(out.body).toContain('60');
+  });
+
+  renders('renders mid-backfill with progress', CorrelationNotice, {
+    status: { total: 100, current: 40, stale: 60 },
+    running: true,
+    progress: { done: 25, total: 100 },
+  });
+
+  it('survives progress with a zero total rather than dividing by it', () => {
+    expect(() =>
+      render(CorrelationNotice, {
+        props: { status: { stale: 1 }, running: true, progress: { done: 0, total: 0 } },
+      }),
+    ).not.toThrow();
   });
 });
 

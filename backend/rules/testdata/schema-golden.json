@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 1,
   "max_file_bytes": 1048576,
   "group_order": [
     "identity",
@@ -21,17 +21,13 @@
   "algorithms": [
     {
       "name": "sequence",
-      "summary": "Match an ordered event-ID sequence chronologically within a scope. Establishes a temporally ordered pairing and nothing more.",
-      "min_format_version": 1,
+      "summary": "Match an ordered event-ID sequence chronologically on one computer. Establishes a temporally ordered pairing and nothing more.",
       "requires_sequence": true,
-      "fields": [
-        "match_scope"
-      ]
+      "fields": null
     },
     {
       "name": "field",
       "summary": "Match an ordered event-ID sequence within a scope AND a shared value for every named correlation field, so a match establishes entity linkage rather than only ordering.",
-      "min_format_version": 2,
       "requires_sequence": true,
       "fields": [
         "match_fields",
@@ -41,7 +37,6 @@
     {
       "name": "temporal",
       "summary": "Match an ordered event-ID sequence where each consecutive pair falls within a bounded time window. Composes with match_fields.",
-      "min_format_version": 2,
       "requires_sequence": true,
       "fields": [
         "window_within",
@@ -53,7 +48,6 @@
     {
       "name": "lineage",
       "summary": "Reconstruct process ancestry from process-creation records, resolving each parent through the PID's lifetime interval so a reused PID cannot produce a wrong link.",
-      "min_format_version": 2,
       "requires_sequence": false,
       "fields": [
         "lineage_create_ids",
@@ -119,8 +113,7 @@
       "applies_to": [
         "field",
         "temporal"
-      ],
-      "requires_format_version": 2
+      ]
     },
     {
       "name": "match_scope",
@@ -138,8 +131,7 @@
         "field",
         "temporal",
         "lineage"
-      ],
-      "requires_format_version": 2
+      ]
     },
     {
       "name": "window_within",
@@ -149,8 +141,7 @@
       "read_only": false,
       "applies_to": [
         "temporal"
-      ],
-      "requires_format_version": 2
+      ]
     },
     {
       "name": "window_total",
@@ -160,8 +151,7 @@
       "read_only": false,
       "applies_to": [
         "temporal"
-      ],
-      "requires_format_version": 2
+      ]
     },
     {
       "name": "lineage_create_ids",
@@ -171,8 +161,7 @@
       "read_only": false,
       "applies_to": [
         "lineage"
-      ],
-      "requires_format_version": 2
+      ]
     },
     {
       "name": "lineage_depth",
@@ -184,8 +173,7 @@
       "max_items": 16,
       "applies_to": [
         "lineage"
-      ],
-      "requires_format_version": 2
+      ]
     },
     {
       "name": "description",

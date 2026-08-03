@@ -16,6 +16,7 @@ const RULES = 'RulesAPI';
 const BUILD = 'BuildAPI';
 const FINDINGS = 'FindingsAPI';
 const SYSTEM = 'SystemAPI';
+const MAINTENANCE = 'MaintenanceAPI';
 
 function bound(struct, method) {
   const go = typeof window !== 'undefined' ? window.go : undefined;
@@ -306,6 +307,41 @@ export function runRules(req) {
  */
 export function dryRunRule(source, filter, samples) {
   return call(BUILD, 'DryRunRule', source, filter, samples);
+}
+
+// --- Case maintenance ---
+
+/**
+ * Reports how much of the case carries a correlation projection from this build's recipe.
+ *
+ * Events ingested before the projection existed have none, so field, temporal and lineage rules
+ * under-report against them — which is why this is worth asking on view mount rather than
+ * waiting for somebody to wonder why a rule found so little.
+ *
+ * @returns {Promise<{total:number, current:number, stale:number}>}
+ */
+export function correlationKeyStatus() {
+  return call(MAINTENANCE, 'CorrelationKeyStatus');
+}
+
+/**
+ * Fills in the correlation projection for events that predate it. Publishes progress on
+ * `maintenance:progress` while it runs, and is safe to cancel — the pass is resumable, so a
+ * cancelled run is continued by running it again.
+ * @returns {Promise<{examined:number, projected:number, already_current:number, failed:number, cancelled:boolean}>}
+ */
+export function backfillCorrelationKeys() {
+  return call(MAINTENANCE, 'BackfillCorrelationKeys');
+}
+
+/** Stops an in-flight maintenance pass; what it completed is durable. */
+export function cancelMaintenance() {
+  return call(MAINTENANCE, 'CancelMaintenance');
+}
+
+/** Whether a maintenance pass is in flight, so a view opened mid-run shows the right state. */
+export function isRunningMaintenance() {
+  return call(MAINTENANCE, 'IsRunningMaintenance');
 }
 
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */

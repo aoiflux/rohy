@@ -138,9 +138,7 @@ function problems(value, schema) {
   const declared = typeof value.format_version === 'number' ? value.format_version : 0;
   const algorithm = algorithmOf(value);
   const descriptor = algorithmDescriptor(schema, algorithm);
-  // An omitted version means "what this rule needs", not "what this build is" — a rule using
-  // only v1 features must declare 1 so older builds still load it.
-  const version = declared === 0 ? Math.max(1, descriptor?.min_format_version ?? 1) : declared;
+  const version = declared === 0 ? current : declared;
 
   if (version > current) {
     // Nothing else is reported for a file from the future: every further complaint would be
@@ -171,17 +169,6 @@ function problems(value, schema) {
   }
 
   const out = [];
-  const minVersion = descriptor.min_format_version ?? 1;
-  if (version < minVersion) {
-    out.push(
-      problem(
-        RULE_PROBLEMS.ALGORITHM_NEEDS_FORMAT,
-        RULE_FIELDS.ALGORITHM,
-        -1,
-        `the "${algorithm}" algorithm requires format_version ${minVersion}, but this file declares ${version}`,
-      ),
-    );
-  }
 
   if (String(value.name ?? '').trim() === '') {
     out.push(problem(RULE_PROBLEMS.NAME_REQUIRED, 'name', -1, 'rule name is required'));
