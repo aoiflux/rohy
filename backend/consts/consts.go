@@ -890,6 +890,57 @@ const ClusterNoRuleLabel = "Not from a rule"
 
 const MsgClusterUnknownMode = "unknown cluster mode %q (expected one of: %s)"
 
+// --- Graph snapshots (v0.2.0) ---
+//
+// A snapshot records what a graph LOOKED LIKE at a moment: which nodes were on the canvas, where
+// they sat, and which relations joined them. It is a sidecar, like every other authored artefact,
+// because it is a record of the analyst's working state rather than of the evidence.
+//
+// 🔒 Endpoints are recorded by hash_normalized as well as by node id, for exactly the reason
+// findings are hash-keyed: node ids are assignment-order, and a re-ingest hands the same id to a
+// different event. A restore matching on id alone would silently move a saved graph onto
+// unrelated records — which is the worst failure this feature could have, because the result
+// would look completely normal.
+const (
+	// SnapshotsSubdir holds per-graph snapshots (rohy-data/snapshots/<graphID>/<snapID>.json).
+	SnapshotsSubdir = "snapshots"
+	// SnapshotVersion guards the document format.
+	SnapshotVersion = 1
+	// MaxSnapshotsPerGraph bounds how many are kept. Beyond it the OLDEST is refused rather than
+	// evicted: a snapshot is something an analyst deliberately took, and silently deleting one to
+	// make room for another destroys work without asking.
+	MaxSnapshotsPerGraph = 50
+	// MaxSnapshotLabelLen bounds the analyst's own name for a snapshot.
+	MaxSnapshotLabelLen = 200
+)
+
+// Restore outcomes. Every item in a snapshot lands in exactly one of these, and the total is
+// always reported — nothing is dropped silently.
+const (
+	// RestoreApplied means the item was re-applied as it was.
+	RestoreApplied = "applied"
+	// RestoreRecreatable means the endpoints resolve but the edge itself is gone. It is OFFERED,
+	// never re-created automatically: re-inserting it makes rohy assert a link today, which is a
+	// different claim from a rule having inferred it then.
+	RestoreRecreatable = "recreatable"
+	// RestoreUnresolved means an endpoint could not be found by hash at all.
+	RestoreUnresolved = "unresolved"
+	// RestoreMoved means the id still exists but now holds a DIFFERENT event. This is the case
+	// hash-keying exists to catch, and it is called out separately from "unresolved" because it
+	// means the case was re-ingested, which the analyst needs to know.
+	RestoreMoved = "moved"
+)
+
+const (
+	MsgSnapshotNotFound   = "no snapshot %q for graph %d"
+	MsgSnapshotLimit      = "this graph already has %d snapshots (the maximum); delete one before taking another"
+	MsgSnapshotLabelLong  = "the snapshot label is longer than %d characters"
+	MsgSnapshotBadVersion = "snapshot %q was written in format version %d, which this build does not read"
+	// MsgSnapshotRestoredBasis is stamped on a relation the analyst chooses to re-create, so the
+	// graph never contains an edge whose provenance claims a rule inferred it.
+	MsgSnapshotRestoredBasis = "restored from snapshot %s"
+)
+
 // --- Relationship heatmap (v0.2.0) ---
 //
 // The heatmap answers "when did the things rohy inferred actually happen, and what kind were

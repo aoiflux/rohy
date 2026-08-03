@@ -44,6 +44,7 @@ func main() {
 			app.Findings,
 			app.System,
 			app.Maintenance,
+			app.Snapshots,
 		},
 	})
 

@@ -15,6 +15,7 @@ import (
 	"rohy/backend/graphreg"
 	"rohy/backend/layout"
 	"rohy/backend/rules"
+	"rohy/backend/snapshot"
 )
 
 // App owns the application lifecycle: it opens the persistence store and constructs
@@ -37,6 +38,9 @@ type App struct {
 	// Maintenance is opt-in work over the whole case — currently the correlation-key backfill.
 	// Separate from System because System never touches case data.
 	Maintenance *api.MaintenanceAPI
+	// Snapshots owns its own sidecar store and its own restore lifecycle, so it is separate from
+	// Graph for the same reason Maintenance is separate from System.
+	Snapshots *api.SnapshotAPI
 }
 
 // migrateGraphs guarantees a Default graph exists and folds any pre-P15 single-graph
@@ -91,6 +95,10 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	snapStore, err := snapshot.Open(snapshotsDir(dir))
+	if err != nil {
+		return nil, err
+	}
 
 	return &App{
 		store:       store,
@@ -103,6 +111,7 @@ func NewApp() (*App, error) {
 		Findings:    api.NewFindingsAPI(findingStore, store),
 		System:      api.NewSystemAPI(),
 		Maintenance: api.NewMaintenanceAPI(store),
+		Snapshots:   api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
 	}, nil
 }
 
@@ -203,4 +212,11 @@ func captureDir(dbDir string) string {
 // written, and the analyst's own work travels with the case folder as readable JSON.
 func findingsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.FindingsSubdir)
+}
+
+// snapshotsDir returns the graph-snapshot directory (<cwd>/rohy-data/snapshots). Same placement
+// and same reasoning as findings: a snapshot records the analyst's working state, not the
+// evidence, so it lives beside the store and travels with the case folder as readable JSON.
+func snapshotsDir(dbDir string) string {
+	return filepath.Join(filepath.Dir(dbDir), consts.SnapshotsSubdir)
 }

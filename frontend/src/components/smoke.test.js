@@ -12,6 +12,7 @@ import GraphHulls from './graph/GraphHulls.svelte';
 import ClusterCard from './graph/ClusterCard.svelte';
 import HeatmapMatrix from './timeline/HeatmapMatrix.svelte';
 import ReplayBar from './graph/ReplayBar.svelte';
+import SnapshotPanel from './graph/SnapshotPanel.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -439,5 +440,16 @@ describe('graph / ReplayBar', () => {
   it('says a graph with no timestamps has nothing to replay, rather than offering dead controls', () => {
     const out = render(ReplayBar, {});
     expect(out.body).toContain('no order to replay');
+  });
+});
+
+describe('graph / SnapshotPanel', () => {
+  // onMount/$effect do not run on the server, so this is the panel before the list has loaded —
+  // which is also the state it is in when the backend is unavailable.
+  renders('renders before its snapshots have loaded', SnapshotPanel, {});
+
+  it('says a graph has no snapshots rather than showing an empty list', () => {
+    const out = render(SnapshotPanel, {});
+    expect(out.body).toContain('No snapshots');
   });
 });

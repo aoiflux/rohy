@@ -182,6 +182,23 @@ type eventRow struct {
 	view eventSortView
 }
 
+// EventHashes maps every event id in the case to its content identity (hash_normalized).
+//
+// It exists for the snapshot restore, which resolves saved nodes by hash rather than by id —
+// node ids are assignment-order and a re-ingest hands the same id to a different event. One scan
+// of the minimal sort view is the cheap shape: a lookup per saved node would be a query per row.
+func (s *Store) EventHashes() (map[uint64]string, error) {
+	rows, err := s.matchingRows(EventFilter{Undated: consts.UndatedInclude})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]string, len(rows))
+	for _, r := range rows {
+		out[r.id] = r.view.HashNormalized
+	}
+	return out, nil
+}
+
 // matchingRows applies every filter and returns (id, timestamp) for each match, decoding
 // only the minimal sort view. Ordering and the timeline's bucketing both build on it, so
 // the two can never disagree about what matches.

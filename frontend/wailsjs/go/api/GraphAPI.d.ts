@@ -30,6 +30,8 @@ export function GetGraphRelations(arg1:number):Promise<Array<graphene.Relation>>
 
 export function GetRelations():Promise<Array<graphene.Relation>>;
 
+export function HeatmapGroups():Promise<Array<string>>;
+
 export function InspectRelation(arg1:number):Promise<api.RelationDetail>;
 
 export function LayoutFields():Promise<Array<string>>;
@@ -39,6 +41,8 @@ export function LayoutProfiles():Promise<Array<api.LayoutProfileInfo>>;
 export function ListGraphs():Promise<Array<graphreg.Graph>>;
 
 export function LoadLayout(arg1:number):Promise<layout.Layout>;
+
+export function RelationHeatmap(arg1:api.HeatmapRequest):Promise<graphene.HeatmapSummary>;
 
 export function RelationsAdjacency(arg1:Array<number>):Promise<Record<number, graphene.EventAdjacency>>;
 

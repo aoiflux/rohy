@@ -27,6 +27,7 @@
   import AutoLayoutPanel from '../components/graph/AutoLayoutPanel.svelte';
   import ClusterPanel from '../components/graph/ClusterPanel.svelte';
   import ReplayBar from '../components/graph/ReplayBar.svelte';
+  import SnapshotPanel from '../components/graph/SnapshotPanel.svelte';
   import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   const onCanvas = $derived(new Set(Object.keys($graph.nodes).map(Number)));
@@ -245,6 +246,7 @@
     <AutoLayoutPanel />
     <ClusterPanel />
     <ReplayBar />
+    <SnapshotPanel />
 
     <div class="paneltitle">
       <h3>{UI.PANEL_EVENTS}</h3>

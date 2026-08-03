@@ -829,6 +829,50 @@ export const UI = Object.freeze({
   TIMELINE_PLAYHEAD_OUTSIDE:
     'The playhead is set outside the range shown here — the graph covers events this filter excludes.',
 
+  // --- Snapshots (P29) ---
+  //
+  // A snapshot records what a graph looked like. A restore says what it can HONESTLY put back —
+  // which is why the wording below never says "restore" without saying what to.
+  SNAP_TITLE: 'Snapshots',
+  SNAP_TAKE: 'Take snapshot',
+  SNAP_LABEL: 'Name (optional)',
+  SNAP_LABEL_HINT: 'e.g. before re-running the rules',
+  SNAP_NONE: 'No snapshots of this graph yet.',
+  SNAP_PREVIEW: 'Preview restore',
+  SNAP_DELETE: 'Delete',
+  SNAP_CANCEL: 'Cancel',
+  SNAP_APPLY: 'Restore',
+  SNAP_APPLIED: 'Restored.',
+  SNAP_TAKEN: 'Snapshot saved.',
+  SNAP_DELETED: 'Snapshot deleted.',
+  SNAP_FAILED: 'Could not do that:',
+  SNAP_NODES: 'events',
+  SNAP_RELATIONS: 'links',
+  SNAP_PREVIEW_TITLE: 'What this would put back',
+  SNAP_NOTHING: 'Nothing in this snapshot can be applied to the case as it is now.',
+  SNAP_OFFER_TITLE: 'Links to re-create',
+  SNAP_OFFER_HINT:
+    'These events are still here but the links between them are not. Re-creating one records it ' +
+    'as YOUR assertion, not as something a rule found — because that is what it would be.',
+  SNAP_GONE_TITLE: 'No longer in the case',
+  SNAP_ROW: Object.freeze({
+    nodes_applied: 'events will be put back where they were',
+    nodes_moved: 'events were re-identified by content and will be put back',
+    nodes_unresolved: 'events are no longer in the case',
+    relations_applied: 'links are still there and will be kept',
+    relations_recreatable: 'links can be re-created, if you choose to',
+    relations_unresolved: 'links cannot be restored — an event is gone',
+  }),
+  SNAP_NOTE: Object.freeze({
+    reingested:
+      'This case was re-ingested since the snapshot was taken. Events were matched by content ' +
+      'rather than by id, so the right records were found — but the case is not the one the ' +
+      'snapshot was taken from.',
+    unresolved:
+      'Some of what this snapshot held is no longer in the case. It is listed rather than ' +
+      'quietly skipped.',
+  }),
+
   // --- Replay (P29) ---
   //
   // Ordered by when the EVENTS happened, never by when the rule build ran.

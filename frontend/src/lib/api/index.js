@@ -17,6 +17,7 @@ const BUILD = 'BuildAPI';
 const FINDINGS = 'FindingsAPI';
 const SYSTEM = 'SystemAPI';
 const MAINTENANCE = 'MaintenanceAPI';
+const SNAPSHOTS = 'SnapshotAPI';
 
 function bound(struct, method) {
   const go = typeof window !== 'undefined' ? window.go : undefined;
@@ -213,6 +214,34 @@ export function relationHeatmap(req) {
 /** @returns {Promise<string[]>} */
 export function heatmapGroups() {
   return call(GRAPH, 'HeatmapGroups');
+}
+
+// --- Snapshots (P29). A snapshot records what a graph LOOKED LIKE; a restore says what it can
+// honestly put back. Preview and apply are separate calls because nothing restores silently: the
+// analyst sees the plan — re-applied, offered, unresolvable — before anything is written.
+
+/** @param {{graph_id?:number, label?:string}} req
+ *  @returns {Promise<{id:string,label?:string,graph_id:number,taken_at:string,nodes:number,relations:number,app_version?:string}>} */
+export function takeSnapshot(req) {
+  return call(SNAPSHOTS, 'TakeSnapshot', req);
+}
+/** @param {number} graphId */
+export function listSnapshots(graphId) {
+  return call(SNAPSHOTS, 'ListSnapshots', graphId);
+}
+/** @param {number} graphId @param {string} id */
+export function deleteSnapshot(graphId, id) {
+  return call(SNAPSHOTS, 'DeleteSnapshot', graphId, id);
+}
+/** Works out what a snapshot could put back. Writes nothing.
+ *  @param {number} graphId @param {string} id */
+export function previewRestore(graphId, id) {
+  return call(SNAPSHOTS, 'PreviewRestore', graphId, id);
+}
+/** Re-applies layout, and re-creates ONLY the relations named in `recreate`.
+ *  @param {{graph_id?:number, id:string, recreate?:number[]}} req */
+export function applyRestore(req) {
+  return call(SNAPSHOTS, 'ApplyRestore', req);
 }
 
 // --- Graph management (multiple graphs, P15) ---

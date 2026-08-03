@@ -50,6 +50,10 @@ export function GetRelations() {
   return window['go']['api']['GraphAPI']['GetRelations']();
 }
 
+export function HeatmapGroups() {
+  return window['go']['api']['GraphAPI']['HeatmapGroups']();
+}
+
 export function InspectRelation(arg1) {
   return window['go']['api']['GraphAPI']['InspectRelation'](arg1);
 }
@@ -68,6 +72,10 @@ export function ListGraphs() {
 
 export function LoadLayout(arg1) {
   return window['go']['api']['GraphAPI']['LoadLayout'](arg1);
+}
+
+export function RelationHeatmap(arg1) {
+  return window['go']['api']['GraphAPI']['RelationHeatmap'](arg1);
 }
 
 export function RelationsAdjacency(arg1) {
