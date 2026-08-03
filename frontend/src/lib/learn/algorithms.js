@@ -483,6 +483,32 @@ export function layout(scenario, step) {
 }
 
 /**
+ * clampStep keeps a step index inside a scenario's range.
+ *
+ * It exists because the player's index and the scenario it indexes into are updated at
+ * DIFFERENT TIMES. Switching algorithm changes the scenario prop, and the template re-renders
+ * with it before the effect that resets the index has run — so for one frame a 4-step scenario
+ * can be asked for step 5, left over from a 7-step walkthrough that was still playing.
+ *
+ * Unclamped, that read is `undefined` and the next property access throws, killing the
+ * component mid-render: playback simply stops, and only when a reader switches tabs late
+ * enough in a longer walkthrough, which is what made it look intermittent.
+ *
+ * Clamping rather than guarding at each use is deliberate — there are four deriveds reading
+ * the step and each would need the same defence.
+ *
+ * @param {Scenario} scenario
+ * @param {number} index
+ * @returns {number}
+ */
+export function clampStep(scenario, index) {
+  const total = scenario?.steps?.length ?? 0;
+  if (total === 0) return 0;
+  if (!Number.isFinite(index)) return 0;
+  return Math.max(0, Math.min(Math.trunc(index), total - 1));
+}
+
+/**
  * CHIP_STATE_ORDER and EDGE_STATE_ORDER fix the order legend entries appear in, so the key
  * does not reshuffle itself as the walkthrough advances — a legend whose rows move is harder
  * to use than one with an irrelevant row in it.

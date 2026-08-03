@@ -16,9 +16,9 @@
   // With motion allowed, the walkthrough starts once on arrival. A diagram that sits still
   // until it is clicked mostly does not get clicked, and the first scenario playing itself is
   // how a reader learns the control exists at all.
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { prefersReducedMotion } from '../../lib/motion.js';
-  import { layout, scanX, legendFor } from '../../lib/learn/algorithms.js';
+  import { clampStep, layout, scanX, legendFor } from '../../lib/learn/algorithms.js';
   import { PLAYER, initial, reduce, label } from '../../lib/learn/player.js';
   import { LEARN } from '../../lib/consts/index.js';
 
@@ -47,10 +47,27 @@
   const reduced = prefersReducedMotion();
   const legend = $derived(legendFor(scenario));
 
-  let player = $state(initial(scenario.steps.length, { ...timing, autoplay: false }));
+  // Seeded without autoplay; the reload effect below immediately replaces this with the real
+  // starting state, so this only has to be a valid shape rather than the right one.
+  //
+  // untrack because reading a prop in an initializer captures its first value — which is
+  // exactly what is wanted here and nowhere else, so saying so is better than leaving Svelte to
+  // warn that it might not have been.
+  let player = $state(
+    untrack(() => initial(scenario.steps.length, { ...timingNow(), autoplay: false })),
+  );
   let timer = /** @type {any} */ (null);
 
-  const step = $derived(scenario.steps[player.index]);
+  // The index is clamped to the CURRENT scenario, not read straight off the player.
+  //
+  // The two are updated at different times: switching algorithm changes the scenario prop and
+  // re-renders the template before the effect that resets the index has run, so for one frame a
+  // 4-step scenario can be asked for step 5 left over from a 7-step walkthrough. Unclamped that
+  // is `undefined`, and the next property access throws mid-render — playback stops, and only
+  // when the switch happens late enough in a longer walkthrough, which is what made it look
+  // intermittent.
+  const stepIndex = $derived(clampStep(scenario, player.index));
+  const step = $derived(scenario.steps[stepIndex]);
   const positions = $derived(layout(scenario, step));
   const sweep = $derived(scanX(scenario, step));
   const laneCount = $derived(step.lanes ?? 1);
@@ -205,7 +222,7 @@
   <div
     class="stage"
     role="img"
-    aria-label={`${scenario.title}, step ${player.index + 1} of ${scenario.steps.length}: ${step.title}`}
+    aria-label={`${scenario.title}, step ${stepIndex + 1} of ${scenario.steps.length}: ${step.title}`}
   >
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <defs>
@@ -295,7 +312,7 @@
        timer's ACTUAL delay — so it tells the truth about pacing rather than approximating it,
        and it visibly freezes when playback is paused. -->
   <div class="progress" aria-hidden="true">
-    {#key `${epoch}:${player.index}:${player.delay}`}
+    {#key `${epoch}:${stepIndex}:${player.delay}`}
       <div
         class="progress-fill"
         class:running={player.playing && !reduced}
@@ -318,7 +335,7 @@
     <button
       class="ghost"
       onclick={() => dispatch({ type: PLAYER.PREV })}
-      disabled={player.index === 0}
+      disabled={stepIndex === 0}
       aria-label={LEARN.PREV}>‹</button
     >
     <button class="primary" onclick={toggle} aria-label={LEARN[transport.toUpperCase()]}>
@@ -328,7 +345,7 @@
     <button
       class="ghost"
       onclick={() => dispatch({ type: PLAYER.NEXT })}
-      disabled={player.index === scenario.steps.length - 1}
+      disabled={stepIndex === scenario.steps.length - 1}
       aria-label={LEARN.NEXT}>›</button
     >
 
@@ -340,11 +357,11 @@
       {#each scenario.steps as s, i}
         <button
           class="pip"
-          class:on={i === player.index}
-          class:done={i < player.index}
+          class:on={i === stepIndex}
+          class:done={i < stepIndex}
           role="tab"
-          aria-selected={i === player.index}
-          tabindex={i === player.index ? 0 : -1}
+          aria-selected={i === stepIndex}
+          tabindex={i === stepIndex ? 0 : -1}
           aria-label={`${i + 1}. ${s.title}`}
           title={s.title}
           onclick={() => go(i)}
@@ -364,7 +381,7 @@
       {/each}
     </div>
 
-    <span class="counter">{player.index + 1} / {scenario.steps.length}</span>
+    <span class="counter">{stepIndex + 1} / {scenario.steps.length}</span>
   </div>
 
   <!-- The key to the diagram's marks, showing only the ones this scenario uses. Without it a

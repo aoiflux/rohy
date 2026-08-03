@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SCENARIOS, keptEdges, layout, scanX, legendFor } from './algorithms.js';
+import { SCENARIOS, clampStep, keptEdges, layout, scanX, legendFor } from './algorithms.js';
 import { ALGORITHMS, LEARN } from '../consts/index.js';
 
 // These tests exist because a diagram that explains an algorithm is a CLAIM about that
@@ -162,6 +162,46 @@ describe('lineage — mirrors TestLineageDoesNotLinkAcrossPIDReuse', () => {
     // Without the 4689 the first interval would run until the PID's next creation, and the
     // scenario would not actually demonstrate interval containment.
     expect(s.events.some((e) => e.eventId === '4689')).toBe(true);
+  });
+});
+
+describe('clampStep', () => {
+  // The bug this pins: the player's index and the scenario it indexes into are updated at
+  // different times. Switching algorithm re-renders the template with the new scenario before
+  // the effect that resets the index has run, so a 4-step scenario gets asked for step 5 left
+  // over from a 7-step walkthrough. Unclamped that reads `undefined` and the next property
+  // access throws mid-render — playback stops, intermittently, depending on how far the
+  // previous walkthrough had got.
+  it('keeps an index left over from a longer scenario in range', () => {
+    const lineage = SCENARIOS.find((s) => s.id === 'lineage');
+    const sequence = SCENARIOS.find((s) => s.id === 'sequence');
+    expect(sequence.steps.length).toBeGreaterThan(lineage.steps.length);
+
+    const stale = sequence.steps.length - 1;
+    const clamped = clampStep(lineage, stale);
+    expect(clamped).toBe(lineage.steps.length - 1);
+    expect(lineage.steps[clamped]).toBeDefined();
+  });
+
+  it('never returns an index a scenario cannot resolve', () => {
+    for (const s of SCENARIOS) {
+      for (const probe of [-5, -1, 0, 1, s.steps.length - 1, s.steps.length, 999]) {
+        const i = clampStep(s, probe);
+        expect(s.steps[i], `${s.id} @ ${probe} resolved to nothing`).toBeDefined();
+      }
+    }
+  });
+
+  it('survives a degenerate or missing scenario rather than throwing', () => {
+    expect(clampStep(null, 3)).toBe(0);
+    expect(clampStep({}, 3)).toBe(0);
+    expect(clampStep({ steps: [] }, 3)).toBe(0);
+  });
+
+  it('coerces a non-integer index rather than indexing with it', () => {
+    expect(clampStep(SCENARIOS[0], 1.7)).toBe(1);
+    expect(clampStep(SCENARIOS[0], NaN)).toBe(0);
+    expect(clampStep(SCENARIOS[0], Infinity)).toBe(0);
   });
 });
 
