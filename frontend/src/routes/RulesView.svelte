@@ -14,6 +14,7 @@
   import { snackbar } from '../stores/snackbar.js';
   import { UI, ROUTES, THEMES, RULE_SOURCES, CHANNELS } from '../lib/consts/index.js';
   import * as api from '../lib/api/index.js';
+  import { downloadRuleBundle } from '../lib/export.js';
 
   import AppBar from '../components/material/AppBar.svelte';
   import Button from '../components/material/Button.svelte';
@@ -126,12 +127,33 @@
     { id: 'import-files', label: UI.ACTION_IMPORT_RULES },
     { id: 'import-folder', label: UI.ACTION_IMPORT_RULE_FOLDER },
     { id: 'reload', label: UI.ACTION_RELOAD_RULES },
+    { id: 'export', label: UI.ACTION_EXPORT_RULES },
   ];
 
   function onLibraryAction(id) {
     if (id === 'import-files') runImport(rules.importFiles);
     else if (id === 'import-folder') runImport(rules.importFolder);
     else if (id === 'reload') rules.reload();
+    else if (id === 'export') exportLibrary();
+  }
+
+  /**
+   * exportLibrary writes the whole rule library out as one portable document.
+   *
+   * The bundle carries each file's bytes as stored, so what a colleague imports is byte for
+   * byte what was exported — field order and all. The timestamp is stamped here rather than in
+   * the helper so the clock stays owned by the caller and the document stays testable.
+   */
+  async function exportLibrary() {
+    try {
+      const bundle = await api.exportRules([]);
+      downloadRuleBundle(bundle, new Date().toISOString());
+      const missing = (bundle.missing || []).length;
+      if (missing > 0) snackbar.warn(`${UI.RULES_EXPORT_PARTIAL} ${missing}`);
+      else snackbar.success(`${UI.RULES_EXPORTED} ${(bundle.rules || []).length}`);
+    } catch (err) {
+      snackbar.error(String(err?.message ?? err));
+    }
   }
 
   // A built-in cannot be written to or deleted — it lives in the binary — so its menu offers

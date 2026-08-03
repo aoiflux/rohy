@@ -75,9 +75,9 @@
          focusable `role="application"` region that owns its own selection — the established
          pattern for canvas-like UIs — and this SVG layer is aria-hidden decoration within it.
 
-         ⬜ HONEST GAP: there is currently no keyboard route to selecting a relation. The mouse
-         has one and the keyboard does not, and suppressing a warning does not change that. It
-         wants relation stepping on the focused node, which is its own piece of work. -->
+         The keyboard route exists on the canvas instead: select an event and press R (Shift+R
+         to go back) to step through its relationships. That is documented in the shortcut help
+         from the same list the handler reads, so the two cannot disagree. -->
     {#if onselect}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -67,6 +67,7 @@ export const SHORTCUTS = Object.freeze([
   { keys: 'Enter', label: UI.ACTION_APPLY_FILTERS, scope: SHORTCUT_SCOPE.EVENTS },
   { keys: 'C', label: UI.ACTION_CONNECT_MODE, scope: SHORTCUT_SCOPE.GRAPH },
   { keys: 'F', label: UI.ACTION_FIT_VIEW, scope: SHORTCUT_SCOPE.GRAPH },
+  { keys: 'R / Shift+R', label: UI.SHORTCUT_STEP_RELATIONS, scope: SHORTCUT_SCOPE.GRAPH },
   { keys: 'Ctrl+A', label: UI.ACTION_SELECT_ALL, scope: SHORTCUT_SCOPE.GRAPH },
   { keys: 'Shift+drag', label: UI.MARQUEE_HINT, scope: SHORTCUT_SCOPE.GRAPH },
   { keys: 'Enter', label: UI.SHORTCUT_CONNECT_SELECTED, scope: SHORTCUT_SCOPE.GRAPH },

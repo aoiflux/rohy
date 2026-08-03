@@ -214,6 +214,20 @@ export function importRuleFiles() {
 export function importRuleFolder() {
   return call(RULES, 'ImportRuleFolder');
 }
+/**
+ * Packages rules for handing to someone else. An empty selection takes the whole library.
+ *
+ * Each rule comes back with its bytes EXACTLY as stored, never re-serialized, so field order
+ * and any field this build does not interpret both survive — the same promise the formatter
+ * makes. `missing` names anything that could not be read, so a bundle is never quietly short.
+ *
+ * @param {string[]} ids
+ * @returns {Promise<{rules:{id:string,origin:string,file:string,source:string}[], missing?:string[]}>}
+ */
+export function exportRules(ids) {
+  return call(RULES, 'ExportRules', ids || []);
+}
+
 /** @param {string} id */
 export function deleteRule(id) {
   return call(RULES, 'DeleteRule', id);

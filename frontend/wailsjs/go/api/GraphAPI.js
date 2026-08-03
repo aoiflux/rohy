@@ -38,6 +38,10 @@ export function GetRelations() {
   return window['go']['api']['GraphAPI']['GetRelations']();
 }
 
+export function InspectRelation(arg1) {
+  return window['go']['api']['GraphAPI']['InspectRelation'](arg1);
+}
+
 export function ListGraphs() {
   return window['go']['api']['GraphAPI']['ListGraphs']();
 }

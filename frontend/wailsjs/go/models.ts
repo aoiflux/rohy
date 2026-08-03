@@ -205,6 +205,46 @@ export namespace api {
 	        this.error = source["error"];
 	    }
 	}
+	export class RelationDetail {
+	    relation?: graphene.Relation;
+	    from?: graphene.Event;
+	    to?: graphene.Event;
+	    graph_name: string;
+	    sibling_ids: number[];
+	    recorded: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelationDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.relation = this.convertValues(source["relation"], graphene.Relation);
+	        this.from = this.convertValues(source["from"], graphene.Event);
+	        this.to = this.convertValues(source["to"], graphene.Event);
+	        this.graph_name = source["graph_name"];
+	        this.sibling_ids = source["sibling_ids"];
+	        this.recorded = source["recorded"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RelationRequest {
 	    from: number;
 	    to: number;
@@ -558,6 +598,8 @@ export namespace graphbuild {
 	    truncated: boolean;
 	    dropped: number;
 	    graph_discarded: boolean;
+	    skipped_no_keys: number;
+	    unresolved_parents: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RuleOutcome(source);
@@ -575,6 +617,8 @@ export namespace graphbuild {
 	        this.truncated = source["truncated"];
 	        this.dropped = source["dropped"];
 	        this.graph_discarded = source["graph_discarded"];
+	        this.skipped_no_keys = source["skipped_no_keys"];
+	        this.unresolved_parents = source["unresolved_parents"];
 	    }
 	}
 	export class Result {
@@ -620,6 +664,42 @@ export namespace graphbuild {
 
 export namespace graphene {
 	
+	export class BackfillResult {
+	    examined: number;
+	    projected: number;
+	    already_current: number;
+	    failed: number;
+	    cancelled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackfillResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.examined = source["examined"];
+	        this.projected = source["projected"];
+	        this.already_current = source["already_current"];
+	        this.failed = source["failed"];
+	        this.cancelled = source["cancelled"];
+	    }
+	}
+	export class CorrelationKeyStatus {
+	    total: number;
+	    current: number;
+	    stale: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CorrelationKeyStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total = source["total"];
+	        this.current = source["current"];
+	        this.stale = source["stale"];
+	    }
+	}
 	export class Event {
 	    id: number;
 	    event_id: string;
@@ -978,7 +1058,6 @@ export namespace rules {
 	export class Algorithm {
 	    name: string;
 	    summary: string;
-	    min_format_version: number;
 	    requires_sequence: boolean;
 	    fields: string[];
 	
@@ -990,7 +1069,6 @@ export namespace rules {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.summary = source["summary"];
-	        this.min_format_version = source["min_format_version"];
 	        this.requires_sequence = source["requires_sequence"];
 	        this.fields = source["fields"];
 	    }
@@ -1009,7 +1087,6 @@ export namespace rules {
 	    guidance: string;
 	    example: any;
 	    applies_to?: string[];
-	    requires_format_version?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Field(source);
@@ -1030,7 +1107,6 @@ export namespace rules {
 	        this.guidance = source["guidance"];
 	        this.example = source["example"];
 	        this.applies_to = source["applies_to"];
-	        this.requires_format_version = source["requires_format_version"];
 	    }
 	}
 	export class LoadError {

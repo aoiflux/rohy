@@ -211,6 +211,44 @@ func (a *RulesAPI) ReadRuleFile(path string) (string, error) {
 	return src, nil
 }
 
+// RuleBundle is a set of rules packaged for handing to someone else.
+type RuleBundle struct {
+	// Rules carry each file's bytes EXACTLY as stored — never a re-serialization of the parsed
+	// rule. Field order and any field this build does not interpret both survive the round trip,
+	// which is the same promise the formatter makes and the reason it works on bytes.
+	Rules []rules.RuleSource `json:"rules"`
+	// Missing names ids that could not be read, so a bundle can never quietly be short. An
+	// export that silently dropped a rule would be discovered by whoever received it.
+	Missing []string `json:"missing,omitempty"`
+}
+
+// ExportRules packages rules for sharing, by id.
+//
+// An empty selection exports the whole library — the common case when handing a case's rules to
+// a colleague, and one that should not require selecting thirty checkboxes first.
+//
+// It returns the SOURCE of each rule rather than writing a file, so the frontend can offer it
+// through the same download path event exports already use. One download mechanism means a
+// change to how the webview handles them is a change in one place.
+func (a *RulesAPI) ExportRules(ids []string) (RuleBundle, error) {
+	var out RuleBundle
+
+	if len(ids) == 0 {
+		for _, rule := range a.registry.List() {
+			ids = append(ids, rule.ID)
+		}
+	}
+	for _, id := range ids {
+		src, err := a.registry.Source(id)
+		if err != nil {
+			out.Missing = append(out.Missing, id)
+			continue
+		}
+		out.Rules = append(out.Rules, src)
+	}
+	return out, nil
+}
+
 // SaveRule creates or updates a user rule from the editor. Built-in rules are refused —
 // they live in the binary — so the editor's path for varying one is to duplicate it under a
 // new name, which arrives here as a create.

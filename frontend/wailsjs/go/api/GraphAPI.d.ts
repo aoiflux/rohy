@@ -23,6 +23,8 @@ export function GetGraphRelations(arg1:number):Promise<Array<graphene.Relation>>
 
 export function GetRelations():Promise<Array<graphene.Relation>>;
 
+export function InspectRelation(arg1:number):Promise<api.RelationDetail>;
+
 export function ListGraphs():Promise<Array<graphreg.Graph>>;
 
 export function LoadLayout(arg1:number):Promise<layout.Layout>;

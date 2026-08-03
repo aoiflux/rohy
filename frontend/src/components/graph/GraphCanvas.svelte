@@ -6,6 +6,7 @@
   // edge is persisted via the backend (P7.4/P8), never local-only.
   import { graph, LAYOUT } from '../../stores/graph.js';
   import { selection as sel, highlightedEdges } from '../../stores/selection.js';
+  import { relationsOfSelection, stepRelation } from '../../lib/graph/relations.js';
   import * as api from '../../lib/api/index.js';
   import { findings } from '../../stores/findings.js';
   import { snackbar } from '../../stores/snackbar.js';
@@ -179,7 +180,11 @@
     // Escape unwinds one layer at a time, most transient first, so a single key never
     // undoes more than the user meant.
     if (e.key === 'Escape') {
-      if (connectFrom !== null) {
+      if ($sel.relation) {
+        // Most transient first: the inspector is the newest thing on screen, so one Escape
+        // should close it rather than also dropping the node selection underneath it.
+        sel.clearRelation();
+      } else if (connectFrom !== null) {
         cancelConnect();
       } else if (connectMode) {
         connectMode = false;
@@ -194,6 +199,15 @@
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return; // leave modified keys to the OS/app
+
+    // R steps through the selected node's relations; Shift+R steps back. This is the keyboard
+    // half of edge selection — the mouse got one when edges became clickable, and a feature
+    // reachable only by pointer is not reachable.
+    if (e.key.toLowerCase() === 'r') {
+      e.preventDefault();
+      stepThroughRelations(e.shiftKey ? -1 : 1);
+      return;
+    }
 
     // Keyboard connect path (P18.4): with exactly two nodes selected, Enter links them —
     // source first, target second, matching the drag direction. Dragging is not the only
@@ -438,6 +452,30 @@
     } catch {
       sel.clearRelation();
     }
+  }
+
+  /**
+   * stepThroughRelations is the keyboard route to selecting a relation.
+   *
+   * It is bound to a bare letter like the canvas's other actions, and it steps through the
+   * edges of the CURRENT node selection rather than through every edge in the graph: a graph
+   * holds hundreds, and a cycle that long is not something anyone walks.
+   *
+   * Nothing selected, or a node with no relations, is a no-op that says so — a key that
+   * silently does nothing is indistinguishable from a broken one.
+   */
+  function stepThroughRelations(direction) {
+    if ($graph.selection.length === 0) {
+      snackbar.info(UI.RELATION_STEP_NEEDS_SELECTION);
+      return;
+    }
+    const cycle = relationsOfSelection($graph.edges, $graph.selection);
+    if (cycle.length === 0) {
+      snackbar.info(UI.RELATION_STEP_NONE);
+      return;
+    }
+    const next = stepRelation(cycle, $sel.relation?.relation?.id ?? null, direction);
+    if (next !== null) inspectEdge(next);
   }
 
   function autoLayout() {

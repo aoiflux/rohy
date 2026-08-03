@@ -88,3 +88,47 @@ export function exportCSV(events, filename = 'rohy-export.csv', byKey = undefine
   });
   download(filename, 'text/csv', [header, ...rows].join('\n'));
 }
+
+/**
+ * ruleBundleDocument renders an exported rule bundle as one portable JSON document.
+ *
+ * Each rule's `source` is kept as a STRING rather than being parsed and re-embedded. That is
+ * the whole point of the byte-exact export: parsing here to make the document prettier would
+ * silently normalise field order and drop nothing visibly, while destroying exactly what the
+ * format promises to preserve. A reader who wants the rule takes the string and writes it to a
+ * file — which is what it already was.
+ *
+ * @param {{rules:{id:string,origin:string,file:string,source:string}[], missing?:string[]}} bundle
+ * @param {string} exportedAt ISO timestamp, passed in so the caller owns the clock
+ * @returns {string}
+ */
+export function ruleBundleDocument(bundle, exportedAt) {
+  return JSON.stringify(
+    {
+      kind: 'rohy.rules',
+      exported_at: exportedAt,
+      count: (bundle?.rules || []).length,
+      // Reported rather than omitted: a bundle that quietly lost a rule would be discovered by
+      // whoever received it, which is the worst place to discover it.
+      missing: bundle?.missing || [],
+      rules: (bundle?.rules || []).map((r) => ({
+        id: r.id,
+        origin: r.origin,
+        file: r.file,
+        source: r.source,
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * downloadRuleBundle writes a bundle out through the same Blob path event exports use, so a
+ * change to how the webview handles downloads is a change in one place.
+ *
+ * @param {object} bundle @param {string} exportedAt @param {string} [filename]
+ */
+export function downloadRuleBundle(bundle, exportedAt, filename = 'rohy-rules.json') {
+  download(filename, 'application/json', ruleBundleDocument(bundle, exportedAt));
+}

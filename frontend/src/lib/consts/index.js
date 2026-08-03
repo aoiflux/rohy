@@ -656,6 +656,9 @@ export const UI = Object.freeze({
 
   // --- Relationship inspector ---
   INSPECTOR_TITLE: 'Relationship',
+  RELATION_STEP_NEEDS_SELECTION: 'Select an event first, then press R to step through its relationships.',
+  RELATION_STEP_NONE: 'This event has no relationships yet.',
+  SHORTCUT_STEP_RELATIONS: 'Step through the selected event’s relationships',
   INSPECTOR_RULE_GONE:
     'That rule is no longer in the library. A rule id comes from its name, so renaming one leaves the graph it built behind:',
   INSPECTOR_INFERRED: 'Inferred by a rule',
@@ -676,6 +679,19 @@ export const UI = Object.freeze({
   INSPECTOR_ASSERTED_NOTE:
     'You drew this link. It carries no rule and no basis, because it is your judgement rather ' +
     'than a match.',
+
+  // The field diff answers a different question from the line diff: what changed about the
+  // RULE, rather than about the text expressing it.
+  ACTION_EXPORT_RULES: 'Export all rules…',
+  RULES_EXPORTED: 'Exported rules:',
+  RULES_EXPORT_PARTIAL: 'Exported, but some rules could not be read:',
+  RULE_EDITOR_FIELD_DIFF: 'Changes',
+  RULE_EDITOR_FIELDS_CHANGED: 'fields changed',
+  RULE_EDITOR_SEQUENCE_DIFF: 'Sequence',
+  RULE_EDITOR_FIELD_DIFF_UNAVAILABLE:
+    'The rule cannot be compared while the text does not parse. The line view still shows what you typed.',
+  RULE_EDITOR_DIFF_LINES: 'Text',
+  RULE_EDITOR_DIFF_FIELDS: 'Rule',
 
   RULE_EDITOR_LIST_ADD: 'Add',
   RULE_EDITOR_LIST_REMOVE: 'Remove',

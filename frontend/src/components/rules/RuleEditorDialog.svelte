@@ -11,7 +11,7 @@
   import { rules } from '../../stores/rules.js';
   import { snackbar } from '../../stores/snackbar.js';
   import { EDITOR_MODES, RULE_PROBLEMS, UI } from '../../lib/consts/index.js';
-  import { projectToForm, isFormEditable } from '../../lib/rules/document.js';
+  import { projectToForm, isFormEditable, parseText } from '../../lib/rules/document.js';
   import { eventIdsFromRules } from '../../lib/rules/complete.js';
   import { download } from '../../lib/export.js';
   import { formToFilter } from '../../lib/filter.js';
@@ -23,6 +23,7 @@
   import GuidedEditorPanel from './GuidedEditorPanel.svelte';
   import RulePreviewPane from './RulePreviewPane.svelte';
   import RuleDiffView from './RuleDiffView.svelte';
+  import RuleFieldDiff from './RuleFieldDiff.svelte';
   import TestbenchPanel from './TestbenchPanel.svelte';
 
   /** Called with the save result, so the rules view can offer to run the rule it just got. */
@@ -38,6 +39,11 @@
   const form = $derived(projectToForm($ruleEditor.doc, $ruleEditor.schema));
   const canGuided = $derived(isFormEditable($ruleEditor.doc));
   const rename = $derived($ruleEditor.open ? ruleEditor.renameTarget() : null);
+
+  // Both sides parsed, for the field diff. Either may be null — an unparseable buffer is the
+  // normal state mid-edit — and the field view says so rather than showing an empty table.
+  const beforeRule = $derived(parseText($ruleEditor.original).value);
+  const afterRule = $derived($ruleEditor.doc.value ?? null);
 
   // Completion candidates. The event IDs the built-in library uses are a decent list and
   // need no query; grounding them in the case's own data is a later refinement.
@@ -242,7 +248,14 @@
             {#if sidePane === 'preview'}
               <RulePreviewPane text={$ruleEditor.doc.text} />
             {:else if sidePane === 'diff'}
-              <RuleDiffView before={$ruleEditor.original} after={$ruleEditor.doc.text} />
+              <!-- Both views, in reading order. "What changed about the rule" is the question an
+                   author usually has; "what changed in the text" is the one they need when the
+                   answer is surprising. Reformatting shows nothing in the first and a great deal
+                   in the second, which is exactly the distinction worth being able to see. -->
+              <div class="diffstack">
+                <RuleFieldDiff before={beforeRule} after={afterRule} schema={$ruleEditor.schema} />
+                <RuleDiffView before={$ruleEditor.original} after={$ruleEditor.doc.text} />
+              </div>
             {:else}
               <TestbenchPanel
                 result={$ruleEditor.test}
@@ -315,6 +328,17 @@
 {/if}
 
 <style>
+  /* The two diff views share the side pane, separated so neither reads as part of the other. */
+  .diffstack {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .diffstack > :global(* + *) {
+    border-top: 1px solid var(--color-outline);
+  }
+
   .editor {
     display: flex;
     flex-direction: column;
