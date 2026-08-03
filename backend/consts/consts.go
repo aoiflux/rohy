@@ -108,7 +108,12 @@ const (
 	// CorrelationKeyVersion identifies the extraction recipe the stored slots were written
 	// against. Bump it in the same change that alters CorrelationSlots, CorrelationSlotSources,
 	// CorrelationSlotMaxLen, or the normalization applied to a value.
-	CorrelationKeyVersion = 1
+	//
+	// 2: logon_id gained SubjectLogonId as a source, so it means "the session this event
+	//    concerns" rather than only "the session this event created". Events projected under
+	//    recipe 1 carry no logon_id on anything but a logon, so they are stale and the backfill
+	//    re-reads them.
+	CorrelationKeyVersion = 2
 )
 
 // Slot indices. These are the wire format — the position a value occupies in an event's
@@ -158,10 +163,12 @@ var CorrelationSlotMaxLen = map[int]int{
 //
 // What each slot means, precisely, because a rule author choosing one needs to know:
 //
-//	logon_id            the logon session this event belongs to. The single most useful
-//	                    correlation field: it ties a logon to everything done under it.
-//	subject_logon_id    the session of the account that CAUSED the event, when the event
-//	                    distinguishes actor from target (4720, 4728, 4688…).
+//	logon_id            the logon session this event CONCERNS, whichever field the event uses
+//	                    to name it. The single most useful correlation field: it ties a logon
+//	                    to everything done under it. See CorrelationSlotSources for why it
+//	                    reads SubjectLogonId as well as TargetLogonId.
+//	subject_logon_id    the session of the account that CAUSED the event, for events that
+//	                    genuinely distinguish actor from target (4720, 4728, 4688…).
 //	process_id          the verbatim ProcessId field. Its meaning is event-dependent — on a
 //	                    4688 it is the CREATOR, not the new process — so lineage resolves it
 //	                    through the rule documented on CorrelationSlotSources rather than
@@ -212,7 +219,19 @@ var CorrelationSlots = []string{
 // which reads a 4688 (child=NewProcessId, creator=ProcessId) and a Sysmon 1 (child=ProcessId,
 // parent=ParentProcessId) correctly without either shape being special-cased.
 var CorrelationSlotSources = map[int][]string{
-	SlotLogonID:         {"TargetLogonId", "LogonId", "TargetLogonID"},
+	// SubjectLogonId is a fallback for logon_id, and that fallback is load-bearing.
+	//
+	// Windows names the same session differently depending on the event's point of view: a
+	// 4624 records the session it CREATED as TargetLogonId, while everything that session then
+	// does — 4688, 4672, 4634 — records it as SubjectLogonId. Sourcing logon_id from
+	// TargetLogonId alone therefore populated it on the logon and left it EMPTY on every event
+	// the logon produced, so the events were excluded for having no value and the most
+	// valuable correlation there is ("what did this session do") silently matched nothing.
+	//
+	// logon_id is therefore "the logon session this event concerns", whichever way the event
+	// spells it. subject_logon_id remains the explicit actor session, for the events that
+	// genuinely distinguish actor from target.
+	SlotLogonID:         {"TargetLogonId", "SubjectLogonId", "LogonId", "TargetLogonID"},
 	SlotSubjectLogonID:  {"SubjectLogonId", "SubjectLogonID"},
 	SlotProcessID:       {"ProcessId", "ProcessID", "ClientProcessId", "SourceProcessId"},
 	SlotNewProcessID:    {"NewProcessId", "NewProcessID"},

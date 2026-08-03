@@ -23,12 +23,12 @@ type EventsAPI struct {
 	positions evtx.PositionStore
 	// findings resolves the analyst-findings filters into content hashes before a query runs
 	// (P25). It may be nil in tests that do not exercise those filters.
-	findings  *findings.Store
-	mu        sync.Mutex
-	emitter   Emitter
-	appCtx    context.Context
-	cancel    context.CancelFunc
-	running   bool
+	findings *findings.Store
+	mu       sync.Mutex
+	emitter  Emitter
+	appCtx   context.Context
+	cancel   context.CancelFunc
+	running  bool
 	// Live-capture session state, mirrored for the capture indicator (P7).
 	liveChannels   []string
 	liveContinuous bool

@@ -115,9 +115,9 @@ type EventQuery struct {
 	// hashes before the query runs, so the persistence layer never learns what a finding is.
 	FindingState string `json:"finding_state"`
 	Tag          string `json:"tag"`
-	Offset        int    `json:"offset"`
-	Limit         int    `json:"limit"`
-	Descending    bool   `json:"descending"`
+	Offset       int    `json:"offset"`
+	Limit        int    `json:"limit"`
+	Descending   bool   `json:"descending"`
 }
 
 // RelationUpdate edits an existing relation's type/label/confidence in place. The

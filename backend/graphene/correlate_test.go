@@ -105,9 +105,39 @@ func TestExtractCorrelationKeys4688(t *testing.T) {
 	check("process_name", "cmd.exe")   // basename only
 	check("subject_user", "alice")
 
-	// Fields the vocabulary does not cover contribute nothing.
-	if i := slotOf(t, "logon_id"); i < len(got) && got[i] != "" {
-		t.Errorf("logon_id should be empty on a 4688 that carries only SubjectLogonId, got %q", got[i])
+	// logon_id falls back to SubjectLogonId, and that is the whole point of the slot.
+	//
+	// A 4624 records the session it created as TargetLogonId; a 4688 records the session that
+	// created the process as SubjectLogonId. If logon_id only read TargetLogonId it would be
+	// populated on the logon and empty here — so a rule correlating "this logon, then what it
+	// ran" would exclude every 4688 for having no value and match nothing, silently.
+	check("logon_id", "0x3e7")
+	check("subject_logon_id", "0x3e7")
+}
+
+// TestLogonIDUnifiesTheSessionAcrossEventShapes is the assertion that keeps the most valuable
+// field correlation working: a logon and the things done under it must produce the SAME
+// logon_id even though Windows names the session differently on each.
+func TestLogonIDUnifiesTheSessionAcrossEventShapes(t *testing.T) {
+	logon := ExtractCorrelationKeys(map[string]string{ // 4624: the session it created
+		"TargetLogonId": "0x1a2b3c", "SubjectLogonId": "0x3e7", "TargetUserName": "alice",
+	})
+	spawned := ExtractCorrelationKeys(map[string]string{ // 4688: the session that ran it
+		"SubjectLogonId": "0x1a2b3c", "NewProcessId": "0x1a4",
+	})
+
+	i := slotOf(t, "logon_id")
+	if logon[i] != spawned[i] {
+		t.Fatalf("a logon (%q) and a process it spawned (%q) must share one logon_id, or "+
+			"correlating on the session cannot work", logon[i], spawned[i])
+	}
+	if logon[i] != "0x1a2b3c" {
+		t.Fatalf("logon_id = %q, want the session the logon created", logon[i])
+	}
+	// subject_logon_id still distinguishes actor from target where the event does.
+	j := slotOf(t, "subject_logon_id")
+	if logon[j] != "0x3e7" {
+		t.Errorf("subject_logon_id = %q, want the session that requested the logon", logon[j])
 	}
 }
 

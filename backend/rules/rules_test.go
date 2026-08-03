@@ -168,8 +168,26 @@ func TestBuiltinsLoadCleanly(t *testing.T) {
 		if r.Description == "" {
 			t.Errorf("%s: builtin rules should document what they match", r.ID)
 		}
-		if len(r.Sequence) < consts.RuleMinSequence {
+		// The sequence requirement is per ALGORITHM: lineage reconstructs ancestry from
+		// creation records and has no sequence to be too short.
+		algo, ok := consts.AlgorithmByName(r.AlgorithmOrDefault())
+		if !ok {
+			t.Errorf("%s: algorithm %q is not one this build implements", r.ID, r.Algorithm)
+			continue
+		}
+		if algo.RequiresSequence && len(r.Sequence) < consts.RuleMinSequence {
 			t.Errorf("%s: sequence too short", r.ID)
+		}
+		// Every builtin declares the channels it needs, so the missing-channel check can
+		// speak for the whole shipped library on a fresh case rather than staying silent.
+		if len(r.Channels) == 0 {
+			t.Errorf("%s: builtin rules must declare their channels", r.ID)
+		}
+		// A builtin using a v2 matcher must say so, or an older build would match it on the
+		// event IDs alone and produce a graph that is wrong rather than absent.
+		if r.FormatVersion < algo.MinFormatVersion {
+			t.Errorf("%s: declares format_version %d but %q needs %d",
+				r.ID, r.FormatVersion, algo.Name, algo.MinFormatVersion)
 		}
 	}
 }

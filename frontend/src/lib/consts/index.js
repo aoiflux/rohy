@@ -107,6 +107,42 @@ export const ROUTES = Object.freeze({
   GRAPH: 'graph',
   RULES: 'rules',
   TIMELINE: 'timeline',
+  ALGORITHMS: 'algorithms',
+});
+
+// Labels and copy for the correlation-algorithms explainer.
+//
+// The page explains BEHAVIOUR — what each matcher does and what a match therefore proves. It
+// deliberately does not restate the rule format: field names, bounds and defaults are served
+// by the backend descriptor and rendered by the guided editor, and a second copy here would
+// drift out of step with the loader that enforces them.
+export const LEARN = Object.freeze({
+  TITLE: 'How correlation algorithms work',
+  ESTABLISHES: 'A match establishes',
+  THE_RULE: 'The rule',
+  STEPS: 'Steps',
+  CHOOSING: 'Choosing an algorithm',
+  TO_RULES: 'Back to rules',
+  WRITE_A_RULE: 'Write a rule',
+  PLAY: 'Play',
+  PAUSE: 'Pause',
+  REPLAY: 'Replay',
+  PREV: 'Previous step',
+  NEXT: 'Next step',
+  MIRRORS: 'This walkthrough mirrors the engine test',
+  FULL_REFERENCE:
+    'RULES.md is the complete reference for the format — every field, its bounds, and the ' +
+    'version policy. This page covers only what the algorithms do.',
+  REDUCED_MOTION:
+    'Reduced motion is on, so the diagram steps without animating. Every step is a complete ' +
+    'picture, so nothing is lost.',
+  // How long each step holds during playback. Long enough to read the narration, since the
+  // text is the explanation and the picture is the illustration — not the other way round.
+  STEP_MS: 3200,
+  // The first beat after a restart is short on purpose. Step 0 of every scenario is the static
+  // "here is the data" frame, so restarting on a full interval leaves the diagram looking
+  // untouched for over three seconds — which reads as a replay button that did not work.
+  RESTART_MS: 900,
 });
 
 // Rule sources, mirroring backend consts.RuleSource* — drives the source badge and
@@ -309,6 +345,7 @@ export const UI = Object.freeze({
   NAV_GRAPH: 'Graph',
   NAV_RULES: 'Rules',
   NAV_TIMELINE: 'Timeline',
+  NAV_ALGORITHMS: 'Algorithms',
 
   // Timeline page (P24)
   TIMELINE_DATED: 'on the timeline',

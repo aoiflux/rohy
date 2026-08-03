@@ -14,6 +14,7 @@
   import GraphView from './routes/GraphView.svelte';
   import RulesView from './routes/RulesView.svelte';
   import TimelineView from './routes/TimelineView.svelte';
+  import AlgorithmsView from './routes/AlgorithmsView.svelte';
   import TitleBar from './components/material/TitleBar.svelte';
   import SnackbarHost from './components/material/SnackbarHost.svelte';
   import ShortcutsHelp from './components/material/ShortcutsHelp.svelte';
@@ -60,6 +61,8 @@
         <RulesView />
       {:else if $route === ROUTES.TIMELINE}
         <TimelineView />
+      {:else if $route === ROUTES.ALGORITHMS}
+        <AlgorithmsView />
       {:else}
         <Dashboard />
       {/if}

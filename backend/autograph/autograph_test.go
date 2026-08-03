@@ -191,22 +191,34 @@ func TestSequenceMatchCapTruncates(t *testing.T) {
 	}
 }
 
+// TestBuiltinRulesDriveTheEngine proves every shipped rule actually fires.
+//
+// The check is that a rule matches a stream BUILT TO SATISFY IT — which now depends on the
+// algorithm, because satisfying a rule is no longer just "emit its event IDs in order". A
+// field rule needs its events to share a correlation value; a temporal rule needs them close
+// enough together; a lineage rule needs creation records with a resolvable parent and has no
+// sequence at all. Feeding all four the old bare-sequence stream would have reported three
+// shipped rules as broken when what was broken was the fixture.
 func TestBuiltinRulesDriveTheEngine(t *testing.T) {
-	// Every shipped default rule must be runnable by the engine, and a synthetic event
-	// stream matching its exact sequence must produce len(sequence)-1 labeled edges.
 	builtins, errs := rules.Builtins()
 	if len(errs) != 0 {
 		t.Fatalf("builtins failed to load: %+v", errs)
 	}
 	for _, rule := range builtins {
-		var events []*graphene.Event
-		for i, eventID := range rule.Sequence {
-			events = append(events, ev(uint64(i+1), eventID, "HOST-A", i))
-		}
+		events := satisfyingStream(t, &rule.Spec)
 		res := Generate(&rule.Spec, events)
-		if res.Matches != 1 {
-			t.Errorf("%s: matches = %d, want 1", rule.ID, res.Matches)
+
+		if res.Matches < 1 {
+			t.Errorf("%s (%s): matches = %d, want at least 1 — a shipped rule must be able to fire",
+				rule.ID, rule.AlgorithmOrDefault(), res.Matches)
 			continue
+		}
+		if len(res.Relations) == 0 {
+			t.Errorf("%s: matched but emitted no relations", rule.ID)
+			continue
+		}
+		if rule.AlgorithmOrDefault() == consts.AlgoLineage {
+			continue // no sequence, so no per-step labels to check
 		}
 		want := len(rule.Sequence) - 1
 		if len(res.Relations) != want {
@@ -219,6 +231,58 @@ func TestBuiltinRulesDriveTheEngine(t *testing.T) {
 			}
 		}
 	}
+}
+
+// satisfyingStream builds the minimal event stream that the given rule should match.
+func satisfyingStream(t *testing.T, spec *rules.Spec) []*graphene.Event {
+	t.Helper()
+
+	if spec.AlgorithmOrDefault() == consts.AlgoLineage {
+		// A parent creation and a child naming it, both on one host: the smallest stream with
+		// a resolvable ancestry.
+		createID := spec.LineageCreateIDsOrDefault()[0]
+		parent := ev(1, createID, "HOST-A", 0)
+		parent.ParsedFields = map[string]string{"ProcessId": "0x4", "NewProcessId": "0x100"}
+		parent.ComputeCorrelationKeys()
+		child := ev(2, createID, "HOST-A", 1)
+		child.ParsedFields = map[string]string{"ProcessId": "0x100", "NewProcessId": "0x200"}
+		child.ComputeCorrelationKeys()
+		return []*graphene.Event{parent, child}
+	}
+
+	// Every matched event carries the same value for each required field, so a field rule can
+	// group them; the values are arbitrary because the algorithm tests equality, not meaning.
+	shared := map[string]string{}
+	for _, name := range spec.MatchFields {
+		switch name {
+		case "logon_id":
+			shared["TargetLogonId"] = "0x1a2b"
+		case "target_user":
+			shared["TargetUserName"] = "probe"
+		case "subject_user":
+			shared["SubjectUserName"] = "probe"
+		case "process_name":
+			shared["NewProcessName"] = `C:\probe.exe`
+		case "ip_address":
+			shared["IpAddress"] = "10.0.0.1"
+		case "service_name":
+			shared["ServiceName"] = "probe"
+		default:
+			t.Fatalf("no probe value for match field %q — add one so this rule stays covered", name)
+		}
+	}
+
+	var events []*graphene.Event
+	for i, eventID := range spec.Sequence {
+		// One second apart, so any window a shipped rule declares is comfortably satisfied.
+		e := ev(uint64(i+1), eventID, "HOST-A", i)
+		if len(shared) > 0 {
+			e.ParsedFields = shared
+			e.ComputeCorrelationKeys()
+		}
+		events = append(events, e)
+	}
+	return events
 }
 
 func TestUndatedEventsNeverJoinASequence(t *testing.T) {

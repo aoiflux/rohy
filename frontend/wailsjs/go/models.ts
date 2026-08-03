@@ -451,6 +451,7 @@ export namespace graphbuild {
 	    events: number;
 	    skipped_undated: number;
 	    repaired_relations: number;
+	    stale_correlation_keys: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Result(source);
@@ -462,6 +463,7 @@ export namespace graphbuild {
 	        this.events = source["events"];
 	        this.skipped_undated = source["skipped_undated"];
 	        this.repaired_relations = source["repaired_relations"];
+	        this.stale_correlation_keys = source["stale_correlation_keys"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -503,6 +505,8 @@ export namespace graphene {
 	    deduplication_count: number;
 	    source_counts?: Record<string, number>;
 	    payload?: payload.Ref;
+	    ck?: string[];
+	    ckv?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Event(source);
@@ -524,6 +528,8 @@ export namespace graphene {
 	        this.deduplication_count = source["deduplication_count"];
 	        this.source_counts = source["source_counts"];
 	        this.payload = this.convertValues(source["payload"], payload.Ref);
+	        this.ck = source["ck"];
+	        this.ckv = source["ckv"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -555,6 +561,12 @@ export namespace graphene {
 	    created_by: string;
 	    // Go type: time
 	    created_at: any;
+	    rule_id?: string;
+	    algorithm?: string;
+	    match_id?: string;
+	    step_index?: number;
+	    basis?: string[];
+	    rel_v?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Relation(source);
@@ -571,6 +583,12 @@ export namespace graphene {
 	        this.confidence_score = source["confidence_score"];
 	        this.created_by = source["created_by"];
 	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.rule_id = source["rule_id"];
+	        this.algorithm = source["algorithm"];
+	        this.match_id = source["match_id"];
+	        this.step_index = source["step_index"];
+	        this.basis = source["basis"];
+	        this.rel_v = source["rel_v"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -826,6 +844,26 @@ export namespace payload {
 
 export namespace rules {
 	
+	export class Algorithm {
+	    name: string;
+	    summary: string;
+	    min_format_version: number;
+	    requires_sequence: boolean;
+	    fields: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Algorithm(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.summary = source["summary"];
+	        this.min_format_version = source["min_format_version"];
+	        this.requires_sequence = source["requires_sequence"];
+	        this.fields = source["fields"];
+	    }
+	}
 	export class Field {
 	    name: string;
 	    kind: string;
@@ -839,6 +877,8 @@ export namespace rules {
 	    description: string;
 	    guidance: string;
 	    example: any;
+	    applies_to?: string[];
+	    requires_format_version?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Field(source);
@@ -858,6 +898,8 @@ export namespace rules {
 	        this.description = source["description"];
 	        this.guidance = source["guidance"];
 	        this.example = source["example"];
+	        this.applies_to = source["applies_to"];
+	        this.requires_format_version = source["requires_format_version"];
 	    }
 	}
 	export class LoadError {
@@ -915,6 +957,13 @@ export namespace rules {
 	    algorithm?: string;
 	    sequence: string[];
 	    labels?: string[];
+	    match_fields?: string[];
+	    match_scope?: string;
+	    window_within?: string;
+	    window_total?: string;
+	    lineage_create_ids?: string[];
+	    lineage_depth?: number;
+	    channels?: string[];
 	    id: string;
 	    source: string;
 	    enabled: boolean;
@@ -934,6 +983,13 @@ export namespace rules {
 	        this.algorithm = source["algorithm"];
 	        this.sequence = source["sequence"];
 	        this.labels = source["labels"];
+	        this.match_fields = source["match_fields"];
+	        this.match_scope = source["match_scope"];
+	        this.window_within = source["window_within"];
+	        this.window_total = source["window_total"];
+	        this.lineage_create_ids = source["lineage_create_ids"];
+	        this.lineage_depth = source["lineage_depth"];
+	        this.channels = source["channels"];
 	        this.id = source["id"];
 	        this.source = source["source"];
 	        this.enabled = source["enabled"];
@@ -1018,6 +1074,8 @@ export namespace rules {
 	    max_file_bytes: number;
 	    group_order: string[];
 	    fields: Field[];
+	    algorithms: Algorithm[];
+	    correlation_fields: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Schema(source);
@@ -1029,6 +1087,8 @@ export namespace rules {
 	        this.max_file_bytes = source["max_file_bytes"];
 	        this.group_order = source["group_order"];
 	        this.fields = this.convertValues(source["fields"], Field);
+	        this.algorithms = this.convertValues(source["algorithms"], Algorithm);
+	        this.correlation_fields = source["correlation_fields"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1057,6 +1117,13 @@ export namespace rules {
 	    algorithm?: string;
 	    sequence: string[];
 	    labels?: string[];
+	    match_fields?: string[];
+	    match_scope?: string;
+	    window_within?: string;
+	    window_total?: string;
+	    lineage_create_ids?: string[];
+	    lineage_depth?: number;
+	    channels?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Spec(source);
@@ -1071,6 +1138,13 @@ export namespace rules {
 	        this.algorithm = source["algorithm"];
 	        this.sequence = source["sequence"];
 	        this.labels = source["labels"];
+	        this.match_fields = source["match_fields"];
+	        this.match_scope = source["match_scope"];
+	        this.window_within = source["window_within"];
+	        this.window_total = source["window_total"];
+	        this.lineage_create_ids = source["lineage_create_ids"];
+	        this.lineage_depth = source["lineage_depth"];
+	        this.channels = source["channels"];
 	    }
 	}
 	export class ValidationError {
