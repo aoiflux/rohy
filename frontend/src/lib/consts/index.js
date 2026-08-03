@@ -654,6 +654,29 @@ export const UI = Object.freeze({
   RULES_RUN_UNRESOLVED: 'processes had no resolvable parent',
   RULES_RUN_STALE: 'events have no correlation fields yet',
 
+  // --- Relationship inspector ---
+  INSPECTOR_TITLE: 'Relationship',
+  INSPECTOR_RULE_GONE:
+    'That rule is no longer in the library. A rule id comes from its name, so renaming one leaves the graph it built behind:',
+  INSPECTOR_INFERRED: 'Inferred by a rule',
+  INSPECTOR_ASSERTED: 'Asserted by you',
+  INSPECTOR_RULE: 'Rule',
+  INSPECTOR_ALGORITHM: 'Algorithm',
+  INSPECTOR_STEP: 'Step',
+  INSPECTOR_STEP_N: 'connection',
+  INSPECTOR_CONFIDENCE: 'Confidence',
+  INSPECTOR_CONFIDENCE_HINT:
+    'How exact the match was — not how likely the activity is to be malicious.',
+  INSPECTOR_BASIS: 'Matched because',
+  INSPECTOR_PART_OF: 'Part of one match:',
+  INSPECTOR_EDGES_HIGHLIGHTED: 'edges highlighted on the canvas.',
+  INSPECTOR_UNRECORDED:
+    'This edge was built before rohy recorded why. Re-run its rule to fill that in — the rebuild ' +
+    'replaces the graph rather than adding to it.',
+  INSPECTOR_ASSERTED_NOTE:
+    'You drew this link. It carries no rule and no basis, because it is your judgement rather ' +
+    'than a match.',
+
   RULE_EDITOR_LIST_ADD: 'Add',
   RULE_EDITOR_LIST_REMOVE: 'Remove',
   // --- Rule testbench ---

@@ -5,6 +5,7 @@ import ScenarioPlayer from './learn/ScenarioPlayer.svelte';
 import ListField from './rules/ListField.svelte';
 import TestbenchPanel from './rules/TestbenchPanel.svelte';
 import CorrelationNotice from './rules/CorrelationNotice.svelte';
+import RelationInspector from './graph/RelationInspector.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -163,6 +164,98 @@ describe('rules / CorrelationNotice', () => {
         props: { status: { stale: 1 }, running: true, progress: { done: 0, total: 0 } },
       }),
     ).not.toThrow();
+  });
+});
+
+describe('graph / RelationInspector', () => {
+  const visible = (out) => out.body.replace(/<!--.*?-->/g, '').trim();
+
+  const ends = {
+    from: { id: 1, event_id: '4625', computer: 'HOST-A', timestamp: '2026-07-01T08:00:00Z' },
+    to: { id: 2, event_id: '4624', computer: 'HOST-A', timestamp: '2026-07-01T08:00:02Z' },
+  };
+
+  it('renders nothing when no edge is selected', () => {
+    expect(visible(render(RelationInspector, { props: { detail: null } }))).toBe('');
+  });
+
+  it('shows the basis for a rule-created edge', () => {
+    // The basis is what turns "inferred" from a colour into a claim that can be checked.
+    const out = render(RelationInspector, {
+      props: {
+        detail: {
+          ...ends,
+          recorded: true,
+          graph_name: 'Brute Force Then Success',
+          sibling_ids: [11],
+          relation: {
+            id: 10, created_by: 'system', relation_type: 'correlation', relation_label: 'then succeeds',
+            rule_id: 'brute-force', algorithm: 'field', step_index: 1, confidence_score: 1,
+            basis: ['logon_id=0x3e7'], rel_v: 1,
+          },
+        },
+      },
+    });
+    expect(out.body).toContain('logon_id=0x3e7');
+    expect(out.body).toContain('Brute Force Then Success');
+  });
+
+  it('distinguishes a hand-drawn edge from a rule-created one', () => {
+    // Not a rule edge with fields missing — a different kind of claim entirely.
+    const out = render(RelationInspector, {
+      props: {
+        detail: {
+          ...ends,
+          recorded: true,
+          sibling_ids: [],
+          relation: { id: 12, created_by: 'user', relation_type: 'default', confidence_score: 1 },
+        },
+      },
+    });
+    expect(out.body).toContain('Asserted');
+    expect(out.body).not.toContain('Matched because');
+  });
+
+  it('says an edge predates provenance rather than showing blank fields', () => {
+    const out = render(RelationInspector, {
+      props: {
+        detail: {
+          ...ends,
+          recorded: false,
+          sibling_ids: [],
+          relation: { id: 13, created_by: 'system', relation_type: 'correlation', confidence_score: 1 },
+        },
+      },
+    });
+    expect(out.body).toContain('before rohy recorded why');
+  });
+
+  it('survives an edge whose endpoints could not be resolved', () => {
+    // Cascade-deleted events, or a store read that failed. The panel still has to draw.
+    expect(() =>
+      render(RelationInspector, {
+        props: {
+          detail: {
+            from: null, to: null, recorded: true, sibling_ids: [],
+            relation: { id: 14, created_by: 'system', relation_type: 'correlation', confidence_score: 1 },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not render an unparseable timestamp as NaN', () => {
+    const out = render(RelationInspector, {
+      props: {
+        detail: {
+          from: { id: 1, event_id: '4625', computer: 'H', timestamp: 'nonsense' },
+          to: null, recorded: true, sibling_ids: [],
+          relation: { id: 15, created_by: 'system', relation_type: 'correlation', confidence_score: 1 },
+        },
+      },
+    });
+    expect(out.body).not.toContain('NaN');
+    expect(out.body).not.toContain('Invalid Date');
   });
 });
 

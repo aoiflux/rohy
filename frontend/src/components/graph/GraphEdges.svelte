@@ -8,7 +8,17 @@
 
   // freshEdges: ids of edges created moments ago, which draw themselves in once as
   // confirmation that the link landed. Everything else renders statically.
-  let { edges = [], nodes = {}, visibleIds = new Set(), tempEdge = null, freshEdges = new Set() } = $props();
+  let {
+    edges = [],
+    nodes = {},
+    visibleIds = new Set(),
+    tempEdge = null,
+    freshEdges = new Set(),
+    /** Edge ids belonging to the selected occurrence — the selected edge and its siblings. */
+    highlighted = new Set(),
+    /** (edgeId) => void. When set, edges become selectable. */
+    onselect = undefined,
+  } = $props();
 
   const HALF_W = GRAPH.NODE_WIDTH / 2;
   const HALF_H = GRAPH.NODE_HEIGHT / 2;
@@ -47,7 +57,7 @@
   );
 </script>
 
-<svg class="edges" width="1" height="1" aria-hidden="true">
+<svg class="edges" class:selectable={!!onselect} width="1" height="1" aria-hidden="true">
   <defs>
     <marker id="em-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
@@ -55,12 +65,32 @@
   </defs>
 
   {#each drawn as d (d.e.id)}
+    <!-- A wide, invisible companion path. A 2px stroke is close to unclickable with a mouse and
+         entirely so on a trackpad, and thickening the visible line to fix that would make the
+         canvas heavier to read. The hit area is separate so precision and appearance can differ.
+
+         The a11y warnings are suppressed rather than satisfied, deliberately. Giving each edge
+         a tabindex and key handler would put hundreds of tab stops inside one view, which is
+         worse for a keyboard user than the thing it fixes. The canvas is already a single
+         focusable `role="application"` region that owns its own selection — the established
+         pattern for canvas-like UIs — and this SVG layer is aria-hidden decoration within it.
+
+         ⬜ HONEST GAP: there is currently no keyboard route to selecting a relation. The mouse
+         has one and the keyboard does not, and suppressing a warning does not change that. It
+         wants relation stepping on the focused node, which is its own piece of work. -->
+    {#if onselect}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <path class="hit" d={d.d} fill="none" onclick={() => onselect(d.e.id)} />
+    {/if}
     <path
       class:drawin={freshEdges.has(d.e.id)}
+      class:on={highlighted.has(d.e.id)}
+      class:dimmed={highlighted.size > 0 && !highlighted.has(d.e.id)}
       d={d.d}
       fill="none"
       stroke="var(--{d.token})"
-      stroke-width="2"
+      stroke-width={highlighted.has(d.e.id) ? 3.5 : 2}
       vector-effect="non-scaling-stroke"
       marker-end="url(#em-arrow)"
     />
@@ -99,12 +129,34 @@
 </svg>
 
 <style>
+  /* The hit area: wide, invisible, and the only part that takes a pointer. */
+  .hit {
+    stroke: transparent;
+    stroke-width: 14;
+    vector-effect: non-scaling-stroke;
+    cursor: pointer;
+    pointer-events: stroke;
+  }
+  /* Everything else in this layer is decoration and must not swallow canvas drags. */
   .edges {
     position: absolute;
     left: 0;
     top: 0;
     overflow: visible;
     pointer-events: none;
+  }
+  .edges.selectable .hit {
+    pointer-events: stroke;
+  }
+  /* An occurrence lights up as a whole: the rest of the graph recedes rather than the selected
+     edges merely brightening, because "which edges are part of this match" is easier to read
+     as a contrast than as a shade. */
+  path.dimmed {
+    opacity: 0.25;
+    transition: opacity var(--motion-medium) var(--motion-ease);
+  }
+  path.on {
+    filter: drop-shadow(0 0 3px var(--color-primary));
   }
   /* Only the label pills are interactive (edit/delete); the paths stay pass-through. */
   .label {

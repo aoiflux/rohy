@@ -9,6 +9,9 @@
   import { graph } from '../stores/graph.js';
   import { findings } from '../stores/findings.js';
   import { snackbar } from '../stores/snackbar.js';
+  import { selection } from '../stores/selection.js';
+  import { rules } from '../stores/rules.js';
+  import { ruleEditor } from '../stores/ruleEditor.js';
   import * as api from '../lib/api/index.js';
   import { ROUTES, UI, GRAPH, THEMES, PICKER_SEARCH_DEBOUNCE_MS } from '../lib/consts/index.js';
 
@@ -20,6 +23,8 @@
   import Dialog from '../components/material/Dialog.svelte';
   import TextField from '../components/material/TextField.svelte';
   import GraphCanvas from '../components/graph/GraphCanvas.svelte';
+  import RelationInspector from '../components/graph/RelationInspector.svelte';
+  import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   const onCanvas = $derived(new Set(Object.keys($graph.nodes).map(Number)));
 
@@ -32,6 +37,9 @@
 
   onMount(async () => {
     if ($events.list.length === 0) events.load();
+    // The inspector resolves an edge's rule_id against this list. Without it every edge would
+    // report its rule as missing, which is the message reserved for a rule that genuinely is.
+    if (($rules.list || []).length === 0) rules.load();
     await graph.loadGraphs();
     await loadMapping();
   });
@@ -128,6 +136,27 @@
     }
   }
 
+  /**
+   * openRuleAtStep opens the rule that produced the selected edge.
+   *
+   * A built-in is opened as a DUPLICATE rather than for editing, because built-ins live in the
+   * binary and cannot be written to — offering an editor that must refuse the save would be a
+   * worse answer than opening the copy the author would have had to make anyway.
+   *
+   * A rule that no longer resolves is reported rather than silently doing nothing: a rule's id
+   * is a slug of its name, so renaming one strands the graph it built, and that is exactly the
+   * situation somebody clicking here is trying to understand.
+   */
+  async function openRuleAtStep(ruleId) {
+    const rule = (get(rules).list || []).find((r) => r.id === ruleId);
+    if (!rule) {
+      snackbar.warn(`${UI.INSPECTOR_RULE_GONE} ${ruleId}`);
+      return;
+    }
+    if (ruleEditor.isEditable(rule)) await ruleEditor.edit(rule);
+    else await ruleEditor.duplicate(rule);
+  }
+
   async function saveLayout() {
     try {
       await graph.saveLayout();
@@ -175,6 +204,16 @@
     {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}
   </Button>
 </AppBar>
+
+<!--
+  The canvas → editor half of the round trip, and the reason relations carry rule_id and
+  step_index at all: from an edge you can reach the rule that drew it.
+
+  The editor opens IN PLACE rather than navigating to the Rules page, because the question being
+  asked is about the edge in front of you — losing the graph to answer it would be the wrong
+  trade. A built-in opens as a duplicate, since built-ins cannot be edited in place.
+-->
+<RuleEditorDialog />
 
 <div class="layout">
   <aside class="panel" onscroll={panelScroll}>
@@ -233,6 +272,17 @@
   <section class="canvas">
     <GraphCanvas />
   </section>
+
+  <!-- The inspector only exists while an edge is selected: an empty panel permanently reserving
+       a third of the canvas would cost more than it gives. -->
+  {#if $selection.relation}
+    <RelationInspector
+      detail={$selection.relation}
+      onclose={() => selection.clearRelation()}
+      onopenrule={openRuleAtStep}
+      onfocusevent={(id) => graph.focus(id)}
+    />
+  {/if}
 </div>
 </div>
 

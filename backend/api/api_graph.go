@@ -28,6 +28,76 @@ func NewGraphAPI(store *graphene.Store, layoutStore *layout.Store, registry *gra
 	return &GraphAPI{store: store, layout: layoutStore, registry: registry}
 }
 
+// RelationDetail is everything the relationship inspector needs about one edge, resolved in a
+// single call so the panel does not have to assemble it from three round trips.
+type RelationDetail struct {
+	Relation *graphene.Relation `json:"relation"`
+	From     *graphene.Event    `json:"from"`
+	To       *graphene.Event    `json:"to"`
+	// GraphName is the named graph this edge belongs to, or empty when the registry no longer
+	// has one — which happens after a rule is renamed, since a rule's id is a slug of its name.
+	GraphName string `json:"graph_name"`
+	// SiblingIDs are the other edges of the SAME occurrence. It is what lets the canvas light
+	// up a whole match from any one of its edges, which is the question an analyst actually has
+	// when looking at a chain: "what else is part of this?".
+	//
+	// Empty for a hand-drawn edge and for anything built before provenance existed — those have
+	// no occurrence to belong to, which is a different statement from belonging to one alone.
+	SiblingIDs []uint64 `json:"sibling_ids"`
+	// Recorded reports whether this edge carries provenance at all. False means it was written
+	// before v0.2.0, and the inspector says so rather than showing empty fields that read as
+	// "the rule recorded nothing".
+	Recorded bool `json:"recorded"`
+}
+
+// InspectRelation resolves one edge into everything worth showing about it: its endpoints, the
+// graph it belongs to, and — for a rule-created edge — which rule and occurrence produced it.
+//
+// The endpoints come back as full events because the inspector shows them, and a single event
+// read is the one place the cold store is meant to be paid for.
+func (a *GraphAPI) InspectRelation(id uint64) (RelationDetail, error) {
+	var out RelationDetail
+
+	rel, err := a.store.GetRelation(id)
+	if err != nil {
+		return out, AsError(consts.ErrCodePersistence, err)
+	}
+	out.Relation = rel
+	out.Recorded = rel.RelVersion > 0
+
+	if from, err := a.store.GetEvent(rel.From); err == nil {
+		out.From = from
+	}
+	if to, err := a.store.GetEvent(rel.To); err == nil {
+		out.To = to
+	}
+	if a.registry != nil {
+		// Scanned rather than looked up: a case holds a handful of named graphs, so a linear
+		// pass is cheaper than adding a registry method for one caller.
+		for _, g := range a.registry.List() {
+			if g.ID == rel.GraphID {
+				out.GraphName = g.Name
+				break
+			}
+		}
+	}
+
+	// Siblings are found through the rule_id index and then narrowed by match id. Going via the
+	// index rather than scanning every edge is what keeps this cheap on a graph with hundreds
+	// of thousands of relations; the match id is deliberately not indexed because it is
+	// near-unique, and narrowing one rule's edges in memory is the cheaper shape.
+	if rel.MatchID != "" && rel.RuleID != "" {
+		if siblings, err := a.store.RelationsByRule(rel.RuleID); err == nil {
+			for _, s := range siblings {
+				if s.MatchID == rel.MatchID && s.ID != rel.ID {
+					out.SiblingIDs = append(out.SiblingIDs, s.ID)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
 // activeGraphID returns the caller-supplied graph id, or the active graph when the
 // caller passes 0, or the default graph as a last resort. Every relation and layout is
 // scoped through this so nothing is ever written to an ambiguous graph.

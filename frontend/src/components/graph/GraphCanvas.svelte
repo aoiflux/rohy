@@ -5,6 +5,8 @@
   // nodes opens a dialog to name the link (free-text label) and pick its type; the
   // edge is persisted via the backend (P7.4/P8), never local-only.
   import { graph, LAYOUT } from '../../stores/graph.js';
+  import { selection as sel, highlightedEdges } from '../../stores/selection.js';
+  import * as api from '../../lib/api/index.js';
   import { findings } from '../../stores/findings.js';
   import { snackbar } from '../../stores/snackbar.js';
   import {
@@ -423,6 +425,21 @@
   function fitView() {
     graph.setViewport(fitToNodes($graph.nodes, w, h));
   }
+  /**
+   * inspectEdge selects a relation and pulls in everything the inspector shows.
+   *
+   * A failure is silent on purpose: the edge may have been deleted by another view between the
+   * click and the call, and an error dialog for "the thing you clicked is gone" is worse than
+   * simply not opening a panel about it.
+   */
+  async function inspectEdge(id) {
+    try {
+      sel.selectRelation(await api.inspectRelation(id));
+    } catch {
+      sel.clearRelation();
+    }
+  }
+
   function autoLayout() {
     const ids = Object.keys($graph.nodes);
     ids.forEach((id, i) => {
@@ -452,7 +469,15 @@
   {oncontextmenu}
 >
   <div class="world" style="transform: translate({vp.x}px, {vp.y}px) scale({vp.zoom})">
-    <GraphEdges edges={$graph.edges} nodes={$graph.nodes} {visibleIds} {tempEdge} freshEdges={$graph.fresh.edges} />
+    <GraphEdges
+      edges={$graph.edges}
+      nodes={$graph.nodes}
+      {visibleIds}
+      {tempEdge}
+      freshEdges={$graph.fresh.edges}
+      highlighted={highlightedEdges($sel.relation)}
+      onselect={inspectEdge}
+    />
     {#each visibleNodes as n (n.event.id)}
       <GraphNode
         node={n}

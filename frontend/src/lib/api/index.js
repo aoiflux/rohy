@@ -129,6 +129,17 @@ export function getRelations() {
 export function getGraphRelations(graphId) {
   return call(GRAPH, 'GetGraphRelations', graphId);
 }
+/**
+ * Everything worth showing about one edge: endpoints, the graph it belongs to, and — for a
+ * rule-created edge — the rule, the occurrence, and the values that made the match.
+ *
+ * One call rather than three, because the inspector shows all of it at once and assembling it
+ * client-side would mean three round trips to draw one panel.
+ * @param {number} id
+ */
+export function inspectRelation(id) {
+  return call(GRAPH, 'InspectRelation', id);
+}
 export function relationsOf(eventId) {
   return call(GRAPH, 'RelationsOf', eventId);
 }
