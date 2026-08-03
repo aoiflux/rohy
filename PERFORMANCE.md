@@ -518,6 +518,10 @@ the decision is being changed — check that it is on purpose.
 | `TestRunRecoversFromAnInterruptedPreviousBuild`         | A crashed build reruns without duplicating relations                |
 | `TestStoreMemoryPerEvent`                               | Per-event resident cost, with a regression ceiling                  |
 | `TestStoreMemoryGrowsWithRecordSize`                    | Memory grows far slower than the record; the fixed floor stays flat |
+| `TestCorrelationProjectionBudget`                       | The correlation projection's per-event ceiling (§16)                |
+| `TestCorrelationProjectionIsFlatInFieldCount`           | Projection cost depends on the vocabulary, never on the payload     |
+| `TestSlotsAreBoundedToTheirDomain`                      | Every per-slot bound still fits the widest legitimate value         |
+| `TestDatasetCacheIsInvalidatedByAWrite`                 | A prepared dataset never outlives the store version it was built on |
 
 ---
 
@@ -558,7 +562,8 @@ nothing looks wrong until a case gets large.
   rows) cost nothing here and need no special case at the call site.
 - **Before adding a field to `Event`, ask whether it scales with the input.** If it does, it
   belongs in the payload log, not the node record — and the decomposition below is how to
-  tell.
+  tell. The one deliberate exception is the **bounded** correlation projection (§16), which
+  is fixed-width by construction precisely so this rule still holds.
 
 ### How to decompose a memory cost
 
@@ -614,3 +619,119 @@ The trap to avoid is a **deceptive** version of this, and two rules keep it hone
   traded for it.
 - **Reduced motion still wins.** `reveal()` collapses to an instant, motionless appearance;
   the skeleton stays (it is information) but its shimmer stills. Same one-place rule as §14.
+
+---
+
+## 16. The correlation projection: buying a field back
+
+§14 moved `ParsedFields` out of the node record because it scales with the source data. That
+was right, and it immediately blocked the thing v0.2.0 exists to do: field, temporal and
+lineage correlation all need to compare *field values* across events, and the whole point of
+the cold store is that reading it per event is the expensive path.
+
+So a **fixed, bounded projection** of those fields comes back into the record —
+`consts.CorrelationSlots`, ten named slots stored **by position** (`ck`) with a version
+(`ckv`). Everything else stays cold.
+
+### The measurement that forced the design
+
+The first cut had twelve slots and no per-slot bounds. Measured:
+
+| | B/event |
+|---|---:|
+| First attempt (12 slots, unbounded) | **819** |
+| Pre-measurement estimate | 200 |
+
+The estimate was an estimate, not a measurement, and it was wrong by 4×. Two changes fixed
+it, both of which the number is what justified:
+
+1. **Store by position, not by name.** A `map[string]string` pays for every key on every
+   event, forever. Ten positional entries in a slice pay for none — worth **~138 B/event** on
+   its own.
+2. **Bound each slot to its own domain**, not to a single global limit. A logon id needs 18
+   bytes; a process command line would take hundreds, so it is not a slot at all. Two slots
+   whose value could not be bounded honestly were dropped (12 → 10).
+
+| | B/event |
+|---|---:|
+| Typical (a 4688 process-creation event) | **71** |
+| The format's worst case (all ten slots at their bound) | **324** |
+| Ceiling asserted by `TestCorrelationProjectionBudget` | 400 |
+| _(baseline node record, for scale)_ | _483_ |
+
+The typical figure is what matters for capacity — the worst case requires an event carrying
+every slot at maximum width, which no real record does. The **ceiling is asserted against the
+worst case anyway**, because a regression arrives as a *new slot*, not as a busier event.
+Even at worst case the extrapolation is 309 MB at 1M events, against the ~1.6 kB/event floor
+§14 established.
+
+### Rules
+
+- **The slot list is append-only.** Slots are stored by position, so reordering or removing
+  one silently reinterprets every already-stamped event. Add at the end, bump
+  `consts.CorrelationKeyVersion`, and let the backfill re-stamp.
+- **Every new slot needs a bound that fits its widest legitimate value.** Too tight is worse
+  than the memory it saves: a truncated value becomes a *wrong* correlation key, and two
+  unrelated events correlate. `TestSlotsAreBoundedToTheirDomain` checks each one against the
+  widest real value of its kind (a full `uint64` id, the longest IPv6 literal).
+- **Absent is not empty.** A field that was not present projects to nothing, so it can never
+  match another absent field. `-`, `S-1-0-0`, `null`, `N/A` and a zero identifier all mean
+  absent. Without this a field matcher becomes a false-positive engine, correlating every
+  event that happens to be missing the same field.
+- **Projection cost is a function of the vocabulary, never of the payload.**
+  `TestCorrelationProjectionIsFlatInFieldCount` pins it: an event with 200 parsed fields costs
+  the same as one with 6.
+
+### Backfilling
+
+An existing case has events stamped with an older version, or none. Re-stamping means reading
+the payload cold store per event, which is exactly the expensive path §14 was built to avoid
+— so it is **opt-in and resumable**, never a startup step, and reports status
+(`CorrelationKeyStatus`) so the UI can say *why* a rule found nothing.
+
+An event whose payload cannot be read is **left unstamped rather than stamped as empty**.
+Stamping it current would mark it permanently done at the wrong answer; leaving it means the
+next run retries it.
+
+---
+
+## 17. Prepare once, match many
+
+Every correlation algorithm needs the same three things from the event set: a chronological
+ordering, a partition by scope, and the correlation keys. The v0.1.0 build re-derived all of
+it **per rule** — the sort, in particular, ran once per enabled rule over the same events.
+
+`autograph.Dataset` derives it **once per build**, driven by the union of what the enabled
+rules actually require (`Requirements`). Measured over 50 000 events, mixed algorithms
+(`BenchmarkBuild` vs `BenchmarkBuildPreparingPerRule`, `-benchtime=20x -count=3`):
+
+| Rules | Prepared once | Prepared per rule | Allocated (once → per rule) |
+| ----- | ------------: | ----------------: | --------------------------: |
+| 1     |       28.0 ms |           26.8 ms |           2.1 MB → 2.1 MB   |
+| 5     |       86.0 ms |          154.6 ms |           4.9 MB → 13.3 MB  |
+| 20    |    **282 ms** |       **505 ms**  |   **16.2 MB → 56.1 MB**     |
+
+Times are medians of three runs; the spread is roughly ±10%, so read the ratios, not the
+digits. Allocation figures are stable to the byte.
+
+At one rule the two are the same within noise — there is one prepare either way, and nothing
+to amortise. The gap opens from two rules on, reaching **~1.8× faster and 3.5× less allocated
+at twenty**, which is the shape that matters: the built-in library is thirty-five rules and a
+real run enables most of them.
+
+Divide each row by its rule count and the falling per-rule cost *is* the shared sort. If
+preparation ever moves back inside the per-rule loop, that curve goes flat — which is what
+the benchmark is for.
+
+### Rules
+
+- **Requirements-driven, not "prepare everything".** A dataset builds only the indexes some
+  enabled rule asked for. A library of pure-sequence rules pays for no correlation-key
+  bucketing at all.
+- **A prepared dataset is immutable and single-use per store version.** The dry-run cache
+  (capacity 1) keys on the filter *and* the requirements fingerprint, and re-reads
+  `Store.Version()` **after** the query rather than before — reading it first would let a
+  write that lands mid-query be cached as if it had been included.
+- **Cache invalidation is the whole risk here.** A stale dataset does not fail loudly; it
+  produces a *plausible* graph from events that no longer match the case.
+  `TestDatasetCacheIsInvalidatedByAWrite` and `TestBuildInvalidatesTheCache` pin it.

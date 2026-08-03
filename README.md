@@ -9,7 +9,7 @@
 Ingest EVTX logs, map how events relate, and correlate them with rules you
 control — entirely on your own machine.
 
-`v0.1.0` · Windows / Linux / macOS · Go + Wails + Svelte
+`v0.2.0` · Windows / Linux / macOS · Go + Wails + Svelte
 
 </div>
 
@@ -27,8 +27,9 @@ automatically with correlation rules.
 - **Investigate** with a filtered, paginated event list that stays fast on large
   cases.
 - **Correlate** using rule files: an ordered chain of event IDs with optional
-  labels (`4625 → 4625 —then succeeds→ 4624`). Thirty conservative rules ship
-  built in.
+  labels (`4625 → 4625 —then succeeds→ 4624`). Four algorithms — plain ordering,
+  shared field values, bounded time windows, and process ancestry. Thirty-five
+  conservative rules ship built in.
 - **Map** events on a graph canvas, by hand or generated from a rule — one rule,
   one graph.
 - **Place** everything in time on a dedicated timeline with zoom, pan, scrub,
@@ -36,7 +37,10 @@ automatically with correlation rules.
 - **Annotate** with your own findings — a flag, tags and a note per event, kept
   in a readable sidecar beside the evidence rather than inside it.
 - **See provenance** everywhere: a relation the tool inferred and one you
-  asserted never look the same.
+  asserted never look the same — and every generated edge can name the rule,
+  algorithm, match and step that produced it.
+- **Learn how it works** from an explainer page that animates each correlation
+  algorithm step by step over a worked example.
 
 Everything stays local. rohy makes no network calls; your case data never leaves
 the machine.
@@ -47,11 +51,12 @@ the machine.
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Ingestion**   | `.evtx` files/folders, SQLite `.db` (two documented schemas), live capture with durable per-channel bookmarks, pause/resume, hash-based de-duplication with per-source occurrence counts |
 | **Events**      | Accurate counts, progressive loading, collapsible search with persisted filters, relation-aware quick filters, CSV/JSON export                                                           |
-| **Rules**       | Portable one-file-per-rule JSON, 30 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored                                                             |
-| **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content                                                                         |
+| **Rules**       | Portable one-file-per-rule JSON, 35 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored, byte-exact bundle export, field-level diff against the saved file, and a testbench that dry-runs a rule without writing anything |
+| **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content, selectable edges with a relationship inspector that traces an edge back to its rule and match |
 | **Timeline**    | Backend density histogram (cheap at any size), zoom/pan/scrub, range selection that filters, lanes by provider, channel, user, computer or graph, shared selection with the canvas       |
 | **Findings**    | Per-event flag, tags and note in a plain-JSON sidecar; tag suggestions, finding filters on the event list, and an audit that reports orphaned findings rather than deleting them         |
-| **Correlation** | Sequence matching scoped per computer, non-overlapping, capped; idempotent rebuilds (re-running replaces, never duplicates)                                                              |
+| **Correlation** | Four algorithms — sequence, field, temporal and lineage — scoped per computer, non-overlapping, capped; one prepared dataset per build rather than one per rule; idempotent rebuilds (re-running replaces, never duplicates) |
+| **Maintenance** | Opt-in, resumable correlation-key backfill for cases ingested by an older build, with a status readout that explains why a field or lineage rule found nothing |
 
 ## Install
 
@@ -60,7 +65,7 @@ Get-FileHash .\rohy.exe -Algorithm SHA256   # Windows — compare against SHA256
 ```
 
 > **Binaries are not code-signed yet.** Windows SmartScreen and macOS Gatekeeper
-> will warn you. That is expected at v0.1.0 — signing and notarization are
+> will warn you. That is expected at v0.2.0 — signing and notarization are
 > planned, and this note will go away when they land rather than being quietly
 > dropped.
 
@@ -72,8 +77,8 @@ same versions CI builds releases with.
 
 ```bash
 git clone <repo> && cd rohy
-./build.sh 0.1.0             # Linux / macOS
-.\build.ps1 -Version 0.1.0   # Windows
+./build.sh 0.2.0             # Linux / macOS
+.\build.ps1 -Version 0.2.0   # Windows
 ```
 
 The build scripts run the test suites, delete `frontend/dist` and rebuild it
@@ -188,6 +193,22 @@ One file, one rule, one graph:
 empty for an unlabelled link. Drop files into the rules folder (shown on the
 Rules page) or import them from the UI.
 
+`algorithm` chooses **how** the sequence is correlated, and each algorithm reads
+its own extra fields — everything else is ignored:
+
+| Algorithm  | Correlates on                                                                       | Its fields                            |
+| ---------- | ------------------------------------------------------------------------------------- | --------------------------------------- |
+| `sequence` | Order alone. The default, and the weakest claim: these IDs occurred in this order.   | —                                       |
+| `field`    | Order **plus shared field values** — same logon session, same account, same process. | `match_fields`, `match_scope`           |
+| `temporal` | Order **plus bounded gaps**, so a chain reads as one episode rather than a coincidence. | `window_within`, `window_total`       |
+| `lineage`  | Process ancestry, resolved through each PID's lifetime rather than by matching the number. | `lineage_create_ids`, `lineage_depth` |
+
+The correlation fields a `field` rule can match on (`logon_id`, `target_user`,
+`process_id`, …) are projected into each event at ingest. A case ingested by an
+older build has no projection, so those rules match nothing until the backfill
+on the Maintenance page runs — which the app tells you rather than reporting a
+silent zero.
+
 You do not have to write the JSON by hand. _New rule_ on the Rules page opens an
 editor with two modes over the same file: a **guided** form generated from the
 rule format — every field carrying its own description, allowed values, and
@@ -195,7 +216,10 @@ example, with each connection label edited between the two steps it joins — an
 a **raw** JSON view with highlighting, completion, and formatting. Switching
 between them is a change of view, not a conversion. A built-in cannot be edited
 in place, so _Duplicate_ opens an editable copy; a file that failed to load can
-be repaired with _Fix_ instead of leaving the application.
+be repaired with _Fix_ instead of leaving the application. The editor shows what
+changed against the saved file field by field, and its **testbench** dry-runs the
+rule against the current case — how many matches, sampled examples, and what it
+could not consider — without writing an edge.
 
 See [RULES.md](RULES.md) for the complete format — every field, the validation
 rules, the format-version and extensibility contract, and what a rule match does
@@ -203,9 +227,9 @@ and does not establish.
 
 ### Built-in library
 
-Thirty rules ship inside the application, enabled by default and individually
-toggleable. They cannot be edited in place — import your own copy under a
-different name to vary one.
+Thirty-five rules ship inside the application, enabled by default and
+individually toggleable. They cannot be edited in place — import your own copy
+under a different name to vary one.
 
 | Theme                      | Rule                                                  | Chain                          |
 | -------------------------- | ----------------------------------------------------- | ------------------------------ |
@@ -244,25 +268,48 @@ different name to vary one.
 WMI-Activity, PowerShell, Defender, or TerminalServices — to be ingested, and
 matches nothing at all if it was not.
 
-A match means those event IDs appeared **in that order on one computer** — not
-that they involve the same account, and not that the steps were adjacent. Each
-rule's description says what it does and does not establish, names the channel
-it depends on, and hedges where its anchor is a high-volume event (4672, 4648,
-4771, 4104, 5140, 4946, 7034, 7040, 1149, 5001). Read the description before
-acting on a graph.
+Five more make a **stronger** claim than ordering, by correlating on a shared
+field, a bounded window, or process ancestry:
+
+| Rule                                                | Algorithm  | Chain                   | Also requires                    |
+| --------------------------------------------------- | ---------- | ----------------------- | -------------------------------- |
+| Logon Then Process Creation, Same Session           | `field`    | `4624 → 4688`           | the same `logon_id`              |
+| Password Reset Then Logon, Same Account             | `field`    | `4724 → 4624`           | the same `target_user`           |
+| Failed Logon Burst Then Success Within Five Minutes | `temporal` | `4625 4625 4625 → 4624` | each gap ≤ 5m                    |
+| Service Installed Then Security Log Cleared Within An Hour | `temporal` | `7045 → 1102`    | the gap ≤ 1h                     |
+| Process Ancestry                                    | `lineage`  | `4688` parent links     | process creation auditing        |
+
+For a `sequence` rule, a match means those event IDs appeared **in that order on
+one computer** — not that they involve the same account, and not that the steps
+were adjacent. The `field` and `lineage` rules above do establish a shared
+session, account or parent process; the `temporal` ones establish only that the
+ordering was tight. Each rule's description says what it does and does not
+establish, names the channel it depends on, and hedges where its anchor is a
+high-volume event (4672, 4648, 4771, 4104, 5140, 4946, 7034, 7040, 1149, 5001,
+4688). Read the description before acting on a graph.
+
+The **Algorithms** page walks through each of the four on a worked example,
+animating what the matcher keeps and what it discards at every step.
 
 ## Roadmap
 
-**Delivered** — ingestion (files, folders, SQLite, live capture with
+**Delivered in v0.1.0** — ingestion (files, folders, SQLite, live capture with
 pause/resume), event querying with accurate counts and progressive loading, the
 rule engine and built-in library, the dual-mode rule editor, auto-graphing,
 multiple graphs, the graph canvas, relation provenance, the timeline page (zoom,
 pan, scrub, lanes, shared selection with the canvas), analyst findings with
 orphan auditing, keyboard shortcuts, and the release pipeline.
 
+**Delivered in v0.2.0** — the correlation-key projection and its backfill, three
+further correlation algorithms (field, temporal, lineage), the prepared dataset
+that costs one pass per build rather than one per rule, edge-level provenance and
+the relationship inspector, the rule testbench and field-level diff, byte-exact
+rule bundle export, and the algorithms explainer page.
+
 **Next**
 
-- **Application context menu** and an **active-rules status bar**.
+- **Graph layout profiles**, clustering, and a density heatmap.
+- **Case integrity** — missing-channel detection and inert-rule reporting.
 - **Code signing and notarization** for released binaries.
 - **Manual verification on Linux and macOS** — both build in CI today, but
   neither has been exercised by hand.

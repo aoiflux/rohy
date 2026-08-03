@@ -19,8 +19,8 @@ import (
 )
 
 // Spec is the on-disk shape of a rule file. FormatVersion guards forward-compatibility;
-// Sequence is the ordered list of event IDs to correlate. Fields beyond these are
-// reserved for future matchers (provider, channel, user, time-window).
+// Sequence is the ordered list of event IDs to correlate, for the algorithms that match one.
+// The algorithm-specific fields below it are read only by the matcher that names them.
 type Spec struct {
 	FormatVersion int    `json:"format_version"`
 	Name          string `json:"name"`

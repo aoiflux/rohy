@@ -6,7 +6,7 @@
 
 **A technical deep dive into how rohy actually works.**
 
-`v0.1.0 "Cassiopeia"` · Go + Wails + Svelte
+`v0.2.0` · Go + Wails + Svelte
 
 </div>
 
@@ -122,10 +122,12 @@ rohy/
 │   ├── evtx/                Ingestion pipeline: parse, normalize, dedup, batch, persist
 │   ├── dbsource/            SQLite .db reader (two documented schemas)
 │   ├── capture/             Durable per-channel bookmarks for live capture
-│   ├── graphene/            Persistence facade — schema, queries, ordering, timeline
+│   ├── graphene/            Persistence facade — schema, queries, ordering, timeline,
+│   │                        the correlation projection and its backfill
 │   ├── payload/             Append-only cold store for bulky raw records
 │   ├── rules/               Rule format, validation, registry, editor descriptor
 │   ├── autograph/           Correlation engine (pure; produces edges, writes nothing)
+│   │                        4 algorithms + the prepared Dataset shared across a build
 │   ├── graphbuild/          The workflow that runs rules and persists their graphs
 │   ├── graphreg/            Registry of named graphs
 │   ├── layout/              Canvas node positions and viewport
@@ -144,8 +146,8 @@ rohy/
 └── .github/workflows/       ci.yml · release.yml
 ```
 
-Roughly 10,200 lines of non-test Go, plus the Svelte frontend, plus **352 Go
-test functions** and **170 frontend test cases**.
+Roughly 13,200 lines of non-test Go, plus the Svelte frontend, plus **482 Go
+test functions** and **364 frontend test cases**.
 
 ---
 
@@ -314,6 +316,8 @@ erDiagram
         int    deduplication_count "total occurrences seen"
         map    source_counts "per-source breakdown; sums to the count"
         ref    payload "offset+length into the cold store"
+        list   ck "correlation projection, BY POSITION — see 5.6"
+        int    ckv "which extraction recipe wrote ck"
     }
     RELATION {
         uint64  id PK
@@ -325,6 +329,12 @@ erDiagram
         float   confidence_score
         string  created_by "system = a rule inferred it; user = a human asserted it"
         time    created_at "stamped by the backend, never by the caller"
+        string  rule_id "which rule produced it — indexed"
+        string  algorithm "which matcher"
+        string  match_id "groups every edge of one occurrence"
+        int     step_index "which consecutive pair of the sequence"
+        list    basis "WHY these two joined — logon_id=0x3e7, max dt=42s"
+        int     rel_v "0 = written before provenance existed"
     }
 ```
 
@@ -349,15 +359,25 @@ Each event registers **nine** secondary-index entries
 | `search_blob`     | substring search                              |
 | `source_type`     | exact-match filter                            |
 
-Each relation registers three: `relation_type`, `created_by`, `graph_id`.
+Each relation registers **four**: `relation_type`, `created_by`, `graph_id`, `rule_id`.
 
-Two things are **not** indexed on purpose:
+`rule_id` is the only piece of provenance that is indexed, and it earns it: it answers
+"which edges did this rule produce" **without first knowing which graph they landed in**,
+which is what the relationship inspector, rule-inertness reporting and orphan detection
+after a rename all need. A rule's id is a slug of its name, so renaming strands the graph
+it built — and the id stamped on the edges is then the only way back to them.
+
+Several things are **not** indexed on purpose:
 
 - **`source_identifier` and `deduplication_count`** — applied after decoding.
   They are rare filters, and every extra indexed key costs memory on every
   event, forever.
 - **`raw_xml`** — excluded from `search_blob` explicitly, to keep the in-memory
   index bounded. Search covers the scalar fields, not the whole record.
+- **`match_id`, and every correlation slot** — near-unique keys, which is exactly the
+  shape that made store open 8.0 s instead of 0.8 s when the timestamp key was declared
+  ordered (§5.3). Nothing queries by them: the inspector already holds the edges it needs,
+  and correlation reads the whole matching set once per build and hashes it in memory.
 
 ### 5.3 The timestamp encoding, and a measurement that overrode the textbook
 
@@ -477,6 +497,65 @@ Design notes worth understanding:
 - **Deleting an event does not reclaim its payload.** The log is append-only, so
   a delete would mean rewriting it. Space comes back by re-ingesting, which the
   project's pre-1.0 position explicitly allows.
+
+### 5.6 The correlation projection — putting a dozen scalars back in
+
+Section 5.5 is the story of getting bulk **out** of the node record. This one is the story of
+putting a small, bounded piece of it back, and why that is not a contradiction.
+
+v0.2.0 added matchers that correlate on EventData: a logon id, a process id, an account name
+(§11). Those live in `ParsedFields`, which is in the cold store precisely because it is 70% of
+an event's resident cost. But correlation needs them for **every event of every build**, and a
+cold-store read per event per build would re-incur exactly the cost 5.5 removed — one seek and
+one multi-kilobyte JSON decode, 100,000 times, to read a dozen bytes each.
+
+So a **bounded, selected projection** is computed once at normalize time and stored in the node
+record. Two properties make it affordable:
+
+```go
+// backend/consts — the vocabulary. Order IS the wire format.
+var CorrelationSlots = []string{
+    "logon_id", "subject_logon_id", "process_id", "new_process_id", "parent_process_id",
+    "process_name", "target_user", "subject_user", "ip_address", "service_name",
+}
+```
+
+- **Values are stored by POSITION, not by name.** A map would repeat ten key names on every
+  event forever. Measured: the same values keyed by name cost **+138 B/event** of pure
+  vocabulary.
+- **Each slot is bounded to its own domain**, not to one generous cap — identifiers 18 bytes
+  ("0x" plus the 16 hex digits of a uint64), an image basename 40, an account 32, an IPv6
+  literal 45.
+
+The budget was **measured, not chosen**, and the first measurement failed. A twelve-slot
+vocabulary sharing a 64-byte cap cost **819 B/event** at the format's worst case, against a
+483 B baseline node record — most of the way back to what 5.5 removed. The response was to
+shrink the vocabulary, not to raise the ceiling: per-slot bounds, and two slots dropped
+(`parent_process_name`, redundant with the other endpoint of a lineage edge;
+`session_id`, subsumed by `logon_id`). It now costs **324 B worst case and 71 B on a
+representative 4688** — about +8% typical against the 867 B/event baseline, to make field,
+temporal and lineage correlation possible at all.
+
+`TestCorrelationProjectionBudget` fails the build if that number is exceeded, measuring the
+**encoded node record** rather than the heap: the heap tests carry ~1000 B/event of GC noise,
+comfortably more than the whole feature's allowance, so they could not have failed for the
+reason the budget exists.
+
+Two invariants worth knowing before touching it:
+
+- 🔒 **`CorrelationSlots` is append-only.** Reordering or reusing a slot silently reinterprets
+  every event already stored — a value written as a logon id read back as a process id, with
+  nothing reporting an error. A vocabulary change bumps `CorrelationKeyVersion`, which makes
+  existing events detectably stale.
+- 🔒 **Absent is not empty.** Windows writes `-` and the null SID constantly; the extractor maps
+  those to absent, and the field matcher **excludes** such events rather than bucketing them
+  under `""`. Grouping them would correlate every event that happens not to carry the field with
+  every other one — which does not look like a bug, it looks like a working rule.
+
+Events ingested before the projection existed carry none, so field rules under-report against
+them. That is surfaced, never silent: runs report `StaleCorrelationKeys`, and
+`BackfillCorrelationKeys` fills them in — opt-in, resumable (each event carries the recipe
+version it was written under), and idempotent.
 
 ---
 
@@ -883,6 +962,13 @@ One file, one rule, one graph:
 }
 ```
 
+A rule selecting one of the other three algorithms adds the fields that matcher reads —
+`match_fields`, `window_within`, `lineage_create_ids` — and the guided form shows only those,
+because offering controls an algorithm ignores invites an author to fill in fields that do
+nothing. [RULES.md](RULES.md) is the authority on every field; §7 there lists the algorithms
+and §8 states what a match of each one **establishes**, which is the distinction that decides
+how much weight a graph deserves.
+
 `labels[i]` names the edge between `sequence[i]` and `sequence[i+1]`. An empty
 entry — or a missing tail — is an untagged connection, so a rule may label only
 some of its links.
@@ -897,7 +983,7 @@ rather than leaving the UI to guess.
 
 ```mermaid
 flowchart TD
-    embed["<b>builtin/*.json</b><br/>30 rules compiled into the binary via go:embed"] --> merge
+    embed["<b>builtin/*.json</b><br/>35 rules compiled into the binary via go:embed"] --> merge
     userdir["<b>rohy-data/rules/*.json</b><br/>user rules, imported or authored"] --> merge
     state["<b>rules-state.json</b><br/>per-rule enabled overrides"] --> merge
 
@@ -1028,19 +1114,110 @@ and id tie-breaks everywhere.
 reports `Truncated: true` and an exact `Dropped` figure. Silent truncation is
 never acceptable.
 
-### 11.5 Adding a new algorithm
+### 11.5 The prepared dataset — one sort per build, not one per rule
 
-The registry is the whole extension point:
+Every algorithm needs the same three things done first: undated events dropped, events grouped
+by scope, each group sorted chronologically. Each rule used to do all three itself, so a build
+of twenty rules sorted the same case twenty times.
+
+`autograph.Prepare` does it once and hands every rule the result:
+
+```go
+func Prepare(events []*graphene.Event, need Requirements) *Dataset
+func GenerateWith(spec *rules.Spec, ds *Dataset) Result
+```
+
+Three properties, each load-bearing:
+
+- **Built to requirements.** `Requirements` is the union of what the *selected* rules read, so
+  a build of sequence-only rules pays nothing for machinery it will not touch.
+- **Immutable after construction.** There is no lazy memoization of partitions computed on
+  first use — a mutable structure shared across rules is a data race the moment anything
+  evaluates two rules concurrently, and the purity of this package is what makes the testbench
+  (§11.7) a safe thing to offer at all.
+- **Partitions inherit the global sort.** They are built by a stable pass over the
+  already-sorted slice, so every partition is chronological without being sorted. Preparation is
+  one `O(n log n)` sort plus `O(n)` per scope, not a sort per group.
+
+Measured at 50k events, mixed algorithms — `BenchmarkBuild` against
+`BenchmarkBuildPreparingPerRule`, the v0.1.0 shape kept as the comparison:
+
+| Rules | Shared prepare | Per-rule prepare | Allocated |
+| ----: | -------------: | ---------------: | --------- |
+|     1 |        28.0 ms |          26.8 ms | 2.1 → 2.1 MB |
+|     5 |        86.0 ms |         154.6 ms | 4.9 → 13.3 MB |
+|    20 |         282 ms |           505 ms | 16.2 → **56.1 MB** |
+
+Medians of three runs at `-benchtime=20x`; the timing spread is ~±10%, the allocation figures
+are stable to the byte. Per **rule**: 28.0 → 17.2 → 14.1 ms as the count rises, against a flat
+26.8 → 30.9 → 25.2 ms. The falling curve *is* the shared sort. At one rule they are identical,
+exactly as they should be — there is one prepare either way.
+
+### 11.6 Four algorithms, and what each one lets you claim
+
+The registry is the whole extension point, and it now holds four:
 
 ```go
 var registry = map[string]Algorithm{
     consts.AlgoSequence: sequenceAlgorithm{},
+    consts.AlgoField:    fieldAlgorithm{},
+    consts.AlgoTemporal: temporalAlgorithm{},
+    consts.AlgoLineage:  lineageAlgorithm{},
 }
 ```
 
-Register an implementation, accept its type name in rule validation, done — no
-caller changes. Field-correlation and temporal-window are reserved names for
-exactly this.
+🔒 A test asserts the registry and `consts.Algorithms` agree **in both directions**. Without it,
+a name accepted at load with no implementation behind it would build an empty graph and look
+exactly like a rule that found nothing — the validator refuses unknown names, which is also why
+adding an algorithm needs no format-version bump (RULES.md §5).
+
+The differences that matter are not in what they find but in what a match **establishes**
+(RULES.md §8). Three implementation notes that are easy to get wrong:
+
+**`field` excludes rather than buckets.** An event carrying no value for a required field is
+left out and counted, never grouped under `""` — see 5.6. Buckets inherit chronological order
+from the dataset, so there is no per-bucket sort anywhere in the algorithm.
+
+**`temporal` is a sweep, not greedy-with-a-time-check.** Greedy takes the *earliest*
+subsequence, which is correct when order is the only constraint. Add a window and it is not:
+given `A@00:00, A@10:00, B@10:30` with a one-minute window, greedy anchors on the first `A`,
+finds `B` 10m30s later, rejects — and has already walked past a valid match. Abandoning the
+partition drops real matches; restarting from every failed anchor is quadratic on a log where
+the anchor event is common. So it sweeps once, keeping the **most recent** event that completed
+each step, which is provably sufficient: a later completion has a larger timestamp and so
+satisfies the window for strictly more future events. The consequence to know is that temporal
+is **latest-anchored** where sequence is **earliest-anchored**; with an unbounded window the two
+would not always emit the same edges.
+
+**`lineage` resolves parents through time, not by PID.** Windows reuses process IDs
+aggressively — a busy host cycles the space in hours — so joining on the parent PID over a case
+spanning days produces a confidently wrong graph in which every wrong edge looks exactly like a
+right one. Each creation opens a lifetime interval for its PID, closed by that PID's next
+creation or by its exit (4689); a child's parent is the process whose interval **contained** the
+child's creation time. Where no interval contains it — usually because the parent predates the
+log — nothing is emitted and `UnresolvedParents` is reported. Nothing is guessed.
+
+### 11.7 Provenance, and why the testbench is ~100 lines
+
+Every edge a rule writes now records **which rule, which occurrence, which step, and on what
+grounds**:
+
+```go
+rel.StampProvenance(ruleID, algorithm, matchID, stepIndex, []string{"logon_id=0x3e7"})
+```
+
+`MatchID` is **derived, never generated** — a digest of the occurrence's own endpoints and
+length. A random or counter-based id would change on every rebuild, which would defeat the
+idempotency the build workflow is designed around and make two builds of one case
+incomparable. `Basis` is what turns "inferred, not asserted" from a colour on the canvas into
+a claim an analyst can check.
+
+And because `autograph` returns **unpersisted** relations and cannot write, "try this rule
+without committing to it" needs no sandbox, no transaction to roll back, and no second
+evaluation path that might diverge from the real one. `graphbuild.DryRun` is the same call the
+build makes with the persistence simply not done — and `TestDryRunWritesNothing` asserts
+relations, events *and* graphs are all unchanged afterwards, because the claim is not "it
+usually does not persist" but "the path contains no write".
 
 ---
 
@@ -1275,16 +1452,23 @@ outside the routed content so an ingest stays visible across navigation.
 
 ## 16. The Go ↔ JS contract
 
-### 16.1 Six bound structs
+### 16.1 Seven bound structs
 
-| Struct         | Responsibility                                                        |
-| -------------- | --------------------------------------------------------------------- |
-| `EventsAPI`    | ingestion control, event queries, counts, adjacency, timeline, export |
-| `GraphAPI`     | relations, named graphs, canvas layout                                |
-| `RulesAPI`     | rule listing, import, save, delete, enable/disable, format descriptor |
-| `BuildAPI`     | run correlation rules, report progress                                |
-| `FindingsAPI`  | flags, tags, notes, tag list, stats, audit                            |
-| `SystemAPI`    | build identity, init stages, window controls, elevation checks        |
+| Struct           | Responsibility                                                              |
+| ---------------- | --------------------------------------------------------------------------- |
+| `EventsAPI`      | ingestion control, event queries, counts, adjacency, timeline, export       |
+| `GraphAPI`       | relations, named graphs, canvas layout, relationship inspection             |
+| `RulesAPI`       | rule listing, import, export, save, delete, enable/disable, format descriptor |
+| `BuildAPI`       | run correlation rules, report progress, dry-run a rule without persisting   |
+| `FindingsAPI`    | flags, tags, notes, tag list, stats, audit                                  |
+| `SystemAPI`      | build identity, init stages, window controls, elevation checks              |
+| `MaintenanceAPI` | opt-in work over the whole case — currently the correlation-key backfill    |
+
+`MaintenanceAPI` is separate from `SystemAPI` rather than folded into it because the two
+are different concerns: `SystemAPI` reports how the **application** is doing and never
+touches case data, while everything on `MaintenanceAPI` reads or rewrites the case itself
+and is proportional to how large it is. Nothing on it runs at startup — the same judgement
+`VerifyIndexes` already carries (§18).
 
 Note that `App` itself is **not** bound. It manages lifecycle and holds no
 business logic, so exposing it would be exposing nothing useful.
@@ -1400,9 +1584,14 @@ The full reasoning is in [PERFORMANCE.md](PERFORMANCE.md). The short version —
 | Batch dedup increments                               | Removes a durable write per duplicate                        |
 | `Degree(id, nil)` over the typed form                | The typed form is ~**488×** dearer — it inspects every label |
 | `EdgesOf(..., nil)` — no edge-type filter            | `EdgeRelation` is the only label rohy writes, so filtering costs and selects nothing extra |
+| Store the correlation projection **by position**     | +138 B/event saved against the same values keyed by name      |
+| Bound each correlation slot to its own domain        | Format worst case 819 → **324 B/event**; 71 B on a real 4688 |
+| Prepare the correlation dataset **once per build**   | 20 rules: 480 → **222 ms**, and 56.1 → **16.2 MB** allocated  |
+| Index `rule_id` on edges, but not `match_id`         | Low-cardinality answers "which edges did this rule produce"; a near-unique key is the shape that cost 8.0 s at open |
 
-That last one carries a standing caveat in the source: **if a second edge type is
-ever introduced, that call must filter again.**
+That `EdgesOf` entry carries a standing caveat in the source: **if a second edge type is
+ever introduced, that call must filter again.** It is one reason process lineage models
+ancestry as event → event edges rather than introducing a `Process` node type (§11.6).
 
 The cost model in one table — know what dominates before optimising anything:
 
@@ -1421,7 +1610,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**352 Go test functions** and **170 frontend test cases**, and both suites run in
+**482 Go test functions** and **364 frontend test cases**, and both suites run in
 CI on every platform before any artefact is packaged.
 
 | Kind                | Where                                                       | What it proves                                          |
@@ -1529,11 +1718,28 @@ Both editors and the client-side pre-validation regenerate themselves from step
 
 ### Add a correlation algorithm
 
-1. Implement `autograph.Algorithm` — pure, deterministic, writes nothing.
-2. Register it in `autograph.registry` under a `consts.Algo*` name.
-3. Accept the name in rule validation.
+1. Implement `autograph.Algorithm` — pure, deterministic, writes nothing, and does not
+   mutate the `Dataset` it is handed (it is shared by every rule in the build).
+2. Register it in `autograph.registry`, and add a descriptor to `consts.Algorithms` naming
+   the fields it reads. 🔒 A test asserts the two agree in **both** directions.
+3. Describe any new field in `rules/schema.go` with `AppliesTo` naming your algorithm, and
+   validate it in `rules/validate.go` — dispatching on the algorithm, not unconditionally.
+4. Add fixture cases to `backend/rules/testdata/validation-cases.json` **first**: it drives
+   both the Go and the JS validator, so a rule enforced on one side only is a red test.
+5. Document it in RULES.md §7 and §8 — especially §8, which states what a match *establishes*.
 
-No caller changes. `graphbuild` dispatches through `autograph.Generate`.
+No caller changes: `graphbuild` dispatches through `autograph.GenerateWith`. Adding an
+algorithm does **not** bump the rule format version — a build that lacks the implementation
+refuses the name, which is the guard a version would otherwise be (RULES.md §5).
+
+### Add a correlation field
+
+1. **Append** to `consts.CorrelationSlots` — never reorder or reuse a slot (§5.6).
+2. Add its source field names, class and length bound alongside.
+3. Bump `consts.CorrelationKeyVersion`, so existing events become detectably stale and the
+   backfill re-reads them.
+4. Check `TestCorrelationProjectionBudget` still passes. If it does not, shrink the
+   vocabulary — do not raise the ceiling.
 
 ### Add an ingestion source
 
@@ -1550,8 +1756,13 @@ come for free — that is the entire reason the sink is a separate function.
 
 1. `frontend/src/routes/YourView.svelte`.
 2. `lib/consts` — add the route id and its label.
-3. `lib/shortcuts.js` — add it to `NAV_KEYS`; **the menu derives itself.**
+3. `lib/shortcuts.js` — add it to `NAV_KEYS`; **the menu derives itself.** Add the binding to
+   `SHORTCUTS` too, or the self-documentation test fails.
 4. `App.svelte` — add it to the route switch.
+5. Add it to `frontend/src/components/smoke.test.js`. Svelte compiles for the server, so a
+   component can be rendered in plain Node — no jsdom, no testing-library. It catches a
+   `ReferenceError` that `vite build` cannot, because an undefined identifier in a `<script>`
+   block is legal JavaScript.
 
 ---
 
@@ -1575,6 +1786,21 @@ An honest list, for anyone about to change something.
   matcher is a correctness bug, not a display bug.
 - **Live capture is Windows-only**, split across `_windows.go` / `_other.go`
   build-tagged files. Changing the live path means changing both.
+- **`CorrelationSlots` is append-only** (§5.6). Reordering a slot reinterprets every stored
+  event with nothing reporting an error.
+- **A field that changes what an EXISTING algorithm matches is the one thing that bumps the
+  rule format version.** A new algorithm does not — its name is its own guard. This is the
+  distinction RULES.md §5 exists to state, and it is easy to get backwards.
+- **`vite build` passing does not mean a Svelte component runs.** An undefined identifier in a
+  `<script>` block is legal JavaScript, so the compiler cannot object and the failure appears
+  at runtime as a blank page. Five defects reached review this way; `components/smoke.test.js`
+  is what catches them now.
+- **Inside `$effect`, `x += 1` on `$state` is an update loop.** It reads the value as well as
+  writing it, so the effect depends on its own output. Write-only assignment is safe; keep the
+  counter in a plain variable and assign the reactive one from it.
+- **A CSS animation runs once per element lifetime.** Anything that must re-play needs its
+  key to change — persist what should move (so transitions animate), re-key what should
+  re-draw.
 
 ---
 
