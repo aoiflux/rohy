@@ -99,6 +99,10 @@ type Builder struct {
 	// nothing will ever look up again. A nil layouts still discards the graph; it just
 	// leaves the layout file behind.
 	layouts LayoutStore
+	// datasets holds the last prepared correlation dataset, shared by builds and the rule
+	// testbench. Tuning a rule re-evaluates it against a dataset already in hand instead of
+	// re-reading and re-sorting the case on every run.
+	datasets datasetCache
 }
 
 // LayoutStore is the slice of the canvas-layout store this workflow needs. Declaring it as
@@ -167,11 +171,11 @@ func (b *Builder) RunWithProgress(ctx context.Context, req Request, now time.Tim
 	filter.Offset = 0
 	filter.Limit = 0
 	filter.Undated = consts.UndatedExclude
-	events, err := b.store.QueryEvents(filter)
-	if err != nil {
-		return res, err
-	}
-	res.Events = len(events)
+
+	// A build writes relations, so whatever it prepared is not safe to hand to a later caller
+	// once it finishes. Dropping the entry afterwards is cheaper to reason about than deciding
+	// which writes a dataset is allowed to survive.
+	defer b.datasets.invalidate()
 
 	// How many the filter matched but correlation cannot use. A failure to count is not
 	// worth failing the run over — it only costs the explanation.
@@ -185,11 +189,18 @@ func (b *Builder) RunWithProgress(ctx context.Context, req Request, now time.Tim
 	// by scope and sorted each group itself — so a build of twenty rules sorted the same case
 	// twenty times. What gets prepared is the union of what the SELECTED rules read, so a
 	// build of sequence-only rules pays nothing for machinery it will not touch.
+	//
+	// It goes through the shared cache, so a build that follows a testbench run over the same
+	// filter reuses the dataset the author was just tuning against rather than rebuilding it.
 	specs := make([]*rules.Spec, len(selected))
 	for i, rule := range selected {
 		specs[i] = &rule.Spec
 	}
-	dataset := autograph.Prepare(events, autograph.RequirementsFor(specs))
+	dataset, events, _, err := b.datasets.get(b.store, filter, autograph.RequirementsFor(specs))
+	if err != nil {
+		return res, err
+	}
+	res.Events = events
 
 	// The two undated counts are ADDED, not one replacing the other, because they count
 	// disjoint sets: the store count above is what the filter excluded before the engine ever

@@ -6,6 +6,8 @@ import {context} from '../models';
 
 export function CancelRuleRun():Promise<void>;
 
+export function DryRunRule(arg1:string,arg2:api.EventQuery,arg3:number):Promise<graphbuild.DryRunResult>;
+
 export function IsRunningRules():Promise<boolean>;
 
 export function RunRules(arg1:api.BuildRequest):Promise<graphbuild.Result>;

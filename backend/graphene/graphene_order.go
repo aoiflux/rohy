@@ -98,6 +98,21 @@ func (s *Store) currentVersion() uint64 {
 	return s.order.version
 }
 
+// CacheKey fingerprints everything about a filter that changes WHICH events it selects.
+//
+// It is the order cache's own key, exported so a caller holding a derived result — the
+// prepared correlation dataset, which is built from exactly this event set — can be keyed the
+// same way rather than inventing a second fingerprint that would eventually disagree with
+// this one about what makes two filters the same.
+//
+// Pair it with Version(): the key says which events a filter selects, and the version says
+// whether the store has changed underneath it. Neither is sufficient alone.
+func (f EventFilter) CacheKey() string { return f.orderKey() }
+
+// Version reports the store's write counter. Every write path bumps it, so a cached value
+// computed at one version is known to be stale at any other.
+func (s *Store) Version() uint64 { return s.currentVersion() }
+
 // orderKey fingerprints everything about a filter that changes WHICH events match or in
 // what order — deliberately excluding Offset and Limit, since paging must reuse one
 // ordering rather than recompute it per page.

@@ -6,6 +6,10 @@ export function CancelRuleRun() {
   return window['go']['api']['BuildAPI']['CancelRuleRun']();
 }
 
+export function DryRunRule(arg1, arg2, arg3) {
+  return window['go']['api']['BuildAPI']['DryRunRule'](arg1, arg2, arg3);
+}
+
 export function IsRunningRules() {
   return window['go']['api']['BuildAPI']['IsRunningRules']();
 }

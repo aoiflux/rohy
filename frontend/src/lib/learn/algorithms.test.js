@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SCENARIOS, keptEdges, layout, scanX } from './algorithms.js';
-import { ALGORITHMS } from '../consts/index.js';
+import { SCENARIOS, keptEdges, layout, scanX, legendFor } from './algorithms.js';
+import { ALGORITHMS, LEARN } from '../consts/index.js';
 
 // These tests exist because a diagram that explains an algorithm is a CLAIM about that
 // algorithm, and a hand-drawn one is a claim nothing checks.
@@ -162,6 +162,69 @@ describe('lineage — mirrors TestLineageDoesNotLinkAcrossPIDReuse', () => {
     // Without the 4689 the first interval would run until the PID's next creation, and the
     // scenario would not actually demonstrate interval containment.
     expect(s.events.some((e) => e.eventId === '4689')).toBe(true);
+  });
+});
+
+describe('legend', () => {
+  it('has copy for every mark it can produce', () => {
+    // A legend row with no label renders as a swatch beside nothing, which is worse than no
+    // legend at all — the reader is shown a mark and told it means blank.
+    for (const s of SCENARIOS) {
+      for (const mark of legendFor(s)) {
+        const key = `${mark.kind}:${mark.state}`;
+        expect(LEARN.MARKS[key], `${s.id}: no copy for ${key}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('lists only the marks a scenario actually uses', () => {
+    // Explaining states the reader will never see on this diagram is its own kind of noise.
+    for (const s of SCENARIOS) {
+      const used = new Set();
+      for (const step of s.steps) {
+        for (const state of Object.values(step.states ?? {})) used.add(`chip:${state}`);
+        for (const edge of step.edges) used.add(`edge:${edge.state}`);
+      }
+      for (const mark of legendFor(s)) {
+        expect(used.has(`${mark.kind}:${mark.state}`), `${s.id}: ${mark.state} is not used`).toBe(true);
+      }
+    }
+  });
+
+  it('explains the two red marks that mean different things', () => {
+    // The field scenario draws both an excluded chip and a rejected edge. A reader seeing two
+    // red marks has to be able to learn that one means "carries no value" and the other means
+    // "this link would be wrong" — that distinction is the point of the algorithm.
+    const field = legendFor(SCENARIOS.find((s) => s.id === 'field'));
+    const keys = field.map((m) => `${m.kind}:${m.state}`);
+    expect(keys).toContain('chip:excluded');
+    expect(keys).toContain('edge:rejected');
+    expect(LEARN.MARKS['chip:excluded']).not.toBe(LEARN.MARKS['edge:rejected']);
+  });
+
+  it('is ordered consistently, so the key does not reshuffle as the walkthrough runs', () => {
+    for (const s of SCENARIOS) {
+      const a = legendFor(s).map((m) => m.kind + m.state);
+      const b = legendFor(s).map((m) => m.kind + m.state);
+      expect(a).toEqual(b);
+      // Chips before edges, always.
+      const firstEdge = a.findIndex((k) => k.startsWith('edge'));
+      const lastChip = a.map((k) => k.startsWith('chip')).lastIndexOf(true);
+      if (firstEdge !== -1 && lastChip !== -1) expect(firstEdge).toBeGreaterThan(lastChip);
+    }
+  });
+});
+
+describe('playback speeds', () => {
+  it('offers a real range centred on normal speed', () => {
+    const factors = LEARN.SPEEDS.map((s) => s.factor);
+    expect(factors).toContain(1);
+    expect(Math.min(...factors)).toBeLessThan(1);
+    expect(Math.max(...factors)).toBeGreaterThan(1);
+    for (const s of LEARN.SPEEDS) {
+      expect(s.factor).toBeGreaterThan(0); // a zero or negative factor would divide the timing into nonsense
+      expect(s.label).toBeTruthy();
+    }
   });
 });
 

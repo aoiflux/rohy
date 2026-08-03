@@ -14,6 +14,8 @@
   import { projectToForm, isFormEditable } from '../../lib/rules/document.js';
   import { eventIdsFromRules } from '../../lib/rules/complete.js';
   import { download } from '../../lib/export.js';
+  import { formToFilter } from '../../lib/filter.js';
+  import { prefs } from '../../stores/prefs.js';
 
   import Dialog from '../material/Dialog.svelte';
   import Button from '../material/Button.svelte';
@@ -21,13 +23,14 @@
   import GuidedEditorPanel from './GuidedEditorPanel.svelte';
   import RulePreviewPane from './RulePreviewPane.svelte';
   import RuleDiffView from './RuleDiffView.svelte';
+  import TestbenchPanel from './TestbenchPanel.svelte';
 
   /** Called with the save result, so the rules view can offer to run the rule it just got. */
   let { onsaved = undefined } = $props();
 
   let rawPanel = $state(null);
   let fileInput = $state(null);
-  let sidePane = $state('preview'); // 'preview' | 'diff'
+  let sidePane = $state('preview'); // 'preview' | 'diff' | 'test'
   let confirmingDiscard = $state(false);
 
   const problems = $derived(ruleEditor.problemsOf($ruleEditor));
@@ -228,11 +231,25 @@
                 class:on={sidePane === 'diff'}
                 onclick={() => (sidePane = 'diff')}>{UI.RULE_EDITOR_DIFF}</button
               >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={sidePane === 'test'}
+                class:on={sidePane === 'test'}
+                onclick={() => (sidePane = 'test')}>{UI.RULE_EDITOR_TESTBENCH}</button
+              >
             </div>
             {#if sidePane === 'preview'}
               <RulePreviewPane text={$ruleEditor.doc.text} />
-            {:else}
+            {:else if sidePane === 'diff'}
               <RuleDiffView before={$ruleEditor.original} after={$ruleEditor.doc.text} />
+            {:else}
+              <TestbenchPanel
+                result={$ruleEditor.test}
+                running={$ruleEditor.testing}
+                runnable={problems.errors.length === 0}
+                onrun={() => ruleEditor.testbench(formToFilter(prefs.current().filters || {}))}
+              />
             {/if}
           </div>
         </div>

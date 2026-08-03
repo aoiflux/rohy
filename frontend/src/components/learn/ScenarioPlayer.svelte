@@ -18,7 +18,7 @@
   // how a reader learns the control exists at all.
   import { onDestroy } from 'svelte';
   import { prefersReducedMotion } from '../../lib/motion.js';
-  import { layout, scanX } from '../../lib/learn/algorithms.js';
+  import { layout, scanX, legendFor } from '../../lib/learn/algorithms.js';
   import { PLAYER, initial, reduce, label } from '../../lib/learn/player.js';
   import { LEARN } from '../../lib/consts/index.js';
 
@@ -28,8 +28,24 @@
   // timer. Every decision about what playback should do next lives in lib/learn/player.js,
   // where it can be asserted without rendering anything — which is the whole reason the
   // transport was moved out of here.
-  const timing = { stepMs: LEARN.STEP_MS, restartMs: LEARN.RESTART_MS };
+  //
+  // Speed is a plain multiplier over the timing the reducer is handed, so both durations scale
+  // together and the reducer needs no notion of speed at all.
+  //
+  // It is held TWICE on purpose: `speed` is reactive so the active button renders, and
+  // `speedFactor` is a plain mirror that timingNow() reads. Deriving the timing reactively
+  // would put `speed` in the reload effect's dependency set, so changing the speed would
+  // restart the walkthrough from step 0 — and the effect would be reading state that a
+  // control writes, which is the shape this component has already been bitten by twice.
+  let speed = $state(1);
+  let speedFactor = 1;
+  const timingNow = () => ({
+    stepMs: Math.round(LEARN.STEP_MS / speedFactor),
+    restartMs: Math.round(LEARN.RESTART_MS / speedFactor),
+  });
+
   const reduced = prefersReducedMotion();
+  const legend = $derived(legendFor(scenario));
 
   let player = $state(initial(scenario.steps.length, { ...timing, autoplay: false }));
   let timer = /** @type {any} */ (null);
@@ -114,16 +130,30 @@
     player = next;
     clearTimer();
     if (!next.playing) return;
-    timer = setTimeout(() => sync(reduce(next, { type: PLAYER.TICK }, timing)), next.delay);
+    timer = setTimeout(() => sync(reduce(next, { type: PLAYER.TICK }, timingNow())), next.delay);
   }
 
   /** dispatch is the only path an interaction takes. */
   function dispatch(action) {
-    sync(reduce(player, action, timing));
+    sync(reduce(player, action, timingNow()));
   }
 
   const toggle = () => dispatch({ type: PLAYER.TOGGLE });
   const go = (index) => dispatch({ type: PLAYER.GO, index });
+
+  /**
+   * setSpeed re-times the run in place. It deliberately does NOT restart: a reader reaching for
+   * the speed control is asking for the rest of this walkthrough to go faster, not to see the
+   * beginning again.
+   *
+   * The pending step is re-timed too, so slowing down mid-step gives you the extra time
+   * immediately rather than at the next boundary.
+   */
+  function setSpeed(factor) {
+    speed = factor;
+    speedFactor = factor;
+    if (player.playing) sync({ ...player, delay: timingNow().stepMs });
+  }
 
   // Reloading when the scenario changes keeps a tab switch from landing mid-explanation, and
   // starts the new one playing so switching algorithm shows the difference rather than a frozen
@@ -137,7 +167,7 @@
   $effect(() => {
     const id = scenario.id;
     void id;
-    sync(initial(scenario.steps.length, { ...timing, autoplay: !reduced }));
+    sync(initial(scenario.steps.length, { ...timingNow(), autoplay: !reduced }));
   });
 
   onDestroy(clearTimer);
@@ -261,6 +291,19 @@
     </svg>
   </div>
 
+  <!-- Step progress. Keyed on the step so the fill restarts each time, and its duration is the
+       timer's ACTUAL delay — so it tells the truth about pacing rather than approximating it,
+       and it visibly freezes when playback is paused. -->
+  <div class="progress" aria-hidden="true">
+    {#key `${epoch}:${player.index}:${player.delay}`}
+      <div
+        class="progress-fill"
+        class:running={player.playing && !reduced}
+        style={`--step-duration: ${player.delay}ms`}
+      ></div>
+    {/key}
+  </div>
+
   <!-- The narration is the explanation; the diagram illustrates it. Announcing changes here
        is what makes the walkthrough usable without seeing the picture at all. -->
   <div class="narration" aria-live="polite">
@@ -310,7 +353,35 @@
       {/each}
     </div>
 
+    <div class="speed" role="group" aria-label={LEARN.SPEED}>
+      {#each LEARN.SPEEDS as s}
+        <button
+          class="seg"
+          class:on={speed === s.factor}
+          aria-pressed={speed === s.factor}
+          onclick={() => setSpeed(s.factor)}>{s.label}</button
+        >
+      {/each}
+    </div>
+
     <span class="counter">{player.index + 1} / {scenario.steps.length}</span>
+  </div>
+
+  <!-- The key to the diagram's marks, showing only the ones this scenario uses. Without it a
+       reader sees a red chip and a red edge and has no way to learn that one means "excluded
+       for carrying no value" and the other means "a link that would be wrong". -->
+  <div class="legend">
+    <span class="legend-title">{LEARN.LEGEND}</span>
+    {#each legend as mark (mark.kind + mark.state)}
+      <span class="legend-item">
+        {#if mark.kind === 'chip'}
+          <span class={`swatch chip-${mark.state}`}></span>
+        {:else}
+          <span class={`swatch-line edge-${mark.state}`}></span>
+        {/if}
+        {LEARN.MARKS[`${mark.kind}:${mark.state}`]}
+      </span>
+    {/each}
   </div>
 
   {#if reduced}
@@ -483,6 +554,34 @@
     }
   }
 
+  /* --- step progress ---
+     The fill runs for the timer's real delay, so it is an honest readout of pacing rather than
+     a decorative bar. Pausing freezes it rather than resetting it, because a bar that snapped
+     back on pause would misreport how far through the step you actually are. */
+  .progress {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--color-outline);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0;
+    background: var(--color-primary);
+    border-radius: 2px;
+  }
+  .progress-fill.running {
+    animation: fill var(--step-duration) linear forwards;
+  }
+  @keyframes fill {
+    from {
+      width: 0;
+    }
+    to {
+      width: 100%;
+    }
+  }
+
   /* --- narration --- */
   .narration {
     min-height: 92px;
@@ -569,11 +668,102 @@
     border-color: var(--color-primary);
     transform: scale(1.35);
   }
-  .counter {
+  /* --- speed --- */
+  .speed {
+    display: inline-flex;
     margin-left: auto;
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .seg {
+    border: none;
+    border-radius: 0;
+    background: var(--color-surface);
+    color: var(--color-on-surface-muted);
+    font-size: 0.78rem;
+    padding: var(--space-1) var(--space-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .seg:hover {
+    background: var(--color-surface-variant);
+  }
+  .seg.on {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    font-weight: 700;
+  }
+  .counter {
     font-size: 0.85rem;
     color: var(--color-on-surface-muted);
     font-variant-numeric: tabular-nums;
+    min-width: 4ch;
+    text-align: right;
+  }
+
+  /* --- legend --- */
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-outline);
+    font-size: 0.78rem;
+    color: var(--color-on-surface-muted);
+  }
+  .legend-title {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    font-size: 0.68rem;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .swatch {
+    width: 16px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1.5px solid var(--color-outline);
+    background: var(--color-surface);
+  }
+  .swatch.chip-matched {
+    background: color-mix(in srgb, var(--color-primary) 22%, var(--color-surface));
+    border-color: var(--color-primary);
+  }
+  .swatch.chip-scanning {
+    border-color: var(--color-primary);
+    border-width: 2.5px;
+  }
+  .swatch.chip-rejected {
+    background: color-mix(in srgb, var(--color-error) 16%, var(--color-surface));
+    border-color: var(--color-error);
+  }
+  .swatch.chip-excluded {
+    border-color: var(--color-error);
+    border-style: dashed;
+    opacity: 0.55;
+  }
+  .swatch.chip-dimmed {
+    opacity: 0.4;
+  }
+  .swatch-line {
+    width: 20px;
+    height: 0;
+    border-top-width: 2.5px;
+    border-top-style: solid;
+    border-top-color: var(--color-primary);
+  }
+  .swatch-line.edge-forming {
+    border-top-style: dashed;
+    border-top-color: var(--color-on-surface-muted);
+  }
+  .swatch-line.edge-rejected {
+    border-top-style: dashed;
+    border-top-color: var(--color-error);
   }
   .reduced {
     margin: 0;
@@ -591,8 +781,14 @@
       transition: none;
     }
     .edge path,
-    .chip-body {
+    .chip-body,
+    .progress-fill.running {
       animation: none;
+    }
+    /* The bar still shows WHERE you are — it just stops sweeping. It is information about the
+       step, not decoration, so removing it entirely would lose something. */
+    .progress-fill {
+      width: 100%;
     }
   }
 </style>

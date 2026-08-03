@@ -483,6 +483,38 @@ export function layout(scenario, step) {
 }
 
 /**
+ * CHIP_STATE_ORDER and EDGE_STATE_ORDER fix the order legend entries appear in, so the key
+ * does not reshuffle itself as the walkthrough advances — a legend whose rows move is harder
+ * to use than one with an irrelevant row in it.
+ */
+const CHIP_STATE_ORDER = ['scanning', 'matched', 'rejected', 'excluded', 'dimmed'];
+const EDGE_STATE_ORDER = ['kept', 'forming', 'rejected'];
+
+/**
+ * legendFor returns the marks a scenario actually uses, in a stable order.
+ *
+ * It is derived rather than hardcoded because the vocabulary differs per algorithm: only the
+ * field scenario excludes anything, only lineage and field draw a rejected edge. Listing every
+ * possible mark on every diagram would explain states the reader is never going to see, which
+ * is its own kind of noise.
+ *
+ * @param {Scenario} scenario
+ * @returns {Array<{kind:'chip'|'edge', state:string}>}
+ */
+export function legendFor(scenario) {
+  const chips = new Set();
+  const edges = new Set();
+  for (const step of scenario.steps) {
+    for (const state of Object.values(step.states ?? {})) chips.add(state);
+    for (const edge of step.edges) edges.add(edge.state);
+  }
+  return [
+    ...CHIP_STATE_ORDER.filter((s) => chips.has(s)).map((state) => ({ kind: 'chip', state })),
+    ...EDGE_STATE_ORDER.filter((s) => edges.has(s)).map((state) => ({ kind: 'edge', state })),
+  ];
+}
+
+/**
  * scanX maps a step's sweep position onto the same 0..1 axis the chips use, so the line lands
  * on the event it is describing rather than at an unrelated fraction of the width.
  * @param {Scenario} scenario

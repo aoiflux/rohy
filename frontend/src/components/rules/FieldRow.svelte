@@ -18,6 +18,8 @@
     problems = [],
     /** An extra note under the control — the live rule id, a step count. */
     note = '',
+    /** The selected algorithm does not read this field, but the file sets it. */
+    inert = false,
     children,
   } = $props();
 
@@ -30,12 +32,17 @@
   );
 </script>
 
-<div class="row" class:bad={errors.length > 0}>
+<div class="row" class:bad={errors.length > 0} class:inert>
   <div class="head">
     <label class="name" for={`field-${field.name}`}>
       {field.name}
       {#if field.required}<span class="req" title={UI.RULE_EDITOR_REQUIRED}>*</span>{/if}
       {#if field.read_only}<span class="ro">{UI.RULE_EDITOR_READONLY}</span>{/if}
+      {#if inert}
+        <!-- Shown rather than hidden, because the value IS in the file and is preserved on
+             save. A control that vanished with its value would leave no way to remove it. -->
+        <span class="inert-tag" title={UI.RULE_EDITOR_INERT_HINT}>{UI.RULE_EDITOR_INERT}</span>
+      {/if}
     </label>
     <button
       type="button"
@@ -101,13 +108,28 @@
     color: var(--color-error);
     margin-left: 2px;
   }
-  .ro {
+  .ro,
+  .inert-tag {
     font-family: var(--font-sans);
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--color-on-surface-muted);
     margin-left: var(--space-2);
+  }
+  .inert-tag {
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-sm);
+    padding: 1px 5px;
+    cursor: help;
+  }
+  /* Dimmed, not disabled: the value is real and still saved, so it must stay editable —
+     including editable down to nothing, which is how an author removes it. */
+  .row.inert .desc,
+  .row.inert :global(input),
+  .row.inert :global(select),
+  .row.inert :global(textarea) {
+    opacity: 0.7;
   }
   .help {
     flex: 0 0 auto;

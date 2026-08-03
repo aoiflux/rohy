@@ -2,6 +2,7 @@ package autograph
 
 import (
 	"sort"
+	"strings"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
@@ -42,6 +43,16 @@ type Group struct {
 type Requirements struct {
 	// Scopes are the correlation scopes (consts.CorrelationScopes) any selected rule uses.
 	Scopes []string
+}
+
+// Fingerprint renders what was prepared, so a cached dataset can be checked against what a
+// later run needs rather than assumed to cover it.
+//
+// A dataset prepared for computer-scoped rules genuinely cannot serve a global-scoped one — it
+// holds no such partition — so reusing it would silently correlate nothing. The fingerprint is
+// what turns that into a cache miss.
+func (r Requirements) Fingerprint() string {
+	return "scopes:" + strings.Join(r.Scopes, ",")
 }
 
 // RequirementsFor computes what a set of rule specs collectively needs.

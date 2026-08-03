@@ -12,7 +12,14 @@
   // rejected, and it survives a save.
   import { RULE_FIELD_GROUPS, UI } from '../../lib/consts/index.js';
   import { slug } from '../../lib/rules/document.js';
+  import {
+    algorithmOf,
+    formatVersionShortfall,
+    listValue,
+    visibleFields,
+  } from '../../lib/rules/fields.js';
   import FieldRow from './FieldRow.svelte';
+  import ListField from './ListField.svelte';
   import SequenceBuilder from './SequenceBuilder.svelte';
 
   let {
@@ -38,13 +45,30 @@
     [RULE_FIELD_GROUPS.METADATA]: UI.RULE_EDITOR_GROUP_METADATA_BLURB,
   };
 
+  // Which algorithm the rule selects decides which controls exist at all — a lineage rule has
+  // no sequence and no window, and offering them would invite an author to fill in fields that
+  // do nothing. A field the algorithm does not read but the FILE already sets stays visible,
+  // marked inert: the value is still there and still saved, and a control that vanished along
+  // with its value would leave no way to remove it.
+  const algorithm = $derived(algorithmOf(value, schema));
+  const shortfall = $derived(formatVersionShortfall(value, schema));
+
   const groups = $derived(
     (schema?.group_order || []).map((group) => ({
       key: group,
       title: GROUP_TITLES[group] || group,
       blurb: GROUP_BLURBS[group] || '',
-      fields: (schema?.fields || []).filter((f) => f.group === group),
+      fields: visibleFields(
+        (schema?.fields || []).filter((f) => f.group === group),
+        algorithm,
+        value,
+      ),
     })),
+  );
+
+  /** The prose for the selected algorithm, served alongside the field descriptors. */
+  const algorithmSummary = $derived(
+    (schema?.algorithms || []).find((a) => a.name === algorithm)?.summary || '',
   );
 
   const unknownKeys = $derived(Object.keys(unknown || {}));
@@ -78,6 +102,7 @@
           <FieldRow
             {field}
             problems={problemsFor(field.name)}
+            inert={field.inert}
             note={field.name === 'name' && ruleId ? `${UI.RULE_EDITOR_ID_PREVIEW} ${ruleId}` : ''}
           >
             {#if field.name === 'sequence'}
@@ -93,6 +118,16 @@
                    they join, in the sequence builder above, which is what makes the
                    off-by-one in labels[i] impossible to make. -->
               <p class="deferred">{UI.RULE_EDITOR_LABELS_INLINE}</p>
+            {:else if field.kind === 'string[]'}
+              <!-- A list field, whether closed (match_fields picks from the served correlation
+                   vocabulary) or open (channels, lineage_create_ids). Rendering these as the
+                   single-value <select> below would write a STRING into an array field, which
+                   the loader then refuses as a type error. -->
+              <ListField
+                {field}
+                items={listValue(value, field.name)}
+                onchange={(next) => onfield?.(field.name, next)}
+              />
             {:else if field.enum?.length}
               <select
                 id={`field-${field.name}`}
@@ -103,6 +138,24 @@
                   <option value={option}>{option}{option === field.default ? ` (${UI.RULE_EDITOR_DEFAULT})` : ''}</option>
                 {/each}
               </select>
+              {#if field.name === 'algorithm' && algorithmSummary}
+                <!-- What the choice MEANS, beside the choice. The algorithm decides what a
+                     match establishes, which is the one thing a rule author most needs and
+                     cannot infer from a name in a dropdown. -->
+                <p class="algo-summary">{algorithmSummary}</p>
+              {/if}
+              {#if field.name === 'algorithm' && shortfall}
+                <!-- The author picked an algorithm; telling them it needs a newer version and
+                     leaving them to find the version field is a worse experience than offering
+                     the correction. -->
+                <button
+                  type="button"
+                  class="fixver"
+                  onclick={() => onfield?.('format_version', shortfall.required)}
+                >
+                  {UI.RULE_EDITOR_SET_FORMAT_VERSION} {shortfall.required}
+                </button>
+              {/if}
             {:else if field.read_only}
               <!-- format_version is shown, not edited. Declaring a version this build does
                    not understand makes the file refuse to load here, and there is no reason
@@ -183,6 +236,31 @@
     font-size: 0.75rem;
     font-style: italic;
     color: var(--color-on-surface-muted);
+  }
+  /* What the selected algorithm MEANS, beside the selector — the one thing a rule author most
+     needs and cannot infer from a name in a dropdown. */
+  .algo-summary {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--color-on-surface-muted);
+    border-left: 2px solid var(--color-primary);
+    padding-left: var(--space-3);
+  }
+  .fixver {
+    margin-top: var(--space-2);
+    border: 1px solid var(--color-primary);
+    background: transparent;
+    color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-3);
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+  .fixver:hover {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   input,

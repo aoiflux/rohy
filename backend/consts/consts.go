@@ -561,6 +561,16 @@ const (
 	EventRulesCancelled = "rules:cancelled"
 )
 
+// --- Rule testbench (v0.2.0) ---
+//
+// A dry run evaluates a rule against the real case and persists nothing. The sample cap bounds
+// what travels back for display; the counts it reports always describe the whole run, so a
+// capped sample never turns into an understated result.
+const (
+	DryRunDefaultSamples = 20
+	DryRunMaxSamples     = 200
+)
+
 // MsgRuleRunInProgress guards against two concurrent builds racing on the same graphs.
 const MsgRuleRunInProgress = "a rule run is already in progress"
 

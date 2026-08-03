@@ -416,6 +416,137 @@ export namespace findings {
 
 export namespace graphbuild {
 	
+	export class DryRunEvent {
+	    id: number;
+	    event_id: string;
+	    // Go type: time
+	    timestamp: any;
+	    computer: string;
+	    provider: string;
+	    channel: string;
+	    user: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DryRunEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.event_id = source["event_id"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.computer = source["computer"];
+	        this.provider = source["provider"];
+	        this.channel = source["channel"];
+	        this.user = source["user"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DryRunMatch {
+	    match_id: string;
+	    basis: string[];
+	    events: DryRunEvent[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DryRunMatch(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.match_id = source["match_id"];
+	        this.basis = source["basis"];
+	        this.events = this.convertValues(source["events"], DryRunEvent);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DryRunResult {
+	    valid: boolean;
+	    problems: rules.ValidationReport;
+	    matches: number;
+	    relations: number;
+	    truncated: boolean;
+	    dropped: number;
+	    events: number;
+	    skipped_undated: number;
+	    skipped_no_keys: number;
+	    unresolved_parents: number;
+	    stale_correlation_keys: number;
+	    elapsed_ms: number;
+	    samples: DryRunMatch[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DryRunResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.valid = source["valid"];
+	        this.problems = this.convertValues(source["problems"], rules.ValidationReport);
+	        this.matches = source["matches"];
+	        this.relations = source["relations"];
+	        this.truncated = source["truncated"];
+	        this.dropped = source["dropped"];
+	        this.events = source["events"];
+	        this.skipped_undated = source["skipped_undated"];
+	        this.skipped_no_keys = source["skipped_no_keys"];
+	        this.unresolved_parents = source["unresolved_parents"];
+	        this.stale_correlation_keys = source["stale_correlation_keys"];
+	        this.elapsed_ms = source["elapsed_ms"];
+	        this.samples = this.convertValues(source["samples"], DryRunMatch);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RuleOutcome {
 	    rule_id: string;
 	    rule_name: string;

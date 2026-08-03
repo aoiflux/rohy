@@ -289,6 +289,25 @@ export function saveRule(req) {
 export function runRules(req) {
   return call(BUILD, 'RunRules', req);
 }
+/**
+ * Reports what a rule WOULD produce against the current case, writing nothing.
+ *
+ * It takes rule TEXT rather than an id, so the editor can try a rule that is not on disk yet —
+ * an author tuning a sequence should not have to save something they are unsure about in order
+ * to find out whether it fires.
+ *
+ * It does not reject for unparseable text: that is the normal state while somebody is typing.
+ * The result carries the same located problems the editor already renders.
+ *
+ * @param {string} source rule text
+ * @param {object} filter the forensic filter to scope the run
+ * @param {number} samples how many matched occurrences to return in full
+ * @returns {Promise<object>}
+ */
+export function dryRunRule(source, filter, samples) {
+  return call(BUILD, 'DryRunRule', source, filter, samples);
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

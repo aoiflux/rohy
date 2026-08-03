@@ -136,9 +136,31 @@ export const LEARN = Object.freeze({
   REDUCED_MOTION:
     'Reduced motion is on, so the diagram steps without animating. Every step is a complete ' +
     'picture, so nothing is lost.',
+  LEGEND: 'Key',
+  SPEED: 'Speed',
+  // What each mark on the diagram means. Shown only for the marks a scenario actually uses,
+  // because listing states the reader will never see is its own kind of noise.
+  MARKS: Object.freeze({
+    'chip:scanning': 'being considered',
+    'chip:matched': 'part of a match',
+    'chip:rejected': 'ruled out by this rule',
+    'chip:excluded': 'excluded — carries no value for a required field',
+    'chip:dimmed': 'not part of the current step',
+    'edge:kept': 'edge the rule emits',
+    'edge:forming': 'candidate, not yet decided',
+    'edge:rejected': 'a link that would be wrong',
+  }),
   // How long each step holds during playback. Long enough to read the narration, since the
   // text is the explanation and the picture is the illustration — not the other way round.
   STEP_MS: 3200,
+  // Playback speeds. People read at very different rates, and a walkthrough that is patronising
+  // to one reader is too fast for the next; the multiplier divides both step durations, so the
+  // pacing stays proportional rather than only the long holds shrinking.
+  SPEEDS: Object.freeze([
+    { label: '0.5×', factor: 0.5 },
+    { label: '1×', factor: 1 },
+    { label: '2×', factor: 2 },
+  ]),
   // The first beat after a restart is short on purpose. Step 0 of every scenario is the static
   // "here is the data" frame, so restarting on a full interval leaves the diagram looking
   // untouched for over three seconds — which reads as a replay button that did not work.
@@ -605,6 +627,44 @@ export const UI = Object.freeze({
   RULE_EDITOR_EXAMPLE: 'Example:',
   RULE_EDITOR_ALLOWED: 'Allowed:',
   RULE_EDITOR_DEFAULT: 'default',
+  // Shown on a field the selected algorithm does not read but the file still sets. It stays
+  // visible rather than being hidden, because the value is preserved on save and a control
+  // that disappeared with its value would leave no way to remove it.
+  RULE_EDITOR_INERT: 'not used here',
+  RULE_EDITOR_INERT_HINT:
+    'The selected algorithm does not read this field. It is preserved when you save, but it has no effect.',
+  RULE_EDITOR_SET_FORMAT_VERSION: 'Set format_version to',
+  RULE_EDITOR_LIST_ADD: 'Add',
+  RULE_EDITOR_LIST_REMOVE: 'Remove',
+  // --- Rule testbench ---
+  RULE_EDITOR_TESTBENCH: 'Test',
+  RULE_TESTBENCH_SAMPLES: 20,
+  TESTBENCH_RUN: 'Run against this case',
+  TESTBENCH_RUNNING: 'Running…',
+  TESTBENCH_BLURB: 'Nothing is written. This shows what the rule would produce.',
+  TESTBENCH_IDLE: 'Run the rule to see what it would match, before saving it.',
+  TESTBENCH_FIX_FIRST: 'Fix the problems above first — a rule that will not load cannot be run.',
+  TESTBENCH_MATCHES: 'matches',
+  TESTBENCH_EDGES: 'edges',
+  TESTBENCH_EVENTS: 'events read',
+  TESTBENCH_ELAPSED: 'elapsed',
+  TESTBENCH_SAMPLES_LABEL: 'First matches',
+  TESTBENCH_SAMPLES: 'First matches',
+  TESTBENCH_NO_MATCHES:
+    'This rule matched nothing on the current filter. Check the counts below before concluding the pattern is absent.',
+  TESTBENCH_TRUNCATED: 'The match cap was reached; further occurrences dropped:',
+  // The counts that change how a match total should be read.
+  TESTBENCH_NO_KEYS: 'events could not be considered — they carry no value for a matched field',
+  TESTBENCH_NO_KEYS_HINT:
+    'Windows writes "-" and the null SID constantly. Those are treated as absent rather than as a shared value, so the events are excluded rather than correlated with each other.',
+  TESTBENCH_STALE: 'events have no correlation projection from this build',
+  TESTBENCH_STALE_HINT:
+    'They were ingested before the projection existed, or under an older recipe. Field, temporal and lineage rules under-report against them until a backfill is run.',
+  TESTBENCH_UNRESOLVED: 'processes had no resolvable parent',
+  TESTBENCH_UNRESOLVED_HINT:
+    'Usually because the parent was created before this log begins. No edge is emitted and none is guessed.',
+  TESTBENCH_UNDATED: 'events were skipped for having no timestamp',
+  TESTBENCH_UNDATED_HINT: 'Correlation is time-ordered, so an event with no time has no position in a chain.',
   RULE_EDITOR_LABELS_INLINE: 'Edited between the steps they join, above.',
   RULE_EDITOR_STEP: 'Step',
   RULE_EDITOR_STEPS: 'step(s)',

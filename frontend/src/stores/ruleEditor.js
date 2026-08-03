@@ -52,6 +52,9 @@ function emptyState() {
     local: null,
     saving: false,
     loading: false,
+    /** the last testbench result, or null when the buffer has changed since one was run */
+    test: null,
+    testing: false,
     error: null,
   };
 }
@@ -110,6 +113,10 @@ function create() {
       // The backend's answer is about the previous text until the new one comes back.
       // Keeping the stale report would let Save stay enabled on text that has since broken.
       next.report = null;
+      // Same reasoning for the testbench, and it matters more: a match count computed against
+      // text the author has since edited looks current and is not, and "12 matches" is exactly
+      // the kind of number somebody acts on.
+      next.test = null;
       return next;
     });
     history.push({ text: doc.text, mode: get(store).mode }, { coalesce });
@@ -232,6 +239,37 @@ function create() {
     // the switch rather than somewhere inside it.
     history.push({ text: state.doc.text, mode }, { coalesce: false });
     return true;
+  }
+
+  /**
+   * testbench runs the rule against the real case and reports what it WOULD produce, without
+   * writing anything.
+   *
+   * It asks the BACKEND rather than approximating a match locally, for the same reason
+   * validation does: an approximation would eventually disagree with the engine, and it would
+   * disagree in the direction that matters — telling an author a rule fires when it does not.
+   *
+   * The buffer is sent as-is, so a rule that has never been saved can be tried. Unparseable
+   * text is not an error here; the result carries the located problems the editor already
+   * shows, and no evaluation is attempted.
+   */
+  async function testbench(filter = {}) {
+    const state = get(store);
+    update((s) => ({ ...s, testing: true, error: null }));
+    try {
+      const result = await api.dryRunRule(state.doc.text, filter, UI.RULE_TESTBENCH_SAMPLES);
+      update((s) => (s.open ? { ...s, testing: false, test: result } : s));
+      return result;
+    } catch (err) {
+      update((s) => ({ ...s, testing: false, error: message(err) }));
+      return null;
+    }
+  }
+
+  /** clearTest drops a stale result. Called on every edit: a result computed against text the
+   *  author has since changed is worse than no result, because it looks current. */
+  function clearTest() {
+    update((s) => (s.test === null ? s : { ...s, test: null }));
   }
 
   async function format(minify = false) {
@@ -366,6 +404,8 @@ function create() {
     problemsOf,
     canSave,
     isEditable,
+    testbench,
+    clearTest,
     canUndo: () => history.canUndo(),
     canRedo: () => history.canRedo(),
   };

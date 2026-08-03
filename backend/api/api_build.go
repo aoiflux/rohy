@@ -111,6 +111,39 @@ func (a *BuildAPI) RunRules(req BuildRequest) (graphbuild.Result, error) {
 	return res, nil
 }
 
+// DryRunRule reports what a rule WOULD produce against the current case, without writing
+// anything.
+//
+// It takes rule text rather than a rule id, so the editor can try a rule that is not on disk
+// yet — which is the whole point: an author tuning a sequence should not have to save a rule
+// they are not sure about in order to find out whether it fires.
+//
+// It returns no error for an unparseable rule. Text that does not yet load is the normal state
+// while somebody is typing, and surfacing it as a rejected promise would make the testbench
+// throw dialogs at them mid-keystroke; the result carries the same located problems the editor
+// already renders.
+//
+// samples bounds how many matched occurrences come back in full. The counts always describe
+// the whole run.
+func (a *BuildAPI) DryRunRule(source string, query EventQuery, samples int) (graphbuild.DryRunResult, error) {
+	filter, err := query.toFilter()
+	if err != nil {
+		return graphbuild.DryRunResult{}, AsError(consts.ErrCodeInternal, err)
+	}
+	if samples <= 0 || samples > consts.DryRunMaxSamples {
+		samples = consts.DryRunDefaultSamples
+	}
+	res, err := a.builder.DryRun(graphbuild.DryRunRequest{
+		Source:  source,
+		Filter:  filter,
+		Samples: samples,
+	})
+	if err != nil {
+		return res, AsError(consts.ErrCodeRule, err)
+	}
+	return res, nil
+}
+
 // CancelRuleRun stops an in-flight run. It is a no-op when nothing is running. The partial
 // result is still returned to the original caller, so graphs already rebuilt are kept
 // rather than being silently discarded.
