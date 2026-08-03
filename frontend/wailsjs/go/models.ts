@@ -379,6 +379,56 @@ export namespace api {
 	        this.confidence_score = source["confidence_score"];
 	    }
 	}
+	export class RestoreRequest {
+	    graph_id: number;
+	    id: string;
+	    recreate?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RestoreRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.graph_id = source["graph_id"];
+	        this.id = source["id"];
+	        this.recreate = source["recreate"];
+	    }
+	}
+	export class RestoreResult {
+	    plan: snapshot.Plan;
+	    nodes_moved: number;
+	    relations_created: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RestoreResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plan = this.convertValues(source["plan"], snapshot.Plan);
+	        this.nodes_moved = source["nodes_moved"];
+	        this.relations_created = source["relations_created"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RuleBundle {
 	    rules: rules.RuleSource[];
 	    missing?: string[];
@@ -442,6 +492,20 @@ export namespace api {
 		    }
 		    return a;
 		}
+	}
+	export class SnapshotRequest {
+	    graph_id: number;
+	    label?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SnapshotRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.graph_id = source["graph_id"];
+	        this.label = source["label"];
+	    }
 	}
 	export class StatsResult {
 	    events: number;
@@ -1661,6 +1725,175 @@ export namespace rules {
 	        this.warnings = this.convertValues(source["warnings"], ValidationError);
 	        this.normalized = this.convertValues(source["normalized"], Spec);
 	        this.unknown_fields = source["unknown_fields"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace snapshot {
+	
+	export class NodePlan {
+	    snapshot_id: number;
+	    live_id?: number;
+	    hash: string;
+	    descriptor?: string;
+	    x: number;
+	    y: number;
+	    outcome: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NodePlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.snapshot_id = source["snapshot_id"];
+	        this.live_id = source["live_id"];
+	        this.hash = source["hash"];
+	        this.descriptor = source["descriptor"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.outcome = source["outcome"];
+	    }
+	}
+	export class RelationPlan {
+	    snapshot_id: number;
+	    live_id?: number;
+	    from_id?: number;
+	    to_id?: number;
+	    relation_type: string;
+	    relation_label?: string;
+	    outcome: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelationPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.snapshot_id = source["snapshot_id"];
+	        this.live_id = source["live_id"];
+	        this.from_id = source["from_id"];
+	        this.to_id = source["to_id"];
+	        this.relation_type = source["relation_type"];
+	        this.relation_label = source["relation_label"];
+	        this.outcome = source["outcome"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class Viewport {
+	    x: number;
+	    y: number;
+	    zoom: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Viewport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.zoom = source["zoom"];
+	    }
+	}
+	export class Plan {
+	    snapshot_id: string;
+	    graph_id: number;
+	    viewport: Viewport;
+	    nodes: NodePlan[];
+	    relations: RelationPlan[];
+	    nodes_applied: number;
+	    nodes_moved: number;
+	    nodes_unresolved: number;
+	    relations_applied: number;
+	    relations_recreatable: number;
+	    relations_unresolved: number;
+	    reingested: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Plan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.snapshot_id = source["snapshot_id"];
+	        this.graph_id = source["graph_id"];
+	        this.viewport = this.convertValues(source["viewport"], Viewport);
+	        this.nodes = this.convertValues(source["nodes"], NodePlan);
+	        this.relations = this.convertValues(source["relations"], RelationPlan);
+	        this.nodes_applied = source["nodes_applied"];
+	        this.nodes_moved = source["nodes_moved"];
+	        this.nodes_unresolved = source["nodes_unresolved"];
+	        this.relations_applied = source["relations_applied"];
+	        this.relations_recreatable = source["relations_recreatable"];
+	        this.relations_unresolved = source["relations_unresolved"];
+	        this.reingested = source["reingested"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class Summary {
+	    id: string;
+	    label?: string;
+	    graph_id: number;
+	    graph_name?: string;
+	    // Go type: time
+	    taken_at: any;
+	    nodes: number;
+	    relations: number;
+	    app_version?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Summary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.graph_id = source["graph_id"];
+	        this.graph_name = source["graph_name"];
+	        this.taken_at = this.convertValues(source["taken_at"], null);
+	        this.nodes = source["nodes"];
+	        this.relations = source["relations"];
+	        this.app_version = source["app_version"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -941,6 +941,129 @@ const (
 	MsgSnapshotRestoredBasis = "restored from snapshot %s"
 )
 
+// --- Case integrity (v0.2.0) ---
+//
+// 🔒 Integrity READS and REPORTS. It repairs nothing on its own and deletes nothing ever — the
+// same principle that keeps orphaned findings on disk. A checker that tidied up as it went would
+// destroy the evidence that something went wrong, which is the only thing a report is for.
+const (
+	// Severities, in the order a report groups them.
+	IntegritySevError = "error"
+	IntegritySevWarn  = "warning"
+	IntegritySevInfo  = "info"
+)
+
+// IntegritySeverities is the accepted set, most serious first.
+var IntegritySeverities = []string{IntegritySevError, IntegritySevWarn, IntegritySevInfo}
+
+// Integrity finding codes. The code is what the UI acts on (which action to offer); the message
+// is what a person reads. They are separate for the same reason rule validation separates them.
+const (
+	IntegrityIndexDamaged      = "index_damaged"
+	IntegrityUnindexedRelation = "unindexed_relations"
+	IntegrityDanglingRelation  = "dangling_relations"
+	IntegrityOrphanFindings    = "orphan_findings"
+	IntegrityStaleFindings     = "stale_findings"
+	IntegrityOrphanGraph       = "orphan_graph"
+	IntegrityEmptyGraph        = "empty_graph"
+	IntegrityOrphanLayout      = "orphan_layout"
+	IntegrityPayloadTail       = "payload_tail"
+	IntegrityStaleProjection   = "stale_projection"
+	IntegrityMissingChannel    = "missing_channel"
+	IntegrityChannelUndeclared = "channel_undeclared"
+	IntegrityRuleInert         = "rule_inert"
+	IntegrityRuleBlocked       = "rule_blocked"
+	IntegrityRuleUnmatched     = "rule_unmatched"
+)
+
+// Suggested actions a finding can carry, so the UI offers the fix rather than describing it.
+const (
+	IntegrityActionNone     = ""
+	IntegrityActionBackfill = "backfill"
+	IntegrityActionRepair   = "repair_relation_index"
+	IntegrityActionRebuild  = "rebuild_indexes"
+	IntegrityActionIngest   = "ingest"
+	IntegrityActionReview   = "review"
+)
+
+const (
+	MsgIntegrityIndexDamaged  = "the property index does not match the stored records: %v"
+	MsgIntegrityUnindexed     = "%d relation(s) are committed but missing from the graph index — a previous run did not finish. They are invisible to every graph-scoped view until repaired."
+	MsgIntegrityDangling      = "%d relation(s) point at an event that is no longer in the case."
+	MsgIntegrityOrphanFinds   = "%d finding(s) refer to events that are not in the case. They are kept, not deleted — re-ingesting the source brings them back."
+	MsgIntegrityStaleFinds    = "the findings sidecar was written against a different content-hash recipe, so none of them can match a live event."
+	MsgIntegrityOrphanGraph   = "graph %d holds %d relation(s) but is not in the graph registry, so nothing in the app can show it."
+	MsgIntegrityEmptyGraph    = "graph %q holds no relations."
+	MsgIntegrityOrphanLayout  = "%d saved canvas layout(s) belong to graphs that no longer exist."
+	MsgIntegrityPayloadTail   = "the payload log holds %d byte(s) past the last record referenced by an event — leftovers from an interrupted ingest. They waste space; they cost nothing else."
+	MsgIntegrityStaleProj     = "%d event(s) carry no current correlation projection, so field, temporal and lineage rules cannot match them."
+	MsgIntegrityMissingChan   = "rule %q needs the %q log, which was never ingested — it cannot fire on this case."
+	MsgIntegrityUndeclared    = "%d enabled rule(s) do not declare which logs they need, so they could not be checked. Silence here means \"not declared\", never \"fine\"."
+	MsgIntegrityRuleInert     = "rule %q cannot match: this case holds no %s events."
+	MsgIntegrityRuleBlocked   = "rule %q needs the %q correlation field, which no event in this case carries. It will report zero matches, which is not the same as a clean result."
+	MsgIntegrityRuleUnmatched = "rule %q could match — every step has events — but the pattern does not occur in this case."
+)
+
+// --- Annotation layers (v0.2.0) ---
+//
+// An annotation is the analyst's own mark ON a graph: a note pinned to an event, a region drawn
+// around part of the canvas, an arrow between two points. Same discipline as findings — opinion
+// beside the evidence, plain readable JSON, hash-keyed where it attaches to an event.
+//
+// The difference from findings is scope. A finding is about an EVENT and follows it into every
+// graph; an annotation is about a PICTURE and belongs to the graph it was drawn on. "This 4624 is
+// the account takeover" is a finding; "this cluster is the lateral movement" is an annotation.
+const (
+	// AnnotationsSubdir holds per-graph annotations (rohy-data/annotations/<graphID>.json).
+	AnnotationsSubdir = "annotations"
+	// AnnotationsVersion guards the document format.
+	AnnotationsVersion = 1
+
+	// Annotation kinds.
+	AnnotationNote   = "note"
+	AnnotationRegion = "region"
+	AnnotationArrow  = "arrow"
+
+	// Anchor kinds. An event anchor follows its event by hash; a world anchor is a fixed place on
+	// the canvas. The distinction is load-bearing: a note about an event must move with it when
+	// the layout changes, and a region drawn around empty space must not.
+	AnchorEvent = "event"
+	AnchorWorld = "world"
+)
+
+// AnnotationKinds and AnchorKinds are the accepted sets.
+var (
+	AnnotationKinds = []string{AnnotationNote, AnnotationRegion, AnnotationArrow}
+	AnchorKinds     = []string{AnchorEvent, AnchorWorld}
+)
+
+// Bounds. The sidecar is rewritten on every edit, so a runaway paste must not be able to bloat it,
+// and a canvas buried under four hundred pins is not annotated — it is illegible.
+const (
+	MaxAnnotationLayers = 16
+	MaxAnnotationItems  = 200
+	MaxAnnotationText   = 2000
+	MaxLayerNameLen     = 120
+)
+
+// DefaultLayerName is what the first layer is called when an annotation is made before any layer
+// exists. Naming it after what it is beats leaving the analyst with "layer-1".
+const DefaultLayerName = "Notes"
+
+const (
+	MsgAnnotationLayerLimit  = "this graph already has %d annotation layers (the maximum)"
+	MsgAnnotationItemLimit   = "this graph already has %d annotations (the maximum)"
+	MsgAnnotationTextLong    = "the text is longer than %d characters"
+	MsgAnnotationLayerName   = "a layer needs a name"
+	MsgAnnotationNoLayer     = "no annotation layer %q"
+	MsgAnnotationNotFound    = "no annotation %q"
+	MsgAnnotationBadKind     = "unknown annotation kind %q (expected one of: %s)"
+	MsgAnnotationBadAnchor   = "unknown anchor kind %q (expected one of: %s)"
+	MsgAnnotationNeedsHash   = "an event anchor needs the event's content hash"
+	MsgAnnotationNeedsTarget = "an arrow needs a second anchor"
+	MsgAnnotationBadVersion  = "the annotations for this graph were written in format version %d, which this build does not read"
+)
+
 // --- Relationship heatmap (v0.2.0) ---
 //
 // The heatmap answers "when did the things rohy inferred actually happen, and what kind were

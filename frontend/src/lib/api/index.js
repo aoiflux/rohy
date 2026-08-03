@@ -18,6 +18,7 @@ const FINDINGS = 'FindingsAPI';
 const SYSTEM = 'SystemAPI';
 const MAINTENANCE = 'MaintenanceAPI';
 const SNAPSHOTS = 'SnapshotAPI';
+const ANNOTATE = 'AnnotateAPI';
 
 function bound(struct, method) {
   const go = typeof window !== 'undefined' ? window.go : undefined;
@@ -242,6 +243,39 @@ export function previewRestore(graphId, id) {
  *  @param {{graph_id?:number, id:string, recreate?:number[]}} req */
 export function applyRestore(req) {
   return call(SNAPSHOTS, 'ApplyRestore', req);
+}
+
+// --- Annotation layers (P29). The analyst's own marks ON a graph. Anchors are event content
+// hashes, resolved to live node ids by the backend on every read — never cached, because the
+// whole reason they are hash-anchored is that node ids move.
+
+/** @param {number} graphId
+ *  @returns {Promise<{document:{layers:any[],items:any[]}, node_of:Record<string,number>, orphaned:string[]}>} */
+export function annotations(graphId) {
+  return call(ANNOTATE, 'Annotations', graphId);
+}
+/** Adds a layer (empty id) or updates one.
+ *  @param {{graph_id?:number, id?:string, name:string, colour?:string, visible?:boolean, z?:number}} req */
+export function saveLayer(req) {
+  return call(ANNOTATE, 'SaveLayer', req);
+}
+/** How many annotations a layer holds, so the UI can warn before deleting it.
+ *  @param {number} graphId @param {string} layerId */
+export function countOnLayer(graphId, layerId) {
+  return call(ANNOTATE, 'CountOnLayer', graphId, layerId);
+}
+/** Removes a layer AND everything on it, reporting how many went with it.
+ *  @param {number} graphId @param {string} layerId */
+export function deleteLayer(graphId, layerId) {
+  return call(ANNOTATE, 'DeleteLayer', graphId, layerId);
+}
+/** @param {{graph_id?:number, item:object}} req */
+export function saveAnnotation(req) {
+  return call(ANNOTATE, 'SaveAnnotation', req);
+}
+/** @param {number} graphId @param {string} id */
+export function deleteAnnotation(graphId, id) {
+  return call(ANNOTATE, 'DeleteAnnotation', graphId, id);
 }
 
 // --- Graph management (multiple graphs, P15) ---

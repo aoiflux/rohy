@@ -20,12 +20,29 @@ type GraphAPI struct {
 	store    *graphene.Store
 	layout   *layout.Store
 	registry *graphreg.Store
+	// cascades are the per-graph sidecars that must be dropped when a graph is deleted —
+	// snapshots and annotations today. They are registered rather than imported so this binding
+	// does not grow a dependency on every sidecar that ever attaches to a graph, and so a new one
+	// is added in one place (app.go) instead of edited into DeleteGraph.
+	cascades []GraphCascade
+}
+
+// GraphCascade is a per-graph sidecar that is dropped along with its graph.
+type GraphCascade interface {
+	DeleteGraph(graphID uint64) error
 }
 
 // NewGraphAPI constructs the binding over an open event store, layout store, and graph
 // registry.
 func NewGraphAPI(store *graphene.Store, layoutStore *layout.Store, registry *graphreg.Store) *GraphAPI {
 	return &GraphAPI{store: store, layout: layoutStore, registry: registry}
+}
+
+// WithCascades registers the sidecars a graph deletion must also clear. Returns the receiver so
+// it can be chained at construction.
+func (a *GraphAPI) WithCascades(c ...GraphCascade) *GraphAPI {
+	a.cascades = append(a.cascades, c...)
+	return a
 }
 
 // RelationDetail is everything the relationship inspector needs about one edge, resolved in a
@@ -194,6 +211,16 @@ func (a *GraphAPI) DeleteGraph(id uint64) error {
 	}
 	if err := a.layout.Delete(id); err != nil {
 		return AsError(consts.ErrCodePersistence, err)
+	}
+	// The graph's own sidecars go with it. Best-effort and in order: a failure here leaves files
+	// nothing can list rather than a graph that half exists, which is the better of the two.
+	for _, c := range a.cascades {
+		if c == nil {
+			continue
+		}
+		if err := c.DeleteGraph(id); err != nil {
+			return AsError(consts.ErrCodePersistence, err)
+		}
 	}
 	return nil
 }

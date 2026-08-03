@@ -243,6 +243,18 @@ func (s *Store) Delete(graphID uint64, id string) error {
 	return nil
 }
 
+// DeleteGraph removes every snapshot of a graph, for a graph that has itself been deleted.
+// Leaving them would be dead files nothing can list and nothing can restore — the graph id they
+// name no longer exists.
+func (s *Store) DeleteGraph(graphID uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.RemoveAll(s.graphDir(graphID)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func readDoc(path string) (*Document, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

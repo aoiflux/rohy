@@ -317,6 +317,11 @@ export const GRAPH = Object.freeze({
   // World-space padding between a cluster's cards and the hull drawn around them. Wide enough
   // that the outline never touches a card border and is not mistaken for one.
   HULL_PAD: 26,
+  // How far a note pin sits from the card it annotates, and how wide its bubble is allowed to
+  // grow before the text wraps. A pin that overlapped the card would sit on the fields it is a
+  // comment about.
+  PIN_OFFSET: 10,
+  PIN_MAX_W: 240,
   // How long a full replay takes at 1×. Playback is scaled to the case's SPAN rather than run at
   // wall-clock speed: a three-week case would otherwise take three weeks, and a four-second one
   // would be over before it was seen. The cost is that perceived pace carries no information here
@@ -828,6 +833,35 @@ export const UI = Object.freeze({
   HEATMAP_FAILED: 'Could not build the heatmap:',
   TIMELINE_PLAYHEAD_OUTSIDE:
     'The playhead is set outside the range shown here — the graph covers events this filter excludes.',
+
+  // --- Annotations (P29) ---
+  //
+  // The analyst's own marks ON a graph, as distinct from a finding, which is about an EVENT and
+  // follows it everywhere. The copy below keeps that distinction visible.
+  ANN_TITLE: 'Layers',
+  ANN_ADD_LAYER: 'New layer',
+  ANN_LAYER_NAME: 'Layer name',
+  ANN_SHOW: 'Show annotations',
+  ANN_HIDE: 'Hide annotations',
+  ANN_NONE: 'No annotations on this graph yet.',
+  ANN_DELETE_LAYER: 'Delete layer',
+  ANN_DELETE_LAYER_BODY: 'Deleting this layer also deletes everything on it.',
+  ANN_DELETE_LAYER_COUNT: 'annotations will be deleted with it.',
+  ANN_RENAME: 'Rename',
+  ANN_ADD_NOTE: 'Add note',
+  ANN_ADD_REGION: 'Draw region',
+  ANN_NOTE_TEXT: 'Note',
+  ANN_NOTE_PLACEHOLDER: 'e.g. first failure burst',
+  ANN_SAVE: 'Save',
+  ANN_CANCEL: 'Cancel',
+  ANN_DELETE: 'Delete',
+  ANN_SELECT_FIRST: 'Select an event on the canvas first, then add a note about it.',
+  ANN_FAILED: 'Could not save that:',
+  ANN_ORPHANED: 'annotations point at events that are no longer in the case.',
+  ANN_OFFCANVAS: 'annotations point at events that are not on this canvas.',
+  ANN_VS_FINDING:
+    'A layer marks up THIS graph. To record something about an event itself — one that should ' +
+    'follow it everywhere — use a finding instead.',
 
   // --- Snapshots (P29) ---
   //

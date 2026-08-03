@@ -13,6 +13,8 @@ import ClusterCard from './graph/ClusterCard.svelte';
 import HeatmapMatrix from './timeline/HeatmapMatrix.svelte';
 import ReplayBar from './graph/ReplayBar.svelte';
 import SnapshotPanel from './graph/SnapshotPanel.svelte';
+import GraphAnnotations from './graph/GraphAnnotations.svelte';
+import LayerPanel from './graph/LayerPanel.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -451,5 +453,55 @@ describe('graph / SnapshotPanel', () => {
   it('says a graph has no snapshots rather than showing an empty list', () => {
     const out = render(SnapshotPanel, {});
     expect(out.body).toContain('No snapshots');
+  });
+});
+
+describe('graph / annotations', () => {
+  const NODES = { 5: { x: 100, y: 50 }, 6: { x: 400, y: 50 } };
+  const NODE_OF = { 'hash-a': 5, 'hash-b': 6 };
+  const DOC = {
+    layers: [{ id: 'l1', name: 'Initial access', colour: '#c2410c', visible: true, z: 0 }],
+    items: [
+      { id: 'a-1', layer: 'l1', kind: 'note', anchor: { kind: 'event', hash: 'hash-a' }, text: 'first burst' },
+      { id: 'a-2', layer: 'l1', kind: 'region', anchor: { kind: 'world', x: 0, y: 0, w: 600, h: 400 }, text: 'lateral' },
+      {
+        id: 'a-3', layer: 'l1', kind: 'arrow',
+        anchor: { kind: 'event', hash: 'hash-a' },
+        to: { kind: 'event', hash: 'hash-b' },
+      },
+    ],
+  };
+
+  renders('renders every annotation kind', GraphAnnotations, { doc: DOC, nodeOf: NODE_OF, nodes: NODES });
+  renders('renders an empty overlay', GraphAnnotations, {});
+
+  it('draws nothing for an anchor it cannot place, rather than drawing it at the origin', () => {
+    // 🔒 A pin at 0,0 would be a mark pointing at the wrong evidence.
+    const out = render(GraphAnnotations, {
+      props: {
+        doc: { layers: DOC.layers, items: [{ id: 'x', layer: 'l1', kind: 'note', anchor: { kind: 'event', hash: 'gone' }, text: 'orphan' }] },
+        nodeOf: NODE_OF,
+        nodes: NODES,
+      },
+    });
+    expect(out.body).not.toContain('orphan');
+  });
+
+  it('does not draw a hidden layer', () => {
+    const out = render(GraphAnnotations, {
+      props: {
+        doc: { layers: [{ id: 'l1', name: 'x', visible: false, z: 0 }], items: DOC.items },
+        nodeOf: NODE_OF,
+        nodes: NODES,
+      },
+    });
+    expect(out.body).not.toContain('first burst');
+  });
+
+  renders('renders the layer panel before anything has loaded', LayerPanel, {});
+
+  it('tells the analyst what a layer is NOT, since a finding looks the same from outside', () => {
+    const out = render(LayerPanel, {});
+    expect(out.body).toContain('finding');
   });
 });

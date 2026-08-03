@@ -10,6 +10,7 @@
   import { clusters } from '../../stores/clusters.js';
   import { memberIndex, proxyCards, remapEdges } from '../../lib/graph/clusters.js';
   import { replay } from '../../stores/replay.js';
+  import { annotations } from '../../stores/annotations.js';
   import { build as buildReplay, visibleAt } from '../../lib/graph/replay.js';
   import * as api from '../../lib/api/index.js';
   import { findings } from '../../stores/findings.js';
@@ -30,6 +31,7 @@
   import GraphEdges from './GraphEdges.svelte';
   import GraphHulls from './GraphHulls.svelte';
   import ClusterCard from './ClusterCard.svelte';
+  import GraphAnnotations from './GraphAnnotations.svelte';
   import Menu from '../material/Menu.svelte';
   import Dialog from '../material/Dialog.svelte';
   import Button from '../material/Button.svelte';
@@ -585,6 +587,15 @@
         nodes={$graph.nodes}
         collapsed={folded}
         ontoggle={(id) => clusters.toggle(id)}
+      />
+    {/if}
+    <!-- Above the hulls (context) and below the cards (evidence): an annotation is a mark ABOUT
+         the cards, so it must read against them without covering them. -->
+    {#if $annotations.visible}
+      <GraphAnnotations
+        doc={{ layers: $annotations.layers, items: $annotations.items }}
+        nodeOf={$annotations.nodeOf}
+        nodes={$graph.nodes}
       />
     {/if}
     <GraphEdges

@@ -6,6 +6,7 @@ import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
 import { clusters } from './clusters.js';
 import { replay } from './replay.js';
+import { annotations } from './annotations.js';
 
 export const LAYOUT = Object.freeze({
   MANUAL: 'manual',
@@ -99,6 +100,9 @@ function create() {
     // Same reason: a graph switch must not leave the canvas filtered to a moment belonging to
     // another graph, which would look like a graph that had lost most of its content.
     replay.reset();
+    // Annotations are per-graph too; the panel reloads them for the new graph, and leaving
+    // the old ones drawn in the meantime would mark up the wrong picture.
+    annotations.reset();
     update((s) => ({
       ...s,
       nodes: {},

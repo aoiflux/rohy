@@ -29,6 +29,9 @@ type MaintenanceAPI struct {
 	emitter Emitter
 	cancel  context.CancelFunc
 	running bool
+	// integrity holds the sidecars the case checks read. Attached after construction (see
+	// WithIntegrity) so this binding keeps its narrow constructor.
+	integrity IntegrityDeps
 }
 
 // NewMaintenanceAPI constructs the binding over the open store.
@@ -111,6 +114,25 @@ func (a *MaintenanceAPI) BackfillCorrelationKeys() (graphene.BackfillResult, err
 		return res, AsError(consts.ErrCodePersistence, err)
 	}
 	return res, nil
+}
+
+// begin claims the maintenance lock for a write-side pass. Two passes over one store at once is
+// the thing it exists to prevent.
+func (a *MaintenanceAPI) begin() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.running {
+		return errMaintenanceRunning
+	}
+	a.running = true
+	return nil
+}
+
+// finish releases it.
+func (a *MaintenanceAPI) finish() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.running = false
 }
 
 // CancelMaintenance stops an in-flight pass. A no-op when nothing is running.

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"rohy/backend/annotate"
 	"rohy/backend/api"
 	"rohy/backend/capture"
 	"rohy/backend/consts"
@@ -41,6 +42,8 @@ type App struct {
 	// Snapshots owns its own sidecar store and its own restore lifecycle, so it is separate from
 	// Graph for the same reason Maintenance is separate from System.
 	Snapshots *api.SnapshotAPI
+	// Annotate owns the analyst's own marks on a graph — layers, note pins, regions, arrows.
+	Annotate *api.AnnotateAPI
 }
 
 // migrateGraphs guarantees a Default graph exists and folds any pre-P15 single-graph
@@ -99,19 +102,29 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	noteStore, err := annotate.Open(annotationsDir(dir))
+	if err != nil {
+		return nil, err
+	}
 
 	return &App{
 		store:       store,
 		layoutStore: layoutStore,
 		registry:    registry,
 		Events:      api.NewEventsAPI(store, positions, findingStore),
-		Graph:       api.NewGraphAPI(store, layoutStore, registry),
+		Graph:       api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
 		Rules:       api.NewRulesAPI(ruleReg),
 		Build:       api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
 		Findings:    api.NewFindingsAPI(findingStore, store),
 		System:      api.NewSystemAPI(),
-		Maintenance: api.NewMaintenanceAPI(store),
-		Snapshots:   api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
+		Maintenance: api.NewMaintenanceAPI(store).WithIntegrity(api.IntegrityDeps{
+			Findings:  findingStore,
+			Graphs:    registry,
+			Rules:     ruleReg,
+			LayoutDir: layoutDir(dir),
+		}),
+		Snapshots: api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
+		Annotate:  api.NewAnnotateAPI(store, noteStore, registry),
 	}, nil
 }
 
@@ -219,4 +232,10 @@ func findingsDir(dbDir string) string {
 // evidence, so it lives beside the store and travels with the case folder as readable JSON.
 func snapshotsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.SnapshotsSubdir)
+}
+
+// annotationsDir returns the annotation-layer directory (<cwd>/rohy-data/annotations). Same
+// placement and same reasoning again: authored, not ingested.
+func annotationsDir(dbDir string) string {
+	return filepath.Join(filepath.Dir(dbDir), consts.AnnotationsSubdir)
 }
