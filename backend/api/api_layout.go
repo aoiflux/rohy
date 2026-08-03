@@ -3,6 +3,7 @@ package api
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
@@ -168,6 +169,48 @@ func (a *GraphAPI) Clusters(req ClusterRequest) ([]graphlayout.Cluster, error) {
 	out, err := graphlayout.Clusters(req.Mode, nodes, rels, graphlayout.Options{Slot: slot})
 	if err != nil {
 		return nil, AsError(consts.ErrCodeInternal, err)
+	}
+	return out, nil
+}
+
+// HeatmapRequest asks for a graph's relations bucketed over time. GraphID 0 covers the active
+// graph; pass a negative Buckets or zero to take the default resolution.
+type HeatmapRequest struct {
+	GraphID uint64 `json:"graph_id"`
+	Buckets int    `json:"buckets"`
+	GroupBy string `json:"group_by"`
+	// AllGraphs widens the answer to every relation in the case. It is an explicit flag rather
+	// than GraphID 0, because 0 already means "the active graph" everywhere else in this binding
+	// and one value meaning two things is how a whole-case answer gets shown as a per-graph one.
+	AllGraphs bool `json:"all_graphs,omitempty"`
+	// From/To pin the window. The timeline passes its own view bounds here so the strip drawn
+	// over the histogram shares its axis exactly; leave them unset for the relations' own extent.
+	From *time.Time `json:"from,omitempty"`
+	To   *time.Time `json:"to,omitempty"`
+}
+
+// HeatmapGroups returns the accepted groupings, generated from the same list the store
+// dispatches on.
+func (a *GraphAPI) HeatmapGroups() []string {
+	return append([]string(nil), consts.HeatmapGroups...)
+}
+
+// RelationHeatmap buckets relations over time so the timeline can show WHEN the things rohy
+// inferred actually happened, rather than only when the events did.
+func (a *GraphAPI) RelationHeatmap(req HeatmapRequest) (graphene.HeatmapSummary, error) {
+	graphID := uint64(0)
+	if !req.AllGraphs {
+		graphID = a.activeGraphID(req.GraphID)
+	}
+	out, err := a.store.RelationHeatmap(graphene.HeatmapQuery{
+		GraphID: graphID,
+		Buckets: req.Buckets,
+		GroupBy: req.GroupBy,
+		From:    req.From,
+		To:      req.To,
+	})
+	if err != nil {
+		return graphene.HeatmapSummary{}, AsError(consts.ErrCodeInternal, err)
 	}
 	return out, nil
 }

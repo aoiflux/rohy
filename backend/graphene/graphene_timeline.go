@@ -107,41 +107,10 @@ func (s *Store) TimelineGrouped(f EventFilter, buckets int, groupBy string) (Tim
 	}
 	out.From, out.To = from, to
 
-	span := to.Sub(from)
-	width := span / time.Duration(buckets)
-	if span <= 0 || width <= 0 {
-		// Every event shares one instant (or the span is finer than a bucket): a single
-		// bucket is the truthful rendering, rather than spreading identical timestamps
-		// across a fabricated range.
-		buckets = 1
-		width = time.Nanosecond
-	}
-
-	out.Buckets = make([]TimelineBucket, buckets)
-	for i := range out.Buckets {
-		start := from.Add(time.Duration(i) * width)
-		end := start.Add(width)
-		if buckets == 1 {
-			end = to
-		}
-		out.Buckets[i] = TimelineBucket{Start: start, End: end}
-	}
-
-	// bucketOf maps a timestamp onto its slice, clamping the final instant into the last
-	// bucket instead of past the end of the array.
-	bucketOf := func(ts time.Time) int {
-		if buckets == 1 {
-			return 0
-		}
-		idx := int(ts.Sub(from) / width)
-		if idx < 0 {
-			return -1 // outside an explicit lower bound
-		}
-		if idx >= buckets {
-			return buckets - 1
-		}
-		return idx
-	}
+	slices := newBucketing(from, to, buckets)
+	buckets = slices.count
+	out.Buckets = slices.buckets
+	bucketOf := slices.indexOf
 
 	// Grouping by graph is resolved from the edge index once, not per event: an event's
 	// graph membership lives on its relations, so it cannot be read off the node.
@@ -286,6 +255,60 @@ func buildLanes(laneCounts map[string][]int, buckets int) []TimelineLane {
 		}
 	}
 	return append(kept, other)
+}
+
+// bucketing is the time-slicing every bucketed view shares.
+//
+// 🔒 It is extracted rather than duplicated because the timeline and the relationship heatmap are
+// drawn ON TOP OF EACH OTHER. Two implementations that agreed today would drift, and the failure
+// would be a strip whose columns did not line up with the histogram beneath them — which reads as
+// activity at a time it did not happen.
+type bucketing struct {
+	from, to time.Time
+	width    time.Duration
+	count    int
+	buckets  []TimelineBucket
+}
+
+// newBucketing partitions [from, to] into at most `count` equal slices.
+func newBucketing(from, to time.Time, count int) bucketing {
+	span := to.Sub(from)
+	width := span / time.Duration(count)
+	if span <= 0 || width <= 0 {
+		// Everything shares one instant (or the span is finer than a bucket): a single bucket is
+		// the truthful rendering, rather than spreading identical timestamps across a fabricated
+		// range.
+		count = 1
+		width = time.Nanosecond
+	}
+	b := bucketing{from: from, to: to, width: width, count: count}
+	b.buckets = make([]TimelineBucket, count)
+	for i := range b.buckets {
+		start := from.Add(time.Duration(i) * width)
+		end := start.Add(width)
+		if count == 1 {
+			end = to
+		}
+		b.buckets[i] = TimelineBucket{Start: start, End: end}
+	}
+	return b
+}
+
+// indexOf maps a timestamp onto its slice, clamping the final instant into the last bucket
+// instead of past the end of the array. A negative result means "before the window", which only
+// happens under an explicit lower bound.
+func (b bucketing) indexOf(ts time.Time) int {
+	if b.count == 1 {
+		return 0
+	}
+	idx := int(ts.Sub(b.from) / b.width)
+	if idx < 0 {
+		return -1
+	}
+	if idx >= b.count {
+		return b.count - 1
+	}
+	return idx
 }
 
 const (

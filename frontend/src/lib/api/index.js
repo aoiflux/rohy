@@ -199,6 +199,22 @@ export function clusterModes() {
   return call(GRAPH, 'ClusterModes');
 }
 
+// --- Relationship heatmap (P29). WHEN the things rohy inferred happened, by kind. Pass from/to
+// to pin the window to the timeline's own view, so the strip and the histogram beneath it share
+// an axis exactly rather than approximately.
+
+/** @param {{graph_id?:number, buckets?:number, group_by?:string, all_graphs?:boolean, from?:string, to?:string}} req
+ *  @returns {Promise<{from:string,to:string,total:number,placed:number,undated:number,outside:number,
+ *    buckets:{start:string,end:string,count:number}[], group_by:string,
+ *    lanes:{key:string,total:number,counts:number[]}[], max:number}>} */
+export function relationHeatmap(req) {
+  return call(GRAPH, 'RelationHeatmap', req);
+}
+/** @returns {Promise<string[]>} */
+export function heatmapGroups() {
+  return call(GRAPH, 'HeatmapGroups');
+}
+
 // --- Graph management (multiple graphs, P15) ---
 
 export function listGraphs() {

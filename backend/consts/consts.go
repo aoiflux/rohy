@@ -890,6 +890,28 @@ const ClusterNoRuleLabel = "Not from a rule"
 
 const MsgClusterUnknownMode = "unknown cluster mode %q (expected one of: %s)"
 
+// --- Relationship heatmap (v0.2.0) ---
+//
+// The heatmap answers "when did the things rohy inferred actually happen, and what kind were
+// they" — a matrix of relation counts per (time bucket × group).
+const (
+	HeatmapGroupRule         = "rule"
+	HeatmapGroupRelationType = "relation_type"
+	HeatmapGroupComputer     = "computer"
+	HeatmapGroupCreatedBy    = "created_by"
+	HeatmapGroupStep         = "step"
+
+	DefaultHeatmapGroup = HeatmapGroupRule
+)
+
+// HeatmapGroups is the accepted set, in the order the UI offers them.
+var HeatmapGroups = []string{
+	HeatmapGroupRule, HeatmapGroupRelationType, HeatmapGroupComputer,
+	HeatmapGroupCreatedBy, HeatmapGroupStep,
+}
+
+const MsgHeatmapUnknownGroup = "unknown heatmap grouping %q (expected one of: %s)"
+
 // LayoutAbsentLabel names the resource-profile column for events that do not carry the slot
 // being grouped by. Absent is not a value shared with other absences (see CorrelationAbsentValues),
 // so they are collected under one explicitly-named column rather than correlated with each other.

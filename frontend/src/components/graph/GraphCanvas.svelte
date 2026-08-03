@@ -9,6 +9,8 @@
   import { relationsOfSelection, stepRelation } from '../../lib/graph/relations.js';
   import { clusters } from '../../stores/clusters.js';
   import { memberIndex, proxyCards, remapEdges } from '../../lib/graph/clusters.js';
+  import { replay } from '../../stores/replay.js';
+  import { build as buildReplay, visibleAt } from '../../lib/graph/replay.js';
   import * as api from '../../lib/api/index.js';
   import { findings } from '../../stores/findings.js';
   import { snackbar } from '../../stores/snackbar.js';
@@ -77,11 +79,27 @@
   const folded = $derived($clusters.visible ? $clusters.collapsed : new Set());
   const memberOf = $derived(memberIndex($clusters.list, folded));
   const clusterCards = $derived(proxyCards($clusters.list, folded, $graph.nodes, clusterGeom));
-  const remapped = $derived(remapEdges($graph.edges, memberOf));
+
+  // --- Replay (P29) ---
+  //
+  // Like folding, replay is a FILTER over what is drawn — nothing is removed from the graph.
+  // `null` means replay is off and everything draws; a Set means only these are on screen yet.
+  // The distinction matters: an empty Set and "no replay" must not render alike.
+  const replayModel = $derived(buildReplay($graph.nodes, $graph.edges));
+  const revealed = $derived($replay.active ? visibleAt(replayModel, $replay.t) : null);
+  const replayEdges = $derived(
+    revealed ? $graph.edges.filter((e) => revealed.edges.has(String(e.id))) : $graph.edges,
+  );
+  const remapped = $derived(remapEdges(replayEdges, memberOf));
 
   // A folded member is not drawn, but it is still ON the canvas — it stays in $graph.nodes, so
-  // unfolding restores it exactly and nothing about the graph itself has changed.
-  const shownNodes = $derived(nodeList.filter((n) => !memberOf.has(String(n.event.id))));
+  // unfolding restores it exactly and nothing about the graph itself has changed. Replay
+  // hides on the same principle and in the same place.
+  const shownNodes = $derived(
+    nodeList.filter(
+      (n) => !memberOf.has(String(n.event.id)) && (!revealed || revealed.nodes.has(String(n.event.id))),
+    ),
+  );
   const visibleNodes = $derived(shownNodes.filter((n) => isNodeVisible(n, vp, w, h)));
   const visibleIds = $derived.by(() => {
     const ids = new Set(visibleNodes.map((n) => n.event.id));

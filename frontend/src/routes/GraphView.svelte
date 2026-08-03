@@ -26,6 +26,7 @@
   import RelationInspector from '../components/graph/RelationInspector.svelte';
   import AutoLayoutPanel from '../components/graph/AutoLayoutPanel.svelte';
   import ClusterPanel from '../components/graph/ClusterPanel.svelte';
+  import ReplayBar from '../components/graph/ReplayBar.svelte';
   import RuleEditorDialog from '../components/rules/RuleEditorDialog.svelte';
 
   const onCanvas = $derived(new Set(Object.keys($graph.nodes).map(Number)));
@@ -243,6 +244,7 @@
          and below the graph switcher because it acts on ONE graph. -->
     <AutoLayoutPanel />
     <ClusterPanel />
+    <ReplayBar />
 
     <div class="paneltitle">
       <h3>{UI.PANEL_EVENTS}</h3>

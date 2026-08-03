@@ -170,6 +170,17 @@ export const LEARN = Object.freeze({
   RESTART_MS: 900,
 });
 
+// Relationship heatmap groupings (mirror backend consts.HeatmapGroup*). The heatmap answers
+// "when did the things rohy inferred happen, and what kind were they"; the grouping picks which
+// question the rows answer.
+export const HEATMAP_GROUP = Object.freeze({
+  RULE: 'rule',
+  RELATION_TYPE: 'relation_type',
+  COMPUTER: 'computer',
+  CREATED_BY: 'created_by',
+  STEP: 'step',
+});
+
 // Rule sources, mirroring backend consts.RuleSource* — drives the source badge and
 // whether a rule can be deleted (built-ins can only be disabled).
 export const RULE_SOURCES = Object.freeze({
@@ -306,6 +317,12 @@ export const GRAPH = Object.freeze({
   // World-space padding between a cluster's cards and the hull drawn around them. Wide enough
   // that the outline never touches a card border and is not mistaken for one.
   HULL_PAD: 26,
+  // How long a full replay takes at 1×. Playback is scaled to the case's SPAN rather than run at
+  // wall-clock speed: a three-week case would otherwise take three weeks, and a four-second one
+  // would be over before it was seen. The cost is that perceived pace carries no information here
+  // — the timeline, where it does, stays the place to read pace from.
+  REPLAY_DURATION_MS: 18000,
+  REPLAY_SPEEDS: Object.freeze([0.5, 1, 2, 4]),
   // How many analyst tags a node card shows before it would start crowding the event data
   // it exists to display (P25).
   NODE_TAG_LIMIT: 3,
@@ -792,6 +809,51 @@ export const UI = Object.freeze({
   ARRANGE_PARTIAL: 'nodes could not be placed — the canvas changed since this was computed.',
   ARRANGE_FAILED: 'Could not arrange this graph:',
 
+  // --- Relationship heatmap (P29) ---
+  //
+  // The timeline says when EVENTS happened. This says when the things rohy inferred happened —
+  // and, just as importantly, how many of them could not be placed at all.
+  HEATMAP_TITLE: 'Relationships over time',
+  HEATMAP_GROUP: 'Show by',
+  HEATMAP_SHOW: 'Show relationships',
+  HEATMAP_HIDE: 'Hide',
+  HEATMAP_ALL: 'All relationships',
+  HEATMAP_NOT_RUN: 'Not loaded yet.',
+  HEATMAP_EMPTY: 'No relationship in this graph can be placed in time.',
+  HEATMAP_LANES_HIDDEN: 'more rows are not shown.',
+  HEATMAP_UNDATED: 'relationships touch an event with no timestamp and cannot be placed.',
+  HEATMAP_OUTSIDE: 'relationships fall outside the range in view.',
+  HEATMAP_UNACCOUNTED: 'relationships are unaccounted for — this is a bug, please report it.',
+  HEATMAP_WHOLE_CASE: 'All graphs',
+  HEATMAP_FAILED: 'Could not build the heatmap:',
+  TIMELINE_PLAYHEAD_OUTSIDE:
+    'The playhead is set outside the range shown here — the graph covers events this filter excludes.',
+
+  // --- Replay (P29) ---
+  //
+  // Ordered by when the EVENTS happened, never by when the rule build ran.
+  REPLAY_TITLE: 'Replay',
+  REPLAY_PLAY: 'Play',
+  REPLAY_PAUSE: 'Pause',
+  REPLAY_SHOW_ALL: 'Show all',
+  REPLAY_SCRUB: 'Playhead',
+  REPLAY_SPEED: 'Speed',
+  REPLAY_NOT_STARTED: 'Not started',
+  REPLAY_UNPLAYABLE: 'Nothing on this canvas carries a timestamp, so there is no order to replay.',
+  REPLAY_UNDATED:
+    'events carry no timestamp. They are shown from the start rather than placed at the ' +
+    'beginning of the case, which would claim a time they do not have.',
+  REPLAY_APPROXIMATE:
+    'links touch an event with no timestamp, so the moment they became true is unknown. They ' +
+    'appear once both their ends are on screen, drawn as a weaker claim.',
+  HEATMAP_GROUP_LABEL: Object.freeze({
+    rule: 'Rule',
+    relation_type: 'Kind of link',
+    computer: 'Computer',
+    created_by: 'Inferred or asserted',
+    step: 'Step in the chain',
+  }),
+
   // --- Clusters (P29) ---
   CLUSTER_TITLE: 'Group',
   CLUSTER_MODE: 'Group by',
@@ -1046,6 +1108,9 @@ export const TIMELINE = Object.freeze({
   // How many density buckets to request. Enough for a detailed shape, few enough that the
   // canvas redraw stays trivial at any zoom.
   BUCKETS: 480,
+  // How many heatmap rows the standalone matrix shows before folding the rest away. The backend
+  // already caps lanes; this is a second, tighter bound for a panel with far less room.
+  HEATMAP_LANES: 10,
   AXIS_H: 22,
   TOP_PAD: 8,
   ZOOM_STEP: 0.18,

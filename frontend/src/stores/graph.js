@@ -5,6 +5,7 @@
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
 import { clusters } from './clusters.js';
+import { replay } from './replay.js';
 
 export const LAYOUT = Object.freeze({
   MANUAL: 'manual',
@@ -95,6 +96,9 @@ function create() {
     // graph B — or worse, leave a folded card standing for events that are no longer here.
     // Bound to the funnel rather than to each caller, so a new path cannot forget it.
     clusters.reset();
+    // Same reason: a graph switch must not leave the canvas filtered to a moment belonging to
+    // another graph, which would look like a graph that had lost most of its content.
+    replay.reset();
     update((s) => ({
       ...s,
       nodes: {},

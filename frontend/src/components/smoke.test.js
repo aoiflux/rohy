@@ -10,6 +10,8 @@ import AutoLayoutPanel from './graph/AutoLayoutPanel.svelte';
 import ClusterPanel from './graph/ClusterPanel.svelte';
 import GraphHulls from './graph/GraphHulls.svelte';
 import ClusterCard from './graph/ClusterCard.svelte';
+import HeatmapMatrix from './timeline/HeatmapMatrix.svelte';
+import ReplayBar from './graph/ReplayBar.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -370,4 +372,72 @@ describe('graph / clustering', () => {
   });
 
   renders('renders the cluster panel before its options have loaded', ClusterPanel, {});
+});
+
+describe('timeline / HeatmapMatrix', () => {
+  const SUMMARY = {
+    total: 12,
+    placed: 9,
+    undated: 2,
+    outside: 1,
+    max: 3,
+    group_by: 'rule',
+    buckets: [
+      { start: '2026-06-01T09:00:00Z', end: '2026-06-01T09:30:00Z', count: 4 },
+      { start: '2026-06-01T09:30:00Z', end: '2026-06-01T10:00:00Z', count: 5 },
+    ],
+    lanes: [
+      { key: 'brute-force', total: 5, counts: [2, 3] },
+      { key: 'log-cleared', total: 4, counts: [2, 2] },
+    ],
+  };
+
+  renders('renders the full matrix', HeatmapMatrix, { summary: SUMMARY });
+  renders('renders the single-row strip', HeatmapMatrix, { summary: SUMMARY, strip: true });
+  renders('renders before a summary has been fetched', HeatmapMatrix, { summary: null });
+
+  it('states what it could not place rather than quietly omitting it', () => {
+    // 🔒 A relation that could not be placed is not a relation that does not exist. A matrix
+    // that silently dropped it would be smaller than the graph.
+    const out = render(HeatmapMatrix, { props: { summary: SUMMARY } });
+    expect(out.body).toContain('2');
+    expect(out.body).toContain('no timestamp');
+    expect(out.body).toContain('outside the range');
+  });
+
+  it('says so when nothing at all can be placed', () => {
+    const out = render(HeatmapMatrix, {
+      props: { summary: { total: 3, placed: 0, undated: 3, max: 0, buckets: [], lanes: [] } },
+    });
+    expect(out.body).toContain('cannot be placed');
+  });
+
+  it('survives a summary with a zero maximum rather than dividing by it', () => {
+    expect(() =>
+      render(HeatmapMatrix, {
+        props: { summary: { total: 1, placed: 1, max: 0, buckets: [{ start: 'x', end: 'y' }], lanes: [{ key: 'a', total: 1, counts: [1] }] } },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not render an unreadable bucket time as Invalid Date', () => {
+    const out = render(HeatmapMatrix, {
+      props: {
+        summary: { total: 1, placed: 1, max: 1, buckets: [{ start: 'nonsense', end: 'nonsense' }], lanes: [{ key: 'a', total: 1, counts: [1] }] },
+      },
+    });
+    expect(out.body).not.toContain('Invalid Date');
+    expect(out.body).not.toContain('NaN');
+  });
+});
+
+describe('graph / ReplayBar', () => {
+  // The canvas is empty in SSR, so this is the state the bar is in on a fresh graph — which is
+  // also the state it must not throw in while an analyst is still adding events.
+  renders('renders on an empty canvas', ReplayBar, {});
+
+  it('says a graph with no timestamps has nothing to replay, rather than offering dead controls', () => {
+    const out = render(ReplayBar, {});
+    expect(out.body).toContain('no order to replay');
+  });
 });

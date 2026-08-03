@@ -340,3 +340,60 @@ func TestClusterModesMatchTheEngineVocabulary(t *testing.T) {
 		t.Error("ClusterModes handed out the shared slice")
 	}
 }
+
+func TestRelationHeatmapScopesToTheActiveGraphUnlessAsked(t *testing.T) {
+	api, graphID, events := layoutFixture(t)
+
+	// A second graph, which the per-graph answer must not include.
+	if _, err := api.store.InsertRelation(&graphene.Relation{
+		From: events[0].ID, To: events[2].ID, GraphID: graphID + 1,
+		RelationType: consts.RelationCorrelation, CreatedBy: consts.CreatedBySystem,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	scoped, err := api.RelationHeatmap(HeatmapRequest{GraphID: graphID, Buckets: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoped.Total != 2 {
+		t.Errorf("scoped Total = %d, want the 2 relations of this graph", scoped.Total)
+	}
+
+	// 🔒 AllGraphs is a flag rather than GraphID 0, because 0 already means "the active graph"
+	// everywhere else in this binding — and one value meaning two things is how a whole-case
+	// answer ends up displayed as a per-graph one.
+	all, err := api.RelationHeatmap(HeatmapRequest{Buckets: 12, AllGraphs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Total != 3 {
+		t.Errorf("whole-case Total = %d, want every relation", all.Total)
+	}
+	zero, err := api.RelationHeatmap(HeatmapRequest{GraphID: 0, Buckets: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if zero.Total != scoped.Total {
+		t.Errorf("GraphID 0 returned %d relations, want the active graph's %d", zero.Total, scoped.Total)
+	}
+}
+
+func TestRelationHeatmapRefusesAnUnknownGrouping(t *testing.T) {
+	api, graphID, _ := layoutFixture(t)
+	if _, err := api.RelationHeatmap(HeatmapRequest{GraphID: graphID, GroupBy: "vibes"}); err == nil {
+		t.Fatal("an unknown grouping must be refused")
+	}
+}
+
+func TestHeatmapGroupsMatchTheStoreVocabulary(t *testing.T) {
+	api, _, _ := layoutFixture(t)
+	got := api.HeatmapGroups()
+	if len(got) != len(consts.HeatmapGroups) {
+		t.Fatalf("offered %d groupings, store accepts %d", len(got), len(consts.HeatmapGroups))
+	}
+	got[0] = "tampered"
+	if consts.HeatmapGroups[0] == "tampered" {
+		t.Error("HeatmapGroups handed out the shared slice")
+	}
+}

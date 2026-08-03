@@ -14,6 +14,7 @@
   import { graph } from '../stores/graph.js';
   import { findings } from '../stores/findings.js';
   import { prefs } from '../stores/prefs.js';
+  import { replay } from '../stores/replay.js';
   import { snackbar } from '../stores/snackbar.js';
   import * as api from '../lib/api/index.js';
   import { formToFilter } from '../lib/filter.js';
@@ -25,6 +26,7 @@
     TIMELINE,
     TIMELINE_GROUP,
     TIMELINE_MODE,
+    HEATMAP_GROUP,
     FINDING_FILTERS,
     UNDATED,
     EVENTS_LIST,
@@ -37,12 +39,37 @@
   import ProgressBar from '../components/material/ProgressBar.svelte';
   import TimelineCanvas from '../components/timeline/TimelineCanvas.svelte';
   import TimelineOverview from '../components/timeline/TimelineOverview.svelte';
+  import HeatmapMatrix from '../components/timeline/HeatmapMatrix.svelte';
 
   let summary = $state(/** @type {any} */ (null));
   let loading = $state(false);
   let windowEvents = $state(/** @type {any[]} */ ([]));
   let hover = $state(/** @type {any} */ (null));
-  let playhead = $state(/** @type {number|null} */ (null));
+  // The playhead is SHARED with the graph canvas's replay (P29), and the shared value is an
+  // absolute instant rather than a fraction. The two views measure different spans — this one
+  // the filtered event set, the canvas the active graph — so a shared fraction would have them
+  // pointing at different moments while appearing to agree. Each converts at its own edge.
+  //
+  // Derived, not local: one owner means a scrub here and a scrub there can never disagree.
+  const playhead = $derived(clampFrac(timeToFrac($replay.t)));
+  // The shared instant can sit outside this view's extent — the graph may cover a range the
+  // current filter excludes. Saying so beats a marker that silently is not there.
+  const playheadOutside = $derived($replay.t !== null && playhead === null);
+
+  /** setPlayhead publishes a position on THIS view's axis as the shared absolute instant. */
+  function setPlayhead(frac) {
+    if (frac === null) {
+      replay.clearPlayhead();
+      return;
+    }
+    const t = fracToTime(frac);
+    if (t) replay.seek(t.getTime());
+  }
+
+  /** clampFrac drops a fraction outside the plotted range rather than drawing off-canvas. */
+  function clampFrac(f) {
+    return f === null || f < 0 || f > 1 ? null : f;
+  }
   let selectedId = $state(/** @type {number|null} */ (null));
   let adjacency = $state(/** @type {Record<number, any>} */ ({}));
 
@@ -64,6 +91,61 @@
     const names = new Map(($graph.graphs || []).map((g) => [String(g.id), g.name]));
     return lanes.map((l) => ({ ...l, key: names.get(l.key) || l.key }));
   });
+
+  // --- Relationship heatmap (P29) ---
+  //
+  // The histogram below says when EVENTS happened; this says when the things rohy INFERRED
+  // happened. It is off by default: an analyst who has not run any rules has nothing to see, and
+  // a permanently present empty strip is noise.
+  //
+  // 🔒 It is fetched over the timeline's FULL extent at the same bucket count, never over the
+  // visible window. Same extent + same count means the backend's shared bucketing produces
+  // identical boundaries, so column i is the same instant in both; zoom is then applied to both
+  // arrays identically. Re-fetching per window would re-bucket it and the two would drift apart.
+  let heatOn = $state(false);
+  let heatSummary = $state(/** @type {any} */ (null));
+  let heatGroup = $state(HEATMAP_GROUP.RULE);
+  let heatAll = $state(false);
+  let heatLoading = $state(false);
+
+  const heatGroupOptions = Object.values(HEATMAP_GROUP).map((g) => ({
+    value: g,
+    label: UI.HEATMAP_GROUP_LABEL[g] ?? g,
+  }));
+
+  async function loadHeatmap() {
+    if (!extent) return;
+    heatLoading = true;
+    try {
+      heatSummary = await api.relationHeatmap({
+        buckets: TIMELINE.BUCKETS,
+        group_by: heatGroup,
+        all_graphs: heatAll,
+        from: new Date(extent.from).toISOString(),
+        to: new Date(extent.to).toISOString(),
+      });
+    } catch (err) {
+      snackbar.error(`${UI.HEATMAP_FAILED} ${String(err && err.message ? err.message : err)}`);
+      heatSummary = null;
+    } finally {
+      heatLoading = false;
+    }
+  }
+
+  async function toggleHeatmap() {
+    heatOn = !heatOn;
+    if (heatOn) await loadHeatmap();
+  }
+
+  function setHeatGroup(value) {
+    heatGroup = value;
+    if (heatOn) loadHeatmap();
+  }
+
+  function toggleHeatScope() {
+    heatAll = !heatAll;
+    if (heatOn) loadHeatmap();
+  }
 
   // View state persists across navigation and restart, like the search panel does.
   let view = $state(prefs.current().timelineView || { start: 0, end: 1 });
@@ -228,7 +310,7 @@
   function selectEvent(ev) {
     selectedId = ev.id;
     const f = timeToFrac(ev.timestamp);
-    if (f !== null) playhead = f;
+    if (f !== null) setPlayhead(f);
   }
 
   // Graph → timeline: when another view focuses an event, select and reveal it here, so
@@ -247,7 +329,7 @@
       const ev = await api.getEvent(id);
       const frac = timeToFrac(ev && ev.timestamp);
       if (frac === null) return; // undated events have no position here
-      playhead = frac;
+      setPlayhead(frac);
       // Centre the window on it, keeping the current zoom.
       const half = Math.max(view.end - view.start, TIMELINE.MIN_VIEW_SPAN) / 2;
       const start = Math.min(Math.max(frac - half, 0), 1 - half * 2);
@@ -342,32 +424,35 @@
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        playhead = Math.max(at - step, 0);
+        setPlayhead(Math.max(at - step, 0));
         break;
       case 'ArrowRight':
         e.preventDefault();
-        playhead = Math.min(at + step, 1);
+        setPlayhead(Math.min(at + step, 1));
         break;
       case 'Home':
         e.preventDefault();
-        playhead = view.start;
+        setPlayhead(view.start);
         break;
       case 'End':
         e.preventDefault();
-        playhead = view.end;
+        setPlayhead(view.end);
         break;
       case 'Escape':
         if (playhead !== null) {
           e.preventDefault();
-          playhead = null;
+          setPlayhead(null);
         }
         break;
       default:
         return;
     }
     // Keep the playhead in view: scrubbing past the edge should pan, not lose the cursor.
-    if (playhead !== null && (playhead < view.start || playhead > view.end)) {
-      const start = Math.min(Math.max(playhead - span / 2, 0), 1 - span);
+    // Read back through the store rather than through `playhead`, because that is derived and
+    // has not been recomputed yet at this point in the handler.
+    const now = clampFrac(timeToFrac(replay.current().t));
+    if (now !== null && (now < view.start || now > view.end)) {
+      const start = Math.min(Math.max(now - span / 2, 0), 1 - span);
       setView({ start, end: start + span });
     }
   }
@@ -439,6 +524,18 @@
         {dragMode === TIMELINE_MODE.SELECT ? UI.TIMELINE_SELECT_LEGEND : UI.TIMELINE_PAN_LEGEND}
       </span>
 
+      <!-- The heatmap is opt-in: a case with no rules run has nothing to show here, and an
+           empty strip that is always present is noise. -->
+      <button class="zbtn wide" type="button" onclick={toggleHeatmap} aria-pressed={heatOn}>
+        {heatOn ? UI.HEATMAP_HIDE : UI.HEATMAP_SHOW}
+      </button>
+      {#if heatOn}
+        <Select compact label={UI.HEATMAP_GROUP} options={heatGroupOptions} value={heatGroup} onchange={setHeatGroup} />
+        <button class="zbtn wide" type="button" onclick={toggleHeatScope} aria-pressed={heatAll}>
+          {UI.HEATMAP_WHOLE_CASE}
+        </button>
+      {/if}
+
       <Button variant="text" onclick={loadSummary}>{UI.ACTION_RETRY}</Button>
     </div>
   {/if}
@@ -485,6 +582,13 @@
           {/each}
         </div>
       {/if}
+      <!-- The strip sits directly above the plot and shares its left inset, so a column here
+           lands over the same instant in the histogram below. -->
+      {#if heatOn}
+        <div class="heatstrip">
+          <HeatmapMatrix summary={heatSummary} strip {view} inset={displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0} />
+        </div>
+      {/if}
       <div class="plot" style="padding-left: {displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0}px">
         <TimelineCanvas
           buckets={summary.buckets}
@@ -496,7 +600,7 @@
           onViewChange={setView}
           onRangeSelect={applyRange}
           onHover={(h) => (hover = h)}
-          onPlayheadMove={(f) => (playhead = f)}
+          onPlayheadMove={setPlayhead}
         />
       </div>
       {#if hover && hoverBucket}
@@ -524,12 +628,27 @@
       </div>
     {/if}
 
+    <!-- The full matrix: one row per group, plus the caveats. It repeats the strip's numbers
+         rather than replacing them, because the strip answers "when" and this answers "what",
+         and an analyst reading a spike wants both without switching views. -->
+    {#if heatOn}
+      <div class="heatpanel">
+        <div class="wtitle">
+          <h3>{UI.HEATMAP_TITLE}</h3>
+          {#if heatLoading}<span class="wcount">…</span>{/if}
+        </div>
+        <HeatmapMatrix summary={heatSummary} {view} />
+      </div>
+    {/if}
+
     <div class="axis" style="padding-left: calc(var(--space-5) + {displayLanes.length > 0 ? TIMELINE.LANE_LABEL_W : 0}px)">
       <span>{fmt(windowRange?.from)}</span>
-      {#if playhead !== null}
+      {#if playheadOutside}
+        <span class="hint">{UI.TIMELINE_PLAYHEAD_OUTSIDE}</span>
+      {:else if playhead !== null}
         <span class="playhead" title={UI.TIMELINE_PLAYHEAD_HINT}>
           ▲ {fmtPlayhead()}
-          <button class="clear" type="button" onclick={() => (playhead = null)}>×</button>
+          <button class="clear" type="button" onclick={() => setPlayhead(null)}>×</button>
         </span>
       {:else}
         <span class="hint">{UI.TIMELINE_HINT}</span>
@@ -667,6 +786,18 @@
     font-size: 0.75rem;
     color: var(--color-on-surface-muted);
     margin-left: auto;
+  }
+  /* The strip is a thin band above the plot; it must not push the chart around when it
+     appears, so it has a fixed height rather than one derived from its content. */
+  .heatstrip {
+    height: 10px;
+    margin-bottom: 4px;
+  }
+  .heatpanel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px var(--space-5);
   }
   .overview {
     flex: 0 0 auto;
