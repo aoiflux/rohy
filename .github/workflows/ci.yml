@@ -37,10 +37,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Vet
-        run: go vet ./backend/...
+        run: go vet ./backend/... ./cmd/... ./tools/...
 
       - name: Backend tests
-        run: go test ./backend/... -count=1
+        run: go test ./backend/... ./cmd/... ./tools/... -count=1
 
       # The persistence, ingest, and API layers are the concurrent ones: a lazy-opened
       # store, a gated ingest pipeline, and a cancellable build all share state across
@@ -53,6 +53,58 @@ jobs:
         run: |
           npm ci
           npm test
+
+  # The rule library, checked by the tool that ships with it. Self-hosting on purpose: the
+  # formatter's gate is run against the rules the app itself embeds, so a formatter change that
+  # would reformat every built-in fails here rather than in somebody's next diff.
+  #
+  # Separate from `test` because it answers a different question. `test` asks whether the code
+  # works; this asks whether the DATA the code ships is in the shape the code expects — and a
+  # rule that fails to load is not a test failure, it is a rule that would be silently missing
+  # from the library at runtime.
+  rules-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build rohyctl
+        run: go build -o rohyctl ./cmd/rohyctl
+
+      # --check writes nothing. A gate that reformatted the tree it was inspecting would pass
+      # every time by making itself true.
+      - name: Built-in rules are canonically formatted
+        run: ./rohyctl format --check backend/rules/builtin/
+
+      - name: Built-in rules load
+        run: ./rohyctl validate backend/rules/builtin/
+
+  # The rule format is stated in three places — the Go validator, the guided editor's descriptor,
+  # and the JSON Schema an external editor reads. The second is generated from the first and the
+  # third from the second, so this job's only job is to prove nobody edited a generated artefact
+  # or forgot to regenerate one.
+  #
+  # Drift here fails in the worst possible shape: an editor that reports a file as valid, and a
+  # loader that then refuses it.
+  schema-drift:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # The descriptor against its pinned structural projection, which the JS validator also reads.
+      - name: Rule schema golden
+        run: go test ./backend/rules/ -run TestSchemaGolden -count=1
+
+      # -check writes nothing, so the gate cannot pass by making itself true.
+      - name: Generated JSON Schema is current
+        run: go run ./tools/genschema -check
 
   # Prove the app still builds for every shipped target. This is what catches a change that
   # compiles on the developer's Windows machine but breaks the cgo frontends.

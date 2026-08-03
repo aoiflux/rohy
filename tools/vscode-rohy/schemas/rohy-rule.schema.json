@@ -1,0 +1,180 @@
+{
+  "$id": "urn:rohy:rule-format",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "Generated from rules.Describe() by tools/genschema — do not edit by hand. This describes the SHAPE of a rule. Rules that depend on the chosen algorithm (a lineage rule carrying no sequence, match_fields being required for field correlation) are not expressible here and are checked by `rohyctl validate`; an editor showing no error is not an editor that found none.",
+  "properties": {
+    "algorithm": {
+      "default": "sequence",
+      "description": "How this rule's events are correlated into edges.\n\nThis is the single most consequential field, because it decides what a match ESTABLISHES. 'sequence' proves ordering on one host and nothing more; 'field' adds shared entity values; 'temporal' adds a bounded time window; 'lineage' reconstructs process ancestry instead of matching a sequence at all. Anything else is refused at load, so a rule can never half-run on a matcher that does not exist.",
+      "enum": [
+        "sequence",
+        "field",
+        "temporal",
+        "lineage"
+      ],
+      "examples": [
+        "sequence"
+      ],
+      "type": "string"
+    },
+    "channels": {
+      "description": "The Windows log channels this rule needs in order to fire.\n\nNo algorithm reads this — it exists so rohy can tell you 'this rule cannot fire, the log it depends on was never ingested' instead of reporting zero matches and leaving you to work out why. Declare every channel the rule's event IDs come from. A rule that omits it is simply not checked.",
+      "examples": [
+        [
+          "Security"
+        ]
+      ],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "description": {
+      "default": "",
+      "description": "Free text shown in the rules list and the rule inspector.\n\nState what a match does and does not establish, and name the channel the rule depends on if it reaches outside Security and System. If the rule anchors on a high-volume event such as 4672, say that the pairing is broad.",
+      "examples": [
+        "Three or more failed logon attempts (4625) followed by a successful logon (4624) on the same computer."
+      ],
+      "type": "string"
+    },
+    "format_version": {
+      "default": 1,
+      "description": "The rule-format version this file targets.\n\nThere is one version, and omitting the field means it. A file declaring a version HIGHER than the build reading it is refused with an explanation rather than partially matched, because a newer rule may rely on a matcher that build does not have. Choosing an algorithm does NOT change the version a rule needs: a build that lacks a matcher refuses it by name, which is the guard a version would otherwise be.\n\nSet by rohy, not by the rule file.",
+      "examples": [
+        1
+      ],
+      "type": "integer"
+    },
+    "labels": {
+      "description": "Optional label for each connection: labels[i] labels the edge from sequence[i] to sequence[i+1].\n\nA sequence of n steps has n−1 connections, so there are at most n−1 labels. An empty string (or a missing trailing entry) leaves that connection untagged, which lets you label only the hop that carries the meaning.\n\nRead by: sequence, field and temporal. Other algorithms preserve it but ignore it.",
+      "examples": [
+        [
+          "",
+          "",
+          "then succeeds"
+        ]
+      ],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 999,
+      "type": "array"
+    },
+    "lineage_create_ids": {
+      "description": "Event IDs that record a process being created.\n\nDefaults to 4688 (Windows process creation), so most lineage rules do not set it. Override it to read a different provider — Sysmon's process-creation event is 1.\n\nRead by: lineage. Other algorithms preserve it but ignore it.",
+      "examples": [
+        [
+          "4688"
+        ]
+      ],
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "lineage_depth": {
+      "default": 0,
+      "description": "How many ancestor levels above the direct parent to link.\n\n0 — the default — emits only direct parent→child edges. Transitive links are derivable by walking those, so raising this multiplies the edge count without adding information; it is worth doing only when you want ancestry visible without traversal. Edges beyond the direct parent are stamped with a lower confidence, because they are derived rather than read from a record.\n\nRead by: lineage. Other algorithms preserve it but ignore it.",
+      "examples": [
+        0
+      ],
+      "type": "integer"
+    },
+    "match_fields": {
+      "description": "Correlation fields every event in a match must share.\n\nThis is what turns a match from 'these happened in this order on this host' into 'and they concern the same logon session'. An event that carries no value for a listed field is EXCLUDED from matching rather than grouped with the others, and the run reports how many were left out. Listing more fields narrows further; listing one good one usually beats listing three.\n\nRead by: field and temporal. Other algorithms preserve it but ignore it.",
+      "examples": [
+        [
+          "logon_id"
+        ]
+      ],
+      "items": {
+        "enum": [
+          "logon_id",
+          "subject_logon_id",
+          "process_id",
+          "new_process_id",
+          "parent_process_id",
+          "process_name",
+          "target_user",
+          "subject_user",
+          "ip_address",
+          "service_name"
+        ],
+        "type": "string"
+      },
+      "maxItems": 10,
+      "type": "array"
+    },
+    "match_scope": {
+      "default": "computer",
+      "description": "How events are partitioned before matching.\n\n'computer' matches within one host, which is almost always what you want — a chain assembled across unrelated machines is not evidence of anything. 'global' drops that partition and should be paired with match_fields, or it will correlate across your whole case.",
+      "enum": [
+        "computer",
+        "global"
+      ],
+      "examples": [
+        "computer"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "description": "Human-readable name for the rule, and also its identity.\n\nThe rule's id is a slug of this name, so two rules with the same name collide and renaming a rule replaces its identity. Name the pattern you are looking for, not the event IDs that express it.",
+      "examples": [
+        "Failed Logons Then Successful Logon"
+      ],
+      "type": "string"
+    },
+    "relation_type": {
+      "default": "correlation",
+      "description": "Edge type stamped on every relation this rule produces.\n\nDrives edge colouring on the graph canvas. An empty or unrecognized value becomes correlation rather than being rejected.",
+      "enum": [
+        "correlation",
+        "temporal",
+        "default"
+      ],
+      "examples": [
+        "correlation"
+      ],
+      "type": "string"
+    },
+    "sequence": {
+      "description": "Ordered event IDs to match in chronological order within the scope.\n\nRepeat an id to require it more than once. Matching is greedy and non-overlapping, and steps need not be adjacent. On its own a match establishes a temporally ordered pairing on one host — it does NOT establish that the events share a user, account, or logon session. Add match_fields (with the 'field' algorithm) if you need that.\n\nRead by: sequence, field and temporal. Other algorithms preserve it but ignore it.",
+      "examples": [
+        [
+          "4625",
+          "4625",
+          "4625",
+          "4624"
+        ]
+      ],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 1000,
+      "minItems": 2,
+      "type": "array"
+    },
+    "window_total": {
+      "description": "Optional maximum time from the first matched step to the last.\n\nBounds the whole chain, not each hop. Useful for a long sequence where every individual gap is plausible but the total span is not. Must be at least as long as window_within, or no match could ever complete.\n\nRead by: temporal. Other algorithms preserve it but ignore it.",
+      "examples": [
+        "30m"
+      ],
+      "type": "string"
+    },
+    "window_within": {
+      "description": "Maximum time between consecutive matched steps, as a duration.\n\nWritten like \"90s\", \"5m\" or \"2h\". Required by the temporal algorithm: an unbounded window would make it a slower spelling of the sequence algorithm. Choose it from the behaviour you are describing — a password-guessing burst is minutes, a persistence step after a logon can be hours.\n\nRead by: temporal. Other algorithms preserve it but ignore it.",
+      "examples": [
+        "5m"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "rohy correlation rule",
+  "type": "object",
+  "x-rohy-format-version": 1,
+  "x-rohy-max-file-bytes": 1048576
+}
