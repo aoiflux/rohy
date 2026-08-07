@@ -228,7 +228,9 @@ func TestDeleteIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestIDsAreCollisionResistantAndSortChronologically(t *testing.T) {
+func TestIDsSortChronologically(t *testing.T) {
+	// The id doubles as the filename, so a directory listing reads in the order the snapshots were
+	// taken — which is how somebody reading the case folder by hand will encounter them.
 	a := NewID(snapBase)
 	b := NewID(snapBase.Add(time.Millisecond))
 	if a == b {
@@ -236,6 +238,50 @@ func TestIDsAreCollisionResistantAndSortChronologically(t *testing.T) {
 	}
 	if !(a < b) {
 		t.Errorf("ids do not sort chronologically: %q then %q", a, b)
+	}
+}
+
+func TestTwoSnapshotsInTheSameMillisecondBothSurvive(t *testing.T) {
+	// 🔒 The regression this exists for. Millisecond ids collide on any machine quick enough to
+	// take two snapshots inside one — which is one double-click on a Linux CI runner, and was a
+	// silent overwrite until CI caught it. Driven from a FIXED clock rather than by racing the real
+	// one, so it fails everywhere rather than only where the timing happens to line up.
+	s := openStore(t)
+	first := doc(7, snapBase)
+	first.Label = "first"
+	second := doc(7, snapBase) // same instant, therefore the same base id
+	second.Label = "second"
+
+	if err := s.Save(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(second); err != nil {
+		t.Fatal(err)
+	}
+
+	if first.ID == second.ID {
+		t.Fatalf("both snapshots kept the id %q, so one overwrote the other", first.ID)
+	}
+	// The id the caller is handed must be the one actually on disk, or a restore cannot find it.
+	for _, want := range []*Document{first, second} {
+		got, err := s.Get(7, want.ID)
+		if err != nil {
+			t.Fatalf("%s: %v", want.Label, err)
+		}
+		if got.Label != want.Label {
+			t.Errorf("id %q holds %q, want %q", want.ID, got.Label, want.Label)
+		}
+	}
+	list, err := s.List(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Errorf("listed %d, want both snapshots", len(list))
+	}
+	// Still sortable: the disambiguated id sorts immediately after the one it followed.
+	if !(first.ID < second.ID) {
+		t.Errorf("disambiguated id breaks the ordering: %q then %q", first.ID, second.ID)
 	}
 }
 

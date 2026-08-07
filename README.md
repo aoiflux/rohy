@@ -9,7 +9,7 @@
 Ingest EVTX logs, map how events relate, and correlate them with rules you
 control — entirely on your own machine.
 
-`v0.2.0` · Windows / Linux / macOS · Go + Wails + Svelte
+`v0.2.0` "Andromeda" · Windows / Linux / macOS · Go + Wails + Svelte
 
 </div>
 
@@ -305,6 +305,8 @@ rule engine and built-in library, the dual-mode rule editor, auto-graphing,
 multiple graphs, the graph canvas, relation provenance, the timeline page (zoom,
 pan, scrub, lanes, shared selection with the canvas), analyst findings with
 orphan auditing, keyboard shortcuts, and the release pipeline.
+
+See [RELEASE_NOTES.md](RELEASE_NOTES.md) for what changed and how to upgrade an existing case.
 
 **Delivered in v0.2.0** — the correlation-key projection and its backfill, three
 further correlation algorithms (field, temporal, lineage), the prepared dataset

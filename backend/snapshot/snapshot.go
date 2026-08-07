@@ -161,16 +161,53 @@ func (s *Store) Save(doc *Document) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+
+	// 🔒 Never overwrite. Two snapshots taken inside the same millisecond share a base id, and on a
+	// fast machine that is one double-click apart — writing over the first would silently destroy
+	// something the analyst deliberately took, which is the one thing this package must not do.
+	// (Found by CI on Linux, where the clock and the filesystem are quick enough to hit it every
+	// time; a Windows dev machine never reproduced it.)
+	//
+	// Disambiguating keeps the id sortable — `…-141133.000` then `…-141133.000-2` — so the
+	// directory still reads chronologically by eye.
+	path, err := s.freeIDLocked(dir, doc)
+	if err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, doc.ID+".json")
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// freeIDLocked settles on an id no file already uses, updating doc.ID to match, and returns the
+// path to write. The caller holds the lock, so the check and the later write cannot race.
+//
+// The bound exists so a pathological state cannot spin: at the snapshot cap there are only ever
+// a few dozen files, so more than that many collisions on one millisecond means something else is
+// wrong and the caller should hear about it rather than loop.
+func (s *Store) freeIDLocked(dir string, doc *Document) (string, error) {
+	base := doc.ID
+	for n := 1; n <= consts.MaxSnapshotsPerGraph+1; n++ {
+		id := base
+		if n > 1 {
+			id = fmt.Sprintf("%s-%d", base, n)
+		}
+		path := filepath.Join(dir, id+".json")
+		if _, err := os.Stat(path); err != nil {
+			if !os.IsNotExist(err) {
+				return "", err
+			}
+			doc.ID = id
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("could not find a free snapshot id for %q", base)
 }
 
 // List returns a graph's snapshots, newest first.
