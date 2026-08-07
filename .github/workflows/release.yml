@@ -308,23 +308,35 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      # The notes are written by hand in RELEASE_NOTES.md, and the section for THIS version is
+      # extracted here — so the released body and the file in the repository cannot say different
+      # things. Without it the action replaces whatever is on the release with a short generated
+      # body, which silently destroys notes somebody wrote in the web UI.
+      #
+      # Failing when the section is missing is deliberate. Publishing a release whose notes are an
+      # empty string is worse than not publishing at all, because the gap is only discovered by
+      # whoever downloads it.
+      - name: Assemble release notes
+        run: |
+          set -euo pipefail
+          V="${{ needs.version.outputs.version }}"
+          awk -v ver="## v$V" '
+            $0 ~ "^"ver" " || $0 == ver {found=1}
+            found && /^## v/ && $0 !~ "^"ver {exit}
+            found {print}
+          ' RELEASE_NOTES.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "RELEASE_NOTES.md has no '## v$V' section - write the notes before tagging" >&2
+            exit 1
+          fi
+          cat .github/release-footer.md >> notes.md
+          wc -c notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: staged/*
+          # body_path, not body: the source is the file in the repository, so the release cannot
+          # drift from it. append_body is left off, so a re-run REPLACES the body rather than
+          # stacking a second copy of the footer on top of the first.
+          body_path: notes.md
           generate_release_notes: true
-          body: |
-            ### Verify your download
-
-            Every artefact is listed in `SHA256SUMS.txt`.
-
-            ```bash
-            sha256sum -c SHA256SUMS.txt          # Linux
-            shasum -a 256 -c SHA256SUMS.txt      # macOS
-            ```
-
-            ### Signing status
-
-            These artefacts are **not code-signed**. On macOS, Gatekeeper will refuse to
-            open the app until you allow it explicitly (System Settings → Privacy &
-            Security). On Windows, SmartScreen may warn on first run. Verify the checksum
-            above before allowing either.

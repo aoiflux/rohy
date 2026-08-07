@@ -8,3 +8,11 @@
 *.sh    text eol=lf
 *.yml   text eol=lf
 *.yaml  text eol=lf
+
+# JSON is compared BYTE FOR BYTE by four gates: the rule-format schema golden, the shared
+# validation fixture, `rohyctl format --check` over the built-in rules, and the generated JSON
+# Schema drift check. GitHub's Windows runners check out with core.autocrlf=true, so without
+# this pin those files arrive as CRLF while the generators emit LF — and every one of those gates
+# fails on Windows only. That is exactly how the v0.2.0 release build broke: macOS and Linux
+# passed, Windows failed on TestSchemaGolden, and the release job was skipped.
+*.json  text eol=lf
