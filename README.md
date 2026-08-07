@@ -77,9 +77,15 @@ same versions CI builds releases with.
 
 ```bash
 git clone <repo> && cd rohy
-./build.sh 0.2.0             # Linux / macOS
+./build.sh 0.2.0             # Linux / macOS — the version shown at the top of this file
 .\build.ps1 -Version 0.2.0   # Windows
 ```
+
+The version argument is **required** and has no default anywhere — not in the build
+scripts, not in `backend/version`, and not in the release workflow. This file is the
+only place the release version is written down, so bumping it means editing one line
+here and passing the same number to the build. A binary built without a stamp reports
+itself as `unreleased`, never as a number it has no basis for.
 
 The build scripts run the test suites, delete `frontend/dist` and rebuild it
 from scratch, then stamp version/commit/date into the binary. The clean-frontend

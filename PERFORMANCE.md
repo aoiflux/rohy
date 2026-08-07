@@ -317,6 +317,33 @@ The obvious fix (add a third variable, discard `missing`) compiles, passes every
 existing test, and silently turns index/store divergence into a short page in
 the events list.
 
+### Record: v0.3.0 → v0.4.0
+
+Purely additive by signature — nothing removed, nothing changed shape. `OpenWithOptions`,
+`Forensics`, `StorageStats`, `ShouldCompact`, `Tx.As`/`Tx.Attributed`, and the `Signer` /
+`Verifier` / `ActorTransactor` / `StorageReporter` interfaces are new; every call rohy makes
+compiles and passes unchanged.
+
+**It is not free.** Same machine, same session, `-benchtime=3x -count=3`, medians:
+
+| Path | v0.3.0 | v0.4.0 | |
+| --- | ---: | ---: | --- |
+| `Compact()`, 10k | **45.1 ms** | **101.7 ms** | **2.3× slower** |
+| `Compact()` allocations | 90 119 | 410 140 | **4.6×** |
+| Open, uncompacted 100k | 921 ms | 965 ms | within noise |
+| Open allocations, 100k | 4 210 352 | 5 310 577 | **+26%** |
+| Open, compacted 10k | 49.9 ms | 58.5 ms | overlapping spreads |
+
+The two timing rows that look like regressions are not resolvable — the spreads overlap, and §12
+warns that differences under ~25% are not resolvable on this rig. **The allocation rows are.**
+They are stable to the digit across every run, and they are the finding: v0.4.0 allocates 4.6× as
+much to compact and 26% more to open.
+
+Compaction is not on an interactive path — it runs after bulk ingest and before shutdown (§6) —
+so the cost lands where it is least felt. It is recorded rather than acted on, because the number
+to watch is the ALLOCATION count, and the next upgrade should compare against these figures rather
+than against the older ones in §12.
+
 **Upgrade procedure:**
 
 1. **Move the version alone.** No capability adoption in the same step, or no

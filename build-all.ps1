@@ -27,8 +27,12 @@
 
 [CmdletBinding()]
 param(
-    # SemVer for this build. Keep in step with backend/version.Version's default.
-    [string]$Version = "0.1.0",
+    # SemVer for this build, without the leading "v". REQUIRED, and deliberately not defaulted:
+    # the version lives in README.md and nowhere else, so a default here would be a second copy
+    # that some release eventually ships stale.
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^\d+\.\d+\.\d+([-+].+)?$')]
+    [string]$Version,
     # Skip the test suites (not recommended for anything you intend to ship).
     [switch]$SkipTests,
     # Attempt the cgo-bound targets anyway. They are expected to fail on this host; the flag
@@ -47,12 +51,12 @@ $ArtefactDir = Join-Path $PSScriptRoot "build/artefacts"
 # --- Targets -----------------------------------------------------------------------------
 # Buildable = this host can link it. See the header for how that was determined.
 $targets = @(
-    @{ Platform = "windows/amd64"; Ext = ".exe"; Buildable = $true;  Reason = "" }
-    @{ Platform = "windows/arm64"; Ext = ".exe"; Buildable = $true;  Reason = "" }
-    @{ Platform = "linux/amd64";   Ext = "";     Buildable = $false; Reason = "cgo: needs Linux + libwebkit2gtk/libgtk-3 headers" }
-    @{ Platform = "linux/arm64";   Ext = "";     Buildable = $false; Reason = "cgo: needs Linux arm64 + libwebkit2gtk/libgtk-3 headers" }
-    @{ Platform = "darwin/amd64";  Ext = "";     Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
-    @{ Platform = "darwin/arm64";  Ext = "";     Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
+    @{ Platform = "windows/amd64"; Ext = ".exe"; Buildable = $true; Reason = "" }
+    @{ Platform = "windows/arm64"; Ext = ".exe"; Buildable = $true; Reason = "" }
+    @{ Platform = "linux/amd64"; Ext = ""; Buildable = $false; Reason = "cgo: needs Linux + libwebkit2gtk/libgtk-3 headers" }
+    @{ Platform = "linux/arm64"; Ext = ""; Buildable = $false; Reason = "cgo: needs Linux arm64 + libwebkit2gtk/libgtk-3 headers" }
+    @{ Platform = "darwin/amd64"; Ext = ""; Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
+    @{ Platform = "darwin/arm64"; Ext = ""; Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
 )
 
 # --- Build metadata ----------------------------------------------------------------------
@@ -64,7 +68,8 @@ try { $commit = (git rev-parse --short HEAD).Trim() } catch { }
 try {
     $porcelain = git status --porcelain
     if ($null -ne $porcelain -and $porcelain.Length -gt 0) { $commit = "$commit-dirty" }
-} catch { }
+}
+catch { }
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 $pkg = "rohy/backend/version"

@@ -29,9 +29,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "SemVer to stamp (without the leading v), e.g. 0.1.0"
+        # No default, deliberately. The version lives in README.md and nowhere else; a default
+        # here is a second copy, and a pre-filled box is the easiest way to ship the previous
+        # release by accident.
+        description: "SemVer to stamp, without the leading v (the version README.md states)"
         required: true
-        default: "0.1.0"
 
 permissions:
   contents: write

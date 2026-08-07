@@ -28,7 +28,17 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${1:-0.1.0}"
+# SemVer for this build, without the leading "v". REQUIRED, and deliberately not defaulted: the
+# version lives in README.md and nowhere else, so a default here would be a second copy that some
+# release eventually ships stale.
+VERSION="${1:-}"
+if [ -z "$VERSION" ]; then
+  echo "usage: $0 <version>   e.g. $0 1.2.3   (the version README.md states)" >&2
+  exit 2
+fi
+case "$VERSION" in
+  v*) echo "error: pass the version without a leading 'v' (got '$VERSION')" >&2; exit 2 ;;
+esac
 SKIP_TESTS="${SKIP_TESTS:-0}"
 TRY_CROSS="${TRY_CROSS:-0}"     # attempt targets this host is expected to fail on
 ARTEFACTS="build/artefacts"

@@ -42,7 +42,7 @@ func TestUnstampedBuildIsHonest(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			withVars(t, "0.0.1", c.commit, c.date, func() {
+			withVars(t, "1.2.3", c.commit, c.date, func() {
 				if !Current("rohy").Development {
 					t.Errorf("commit=%q date=%q was not flagged as a development build", c.commit, c.date)
 				}
@@ -55,7 +55,7 @@ func TestUnstampedBuildIsHonest(t *testing.T) {
 // real commit and date, so it is not "development" — but the dirtiness is visible in the
 // commit string, which is where the About dialog surfaces it. The marker must survive.
 func TestDirtyBuildIsAReleaseButCarriesItsMarker(t *testing.T) {
-	withVars(t, "0.0.1", "abc1234-dirty", "2026-07-25T00:00:00Z", func() {
+	withVars(t, "1.2.3", "abc1234-dirty", "2026-07-25T00:00:00Z", func() {
 		info := Current("rohy")
 		if info.Development {
 			t.Error("a dirty build with a real commit and date was hidden as development")
@@ -64,4 +64,33 @@ func TestDirtyBuildIsAReleaseButCarriesItsMarker(t *testing.T) {
 			t.Errorf("commit = %q, want the -dirty marker preserved", info.Commit)
 		}
 	})
+}
+
+// TestMissingVersionIsUnreleasedNotBlank pins the consequence of there being NO version literal
+// in the source tree: an unstamped build has nothing to report, and it says so in a word rather
+// than showing an empty field or inventing a number.
+func TestMissingVersionIsUnreleasedNotBlank(t *testing.T) {
+	withVars(t, "", "abc1234", "2026-07-25T00:00:00Z", func() {
+		info := Current("rohy")
+		if info.Version != Unversioned {
+			t.Errorf("version = %q, want %q", info.Version, Unversioned)
+		}
+		// 🔒 A missing version is on its own enough to mark the build. A binary stamped with a
+		// commit and a date but no version is not a release, and must not present as one.
+		if !info.Development {
+			t.Error("a build with no version reported itself as a release")
+		}
+	})
+}
+
+// TestNoVersionLiteralIsCompiledIn pins the rule the package comment states: the release version
+// lives in README.md and arrives through the linker. A default here would be a second copy, and
+// the one certainty about a hardcoded version is that some release ships the previous one.
+func TestNoVersionLiteralIsCompiledIn(t *testing.T) {
+	if Version != "" {
+		t.Errorf("Version has a compiled-in default of %q — it must be injected at link time", Version)
+	}
+	if Unversioned == "" {
+		t.Error("Unversioned is empty, so an unstamped build would show a blank version")
+	}
 }

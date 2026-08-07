@@ -6,7 +6,7 @@
 
 **A technical deep dive into how rohy actually works.**
 
-`v0.2.0` · Go + Wails + Svelte
+Go + Wails + Svelte · version stated in [README.md](README.md)
 
 </div>
 

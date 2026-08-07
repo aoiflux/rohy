@@ -24,8 +24,12 @@
 
 [CmdletBinding()]
 param(
-    # SemVer for this build. Keep in step with backend/version.Version's default.
-    [string]$Version = "0.1.0",
+    # SemVer for this build, without the leading "v". REQUIRED, and deliberately not defaulted:
+    # the version lives in README.md and nowhere else, so a default here would be a second copy
+    # that some release eventually ships stale.
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^\d+\.\d+\.\d+([-+].+)?$')]
+    [string]$Version,
     # Skip `go test ./backend/...` (not recommended for a release).
     [switch]$SkipTests,
     # Produce an NSIS installer as well as the bare executable (Windows only).
