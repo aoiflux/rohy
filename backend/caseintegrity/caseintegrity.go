@@ -85,6 +85,19 @@ type ForensicStore interface {
 	VerifyImage() (graphene.ImageCheck, error)
 }
 
+// RootHistory is the slice of the fingerprint sidecar the retained-root check reads.
+//
+// 🔒 The method is `Exported`, not `Retained`, and the difference is the whole point: rohy can see
+// that a copy was taken out of the app and cannot see whether one is held anywhere. A nil
+// RootHistory reports the caveat unconditionally, which is the safe direction — it produces the
+// warning rather than suppressing it.
+//
+// It returns a time rather than a custody.Record so this package needs no dependency on the
+// sidecar at all — the same reason every other interface here is two methods wide.
+type RootHistory interface {
+	ExportedAt(snapshot string) (time.Time, bool)
+}
+
 // EventStore is the slice of the graph store the checks need.
 type EventStore interface {
 	Inventory() (graphene.Inventory, error)
@@ -126,6 +139,7 @@ type Deps struct {
 	Graphs    GraphRegistry
 	Rules     RuleSource
 	Forensics ForensicStore
+	Roots     RootHistory
 	LayoutDir string
 	// PayloadSize and PayloadUsed describe the cold store: how many bytes the log holds, and how
 	// far the furthest referenced record extends. The difference is orphaned tail.
@@ -602,14 +616,50 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) {
 		})
 	}
 
-	// 🔒 The standing caveat, and it is reported at every depth. An internally-consistent check
-	// is the store vouching for itself, and that is true whether or not the image verifies.
-	rep.add(Finding{
-		Code: consts.IntegrityNoRootRetained, Severity: consts.IntegritySevWarn,
-		Message: consts.MsgIntegrityNoRootRetained, Action: consts.IntegrityActionRetainRoot,
-	})
-
+	checkRetainedRoot(rep, deps, st)
 	checkImage(rep, deps, opts)
+}
+
+// checkRetainedRoot reports whether a copy of the case fingerprint has been taken out of the app.
+//
+// 🔒 Reported at every depth, and reported even when the image verifies. An internally-consistent
+// check is the store vouching for itself, and that stays true however many of rohy's own checks
+// pass — so silence here would let a verified image read as an unaltered one.
+//
+// 🔒 The satisfied state is INFO, not silence, and it says what rohy cannot see. Whether the copy
+// still exists, whether it went anywhere beyond the reach of someone able to rewrite this case,
+// whether it was transcribed correctly — none of that is observable from in here. A tick would
+// claim all three. And the value of an external copy comes precisely from being outside what this
+// process can observe, so a process that could confirm it would be confirming something worth less.
+func checkRetainedRoot(rep *Report, deps Deps, st graphene.ForensicStatus) {
+	snapshot := ""
+	if st.Roots != nil {
+		snapshot = st.Roots.Snapshot
+	}
+
+	// No history to consult, or no copy taken: the caveat stands. A nil Roots defaults to the
+	// warning rather than suppressing it — a history lost to a corrupt sidecar must not read as
+	// "a copy was taken".
+	if deps.Roots == nil || snapshot == "" {
+		rep.add(Finding{
+			Code: consts.IntegrityNoRootRetained, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityNoRootRetained, Action: consts.IntegrityActionRetainRoot,
+		})
+		return
+	}
+
+	at, ok := deps.Roots.ExportedAt(snapshot)
+	if !ok {
+		rep.add(Finding{
+			Code: consts.IntegrityNoRootRetained, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityNoRootRetained, Action: consts.IntegrityActionRetainRoot,
+		})
+		return
+	}
+	rep.add(Finding{
+		Code: consts.IntegrityRootExported, Severity: consts.IntegritySevInfo,
+		Message: fmt.Sprintf(consts.MsgIntegrityRootExported, at.Format(time.RFC3339)),
+	})
 }
 
 // checkImage re-derives the image, in deep mode only.

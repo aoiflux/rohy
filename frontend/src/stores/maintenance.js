@@ -99,6 +99,25 @@ function create() {
     }
   }
 
+  /** exportFingerprint hands back the artefact and records that a copy was taken.
+   *
+   *  🔒 The posture is re-read afterwards, because the export is what changes it — the caveat
+   *  becomes an informational note. Not re-reading would leave the screen still asking for
+   *  something that had just been done, which is the same reason a repair re-runs the check. */
+  async function exportFingerprint() {
+    if (busy()) return null;
+    update((s) => ({ ...s, running: 'export', error: '' }));
+    try {
+      const doc = await api.exportCaseFingerprint();
+      update((s) => ({ ...s, running: '', lastResult: 'export' }));
+      await loadForensics();
+      return doc;
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
   /** compact folds the WAL into a new image, then re-reads the posture — compaction is what
    *  computes the roots, so the thing it changes is precisely the posture. Any prior image
    *  verification is dropped: it was about a different image. */
@@ -159,6 +178,7 @@ function create() {
     check,
     verify,
     compact,
+    exportFingerprint,
     backfill: () => run('backfill', api.backfillCorrelationKeys),
     repair: () => run('repair', api.repairRelationIndex),
     rebuild: () => run('rebuild', api.rebuildIndexes),

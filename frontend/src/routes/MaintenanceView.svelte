@@ -15,6 +15,7 @@
   import { maintenance } from '../stores/maintenance.js';
   import { route } from '../stores/router.js';
   import * as api from '../lib/api/index.js';
+  import { download } from '../lib/export.js';
   import { ROUTES, THEMES, UI, CHANNELS } from '../lib/consts/index.js';
   import {
     grouped,
@@ -44,6 +45,7 @@
   const image = $derived($maintenance.image);
 
   let copied = $state(false);
+  let exported = $state(false);
 
   let unsubscribe = () => {};
 
@@ -81,6 +83,21 @@
       // button is a convenience — failing it silently is better than an error about a fingerprint
       // the analyst can already read.
     }
+  }
+
+  /** saveFingerprint writes the artefact out as a file.
+   *
+   *  A FILE rather than only the clipboard, because the whole instruction is "keep this somewhere
+   *  else" and the document carries what the bare hash cannot: which case and which image it
+   *  describes, and — inside the file — what it does and does not establish. A hash pasted into a
+   *  note six weeks ago is a hash nobody can place. */
+  async function saveFingerprint() {
+    const doc = await maintenance.exportFingerprint();
+    if (!doc) return;
+    const stamp = String(doc.sealed_at ?? '').replace(/[:.]/g, '-');
+    download(`rohy-fingerprint-${stamp}.json`, 'application/json', JSON.stringify(doc, null, 2));
+    exported = true;
+    setTimeout(() => (exported = false), 3000);
   }
 </script>
 
@@ -177,8 +194,17 @@
           <Button variant="text" onclick={copyRoot}>
             {copied ? UI.MAINT_FORENSIC_COPIED : UI.MAINT_FORENSIC_COPY}
           </Button>
+          <Button variant="tonal" onclick={saveFingerprint} disabled={busy}>
+            {UI.MAINT_FORENSIC_EXPORT}
+          </Button>
         </div>
         <p class="hint">{UI.MAINT_FORENSIC_ROOT_HINT}</p>
+        {#if exported}
+          <!-- 🔒 A note, not a tick. rohy saw a file get written; it cannot see where that file
+               went or whether it survives, and the copy is worth having precisely because those
+               are outside what this process can observe. -->
+          <p class="hint">{UI.MAINT_FORENSIC_EXPORTED}</p>
+        {/if}
       {/if}
     {/if}
   </section>

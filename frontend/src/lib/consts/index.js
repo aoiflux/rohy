@@ -942,6 +942,15 @@ export const UI = Object.freeze({
     'from an altered one. A fingerprint you kept elsewhere can.',
   MAINT_FORENSIC_COPY: 'Copy fingerprint',
   MAINT_FORENSIC_COPIED: 'Copied.',
+  MAINT_FORENSIC_EXPORT: 'Save a copy…',
+  // 🔒 The satisfied state says what rohy cannot see, and stays a note rather than becoming a tick.
+  // Whether the copy still exists, whether it went anywhere out of reach of someone able to change
+  // this case, whether it was transcribed correctly — none of it is observable from in here. And
+  // that is what makes the copy worth having, so a version of this that claimed confirmation would
+  // be confirming something worth less.
+  MAINT_FORENSIC_EXPORTED:
+    'A copy was saved. rohy cannot tell whether it still exists, or whether it is somewhere ' +
+    'beyond the reach of anyone able to change this case — which is what makes it worth having.',
   MAINT_IMAGE_TITLE: 'Has the case changed?',
   MAINT_IMAGE_HINT:
     'Re-reads every record and compares it against the fingerprint written with it. Proportional ' +

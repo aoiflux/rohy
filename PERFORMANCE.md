@@ -553,6 +553,10 @@ the decision is being changed — check that it is on purpose.
 | `TestVerifyImageReportsNoImageRatherThanPassingOrFailing`| An unverifiable case never reads as a verified one (§18)            |
 | `TestInMemoryStoreReportsForensicsUnavailableNotClean`   | A backend with no forensic machinery says so, rather than looking clean |
 | `TestDefaultPostureClaimsNothingItHasNotGot`            | No integrity guarantee is reported that has not been configured      |
+| `TestMultiFileIngestSealsOnceNotPerFile`                | Sealing is once per ingest request, never per file (§18)             |
+| `TestCancelledIngestIsStillSealed`                      | A cancelled ingest still seals what it wrote (§18)                   |
+| `TestUnknownFingerprintIsNotExported`                   | A lost fingerprint history defaults to the caveat, never to "kept"   |
+| `TestReObservingDoesNotRetractAnExport`                 | Reading the posture cannot retract a recorded export                 |
 
 ---
 
@@ -824,6 +828,45 @@ off without saying so is worse than one that was never offered.
 ⚠️ **Verification is allocation-heavy, not just slow** — 449 MB of churn at 100k, ~4.5 kB per
 event. It is the wrong thing to run concurrently with a graph build, and the maintenance
 binding's single-pass guard is what keeps it from happening.
+
+### Sealing at the ingest boundary
+
+Compaction is what computes the snapshot roots, so until it runs nothing in a case can be proven.
+rohy used to compact in exactly one place — clean shutdown — which meant a force-quit or crashed
+session left roots for nothing it had ingested.
+
+The question that decides the placement is not what `BenchmarkCompact` measures. Compacting a fresh
+store says nothing about the case that matters: **an analyst has a large case and ingests one more
+log file into it.**
+
+Ryzen 9 5980HS, medians of three. "Increment" is an already-compacted store of that size plus 500
+events — a realistic single small log file — compacted again.
+
+| Events | Compact from scratch | Compact after +500 | Allocated (scratch → +500) |
+| -----: | -------------------: | -----------------: | -------------------------: |
+| 10k    |                88 ms |              73 ms |        49.1 MB → 47.1 MB   |
+| 100k   |              1149 ms |        **1325 ms** |    **600 MB → 566 MB**     |
+
+**Compaction is proportional to the CASE, not to the ingest.** Adding 500 events to a 100k case
+costs the same ~1.3 s as compacting all 100k from nothing, because it rewrites the whole image
+either way. The allocation figures are the stable ones and they say it plainly: 566 MB against
+600 MB, 4.02M allocations against 4.10M — within 6%.
+
+🔒 **So sealing happens once per ingest REQUEST, never per file and never per chunk.** A twelve-file
+ingest that sealed per file would pay ~16 s on a 100k case and discard eleven of the twelve results,
+because only the last image's roots survive. `TestMultiFileIngestSealsOnceNotPerFile` pins it.
+
+🔒 **It is a deferred call, not a trailing one.** The cancellation path returns from inside the file
+loop, so written as a trailing statement it was skipped there — a cancelled ingest left everything
+it had already written unaccounted for. `TestCancelledIngestIsStillSealed` found that, and is what
+stops a future early return reintroducing it.
+
+⚠️ **The wait is announced** (`case:sealing` / `case:sealed`). Over a second of silence after
+"ingest complete" is indistinguishable from a hang — the same reason the backfill reports progress.
+
+⚠️ **A live continuous capture seals when it stops, not per batch.** It reaches the same deferred
+call, which is the correct behaviour by construction rather than by a special case: per-batch
+sealing on an open-ended stream would be unbounded waste at the worst possible ratio.
 
 ### Three costs measured for free along the way
 

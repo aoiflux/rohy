@@ -10,6 +10,7 @@ import (
 	"rohy/backend/api"
 	"rohy/backend/capture"
 	"rohy/backend/consts"
+	"rohy/backend/custody"
 	"rohy/backend/findings"
 	"rohy/backend/graphbuild"
 	"rohy/backend/graphene"
@@ -106,6 +107,10 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	rootStore, err := custody.Open(rootsDir(dir))
+	if err != nil {
+		return nil, err
+	}
 
 	return &App{
 		store:       store,
@@ -121,6 +126,7 @@ func NewApp() (*App, error) {
 			Findings:  findingStore,
 			Graphs:    registry,
 			Rules:     ruleReg,
+			Roots:     rootStore,
 			LayoutDir: layoutDir(dir),
 		}),
 		Snapshots: api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
@@ -238,4 +244,14 @@ func snapshotsDir(dbDir string) string {
 // placement and same reasoning again: authored, not ingested.
 func annotationsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.AnnotationsSubdir)
+}
+
+// rootsDir returns the case-fingerprint history (<cwd>/rohy-data/roots).
+//
+// Beside the store like every other sidecar, and with one thing worth being explicit about: this
+// copy is for CHAINING one image's fingerprint to the last, which is a check the case can run on
+// itself. It is not the external copy that makes a fingerprint worth anything — a value that never
+// left this folder establishes nothing against anyone able to rewrite the folder. See §14.2.
+func rootsDir(dbDir string) string {
+	return filepath.Join(filepath.Dir(dbDir), consts.RootsSubdir)
 }

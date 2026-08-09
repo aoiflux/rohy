@@ -2,13 +2,16 @@ package api
 
 import (
 	"context"
+	"time"
 
 	"rohy/backend/caseintegrity"
 	"rohy/backend/consts"
+	"rohy/backend/custody"
 	"rohy/backend/findings"
 	"rohy/backend/graphene"
 	"rohy/backend/graphreg"
 	"rohy/backend/rules"
+	"rohy/backend/version"
 )
 
 // Case-integrity binding (P30).
@@ -20,9 +23,12 @@ import (
 // IntegrityDeps are the stores the checks read. They are attached after construction so
 // MaintenanceAPI keeps its narrow constructor and the wiring stays in one place (app.go).
 type IntegrityDeps struct {
-	Findings  *findings.Store
-	Graphs    *graphreg.Store
-	Rules     *rules.Registry
+	Findings *findings.Store
+	Graphs   *graphreg.Store
+	Rules    *rules.Registry
+	// Roots is the case-fingerprint history (plan §14.2). Without it the retained-root caveat is
+	// reported unconditionally, which is the safe direction.
+	Roots     *custody.Store
 	LayoutDir string
 }
 
@@ -72,6 +78,9 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 	}
 	if d.Rules != nil {
 		out.Rules = d.Rules
+	}
+	if d.Roots != nil {
+		out.Roots = d.Roots
 	}
 	if a.store != nil {
 		// Size is what the log holds; PayloadUsed comes from the same inventory scan the other
@@ -130,6 +139,94 @@ func (a *MaintenanceAPI) RepairRelationIndex() (int, error) {
 // screen should be read.
 func (a *MaintenanceAPI) ForensicStatus() graphene.ForensicStatus {
 	return a.store.ForensicStatus()
+}
+
+// CaseFingerprint is the artefact an analyst takes out of the app and keeps elsewhere.
+//
+// It carries more than the bare hash on purpose. Somebody comparing a copy from six weeks ago
+// against a case now needs to know which of several fingerprints they are holding, and a lone hex
+// string cannot say. The extra fields are what make it filable.
+type CaseFingerprint struct {
+	// Snapshot is the value that matters. Everything else places it.
+	Snapshot string `json:"snapshot"`
+	Prev     string `json:"prev,omitempty"`
+
+	NodeRoot      string `json:"node_root,omitempty"`
+	EdgeRoot      string `json:"edge_root,omitempty"`
+	IndexRoot     string `json:"index_root,omitempty"`
+	TombstoneRoot string `json:"tombstone_root,omitempty"`
+
+	SealedAt   time.Time `json:"sealed_at"`
+	Events     int       `json:"events,omitempty"`
+	AppVersion string    `json:"app_version,omitempty"`
+
+	// Establishes and DoesNotEstablish travel WITH the artefact.
+	//
+	// 🔒 This is not decoration. The document may be read months later by somebody who never saw
+	// the screen it came from — opposing counsel, an auditor, a colleague — and a bare hash in a
+	// case file invites exactly the overstatement this whole feature exists to avoid. The claim
+	// and its limits have to be inside the file, because the file is what gets forwarded.
+	Establishes      []string `json:"establishes"`
+	DoesNotEstablish []string `json:"does_not_establish"`
+}
+
+// ExportCaseFingerprint returns the fingerprint artefact and records that a copy was taken.
+//
+// 🔒 rohy records that an export HAPPENED, never that a copy is held. It cannot see whether the copy
+// survives, whether it went anywhere beyond the reach of someone able to rewrite this case, or
+// whether it was transcribed correctly. The integrity report says so in as many words, and the
+// satisfied state stays informational rather than becoming a tick.
+//
+// Marking the export is best-effort: the analyst has the artefact either way, and failing the call
+// after handing back the value would be reporting a failure that did not affect them.
+func (a *MaintenanceAPI) ExportCaseFingerprint() (CaseFingerprint, error) {
+	roots, err := a.store.SnapshotRoots()
+	if err != nil {
+		return CaseFingerprint{}, AsError(consts.ErrCodePersistence, err)
+	}
+	if roots == nil {
+		// Never sealed. A specific, remediable state rather than a generic failure.
+		return CaseFingerprint{}, AsError(consts.ErrCodeInternal, custody.ErrNoRoot)
+	}
+
+	out := CaseFingerprint{
+		Snapshot:      roots.Snapshot,
+		Prev:          roots.Prev,
+		NodeRoot:      roots.NodeRoot,
+		EdgeRoot:      roots.EdgeRoot,
+		IndexRoot:     roots.IndexRoot,
+		TombstoneRoot: roots.TombstoneRoot,
+		SealedAt:      time.Now().UTC(),
+		AppVersion:    version.Version,
+		Establishes: []string{
+			consts.FingerprintEstablishesUnchanged,
+			consts.FingerprintEstablishesChain,
+		},
+		DoesNotEstablish: []string{
+			consts.FingerprintNotWho,
+			consts.FingerprintNotTrue,
+			consts.FingerprintNotPrevention,
+		},
+	}
+	if nodes, _, err := a.store.Stats(); err == nil {
+		out.Events = int(nodes)
+	}
+
+	a.mu.Lock()
+	hist := a.integrity.Roots
+	a.mu.Unlock()
+	if hist != nil {
+		rec := custody.Record{
+			Snapshot: roots.Snapshot, Prev: roots.Prev,
+			NodeRoot: roots.NodeRoot, EdgeRoot: roots.EdgeRoot, IndexRoot: roots.IndexRoot,
+			TombstoneRoot: roots.TombstoneRoot, BodyVersion: roots.BodyVersion,
+			StoreVersion: a.store.Version(), Events: out.Events, AppVersion: version.Version,
+		}
+		if _, err := hist.Observe(rec); err == nil {
+			_ = hist.MarkExported(roots.Snapshot)
+		}
+	}
+	return out, nil
 }
 
 // VerifyImage re-derives the case image's digest and Merkle roots.

@@ -14,8 +14,20 @@ export function CheckIntegrity(arg1) {
   return window['go']['api']['MaintenanceAPI']['CheckIntegrity'](arg1);
 }
 
+export function CompactCase() {
+  return window['go']['api']['MaintenanceAPI']['CompactCase']();
+}
+
 export function CorrelationKeyStatus() {
   return window['go']['api']['MaintenanceAPI']['CorrelationKeyStatus']();
+}
+
+export function ExportCaseFingerprint() {
+  return window['go']['api']['MaintenanceAPI']['ExportCaseFingerprint']();
+}
+
+export function ForensicStatus() {
+  return window['go']['api']['MaintenanceAPI']['ForensicStatus']();
 }
 
 export function IsRunningMaintenance() {
@@ -32,6 +44,10 @@ export function RepairRelationIndex() {
 
 export function Startup(arg1) {
   return window['go']['api']['MaintenanceAPI']['Startup'](arg1);
+}
+
+export function VerifyImage() {
+  return window['go']['api']['MaintenanceAPI']['VerifyImage']();
 }
 
 export function WithIntegrity(arg1) {

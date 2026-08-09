@@ -560,6 +560,13 @@ const (
 	// proportional to the case size must show movement rather than looking hung.
 	EventMaintenanceProgress = "maintenance:progress"
 	EventMaintenanceComplete = "maintenance:complete"
+	// Case sealing (v0.2.0 Phase 8, plan §14.2): the compaction that runs at the end of an
+	// ingest. It gets its own channel rather than riding on the ingest events because it is a
+	// distinct step with a distinct meaning — the ingest is over, and what it wrote is being
+	// given a fingerprint — and because it takes over a second on a large case. A silent second
+	// after "complete" is indistinguishable from a hang.
+	EventCaseSealing = "case:sealing"
+	EventCaseSealed  = "case:sealed"
 
 	EventRulesStarted   = "rules:started"
 	EventRulesProgress  = "rules:progress"
@@ -989,6 +996,7 @@ const (
 	IntegrityImageUncovered  = "image_uncovered"
 	IntegrityUnsignedCommits = "unsigned_commits"
 	IntegrityNoRootRetained  = "no_root_retained"
+	IntegrityRootExported    = "root_exported"
 	IntegrityForensicsAbsent = "forensics_unavailable"
 )
 
@@ -1043,8 +1051,32 @@ const (
 	MsgIntegrityNeverCompacted  = "this case has never been compacted, so nothing in it can be proven yet. Every event is recorded but unaccounted for — which is not the same as missing."
 	MsgIntegrityImageUncovered  = "this case's image predates integrity digests, so there is nothing covering its contents. Compacting rewrites it with one."
 	MsgIntegrityUnsignedCommits = "writes to this case are not signed, so nothing in it can be attributed to anyone. This cannot be applied retrospectively: what is already written stays unattributed."
-	MsgIntegrityNoRootRetained  = "no snapshot root has been kept outside this case. Every check rohy can run compares the case against itself, which cannot distinguish an intact case from an altered one."
+	MsgIntegrityNoRootRetained  = "no copy of this case's fingerprint has been taken out of the app. Every check rohy can run compares the case against itself, which cannot distinguish an intact case from an altered one."
 	MsgIntegrityForensicsAbsent = "this case has no integrity machinery: %s"
+	// 🔒 Even the satisfied state stays informational and says what rohy cannot see. The value of
+	// an external copy comes precisely from being outside what this process can observe, so
+	// claiming to have confirmed it would be claiming something worth less.
+	MsgIntegrityRootExported = "a copy of this case's fingerprint was taken on %s. rohy cannot tell whether that copy still exists, or whether it is somewhere beyond the reach of anyone able to change this case — which is what makes it worth having."
+)
+
+// Case fingerprint history (plan §14.2).
+const (
+	MsgCustodyNoRoot = "this case has no fingerprint yet: it has never been sealed"
+)
+
+// What an exported case fingerprint does and does not establish.
+//
+// 🔒 These travel INSIDE the exported document, not merely on the screen it was exported from. The
+// file is what gets forwarded — to a colleague, an auditor, opposing counsel — and it may be read by
+// somebody who never saw the UI. A bare hash in a case file invites exactly the overstatement this
+// feature exists to avoid, so the claim and its limits ship with it.
+const (
+	FingerprintEstablishesUnchanged = "Compared against this case later, it shows whether the case's contents have changed since this fingerprint was taken."
+	FingerprintEstablishesChain     = "It binds the fingerprint of the image it replaced, so a substituted case breaks the chain even if the substitute is internally consistent."
+
+	FingerprintNotWho        = "It does not establish WHO produced the case, or who changed it. Anyone able to rewrite the case can produce a matching fingerprint for the rewritten version — which is why this copy is only worth anything if it is kept somewhere they cannot reach."
+	FingerprintNotTrue       = "It does not establish that the events in the case are TRUE, or that they were interpreted correctly. It covers what was recorded, not whether what was recorded is so."
+	FingerprintNotPrevention = "It prevents nothing. It makes a change detectable to someone holding this copy; it cannot stop one."
 )
 
 // --- Annotation layers (v0.2.0) ---
@@ -1526,6 +1558,20 @@ const (
 	// CaptureStateFile is the durable bookmark document inside it.
 	CaptureSubdir    = "capture"
 	CaptureStateFile = "positions.json"
+
+	// RootsSubdir holds the case-fingerprint history (rohy-data/roots); RootsStateFile is the
+	// document inside it (plan §14.2).
+	//
+	// It lives beside the store rather than inside it for the same reason findings and
+	// annotations do — but the reasoning has an extra edge here. The history is kept internally
+	// so a later root can be CHAINED to an earlier one, which is a check the store can perform
+	// on itself. It is emphatically not a substitute for a copy kept elsewhere: a fingerprint
+	// that never left the case folder is worthless against anyone able to rewrite that folder,
+	// and the file's own comment says so.
+	RootsSubdir    = "roots"
+	RootsStateFile = "roots.json"
+	// RootsDocVersion guards the document format.
+	RootsDocVersion = 1
 )
 
 // --- Live event XML element/attribute names (rendered by EvtRender) ---

@@ -5,10 +5,32 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
 )
+
+// fakeRoots is the fingerprint history, reduced to the one method the check reads.
+//
+// 🔒 The method is ExportedAt, not RetainedAt. rohy can see that a copy left the app and cannot see
+// whether one is held anywhere, and the interface is named for what is observable.
+type fakeRoots struct {
+	exported map[string]time.Time
+}
+
+func (f *fakeRoots) ExportedAt(snapshot string) (time.Time, bool) {
+	at, ok := f.exported[snapshot]
+	return at, ok
+}
+
+// withRoots returns a posture carrying a fingerprint, so the retained-root check has something to
+// look up.
+func withRoots(snapshot string) *fakeForensics {
+	f := compactedAndClean()
+	f.status.Roots = &graphene.SnapshotRoots{Snapshot: snapshot, NodeRoot: "n", EdgeRoot: "e"}
+	return f
+}
 
 // Forensic posture detectors (plan §14.8).
 //
@@ -259,5 +281,88 @@ func TestSignedCaseDoesNotReportUnsignedCommits(t *testing.T) {
 
 	if has(rep, consts.IntegrityUnsignedCommits) != nil {
 		t.Error("a signed case was reported as unsigned")
+	}
+}
+
+// --- the exported / not-exported split (plan §14.2) ---
+
+// 🔒 A fingerprint whose copy WAS taken flips the caveat to informational — and the message still
+// says what rohy cannot see. This is the one satisfied state in the whole feature, and it stays INFO
+// rather than becoming silence or a tick, because whether the copy survives, went somewhere out of
+// reach, or was transcribed correctly is all unobservable from in here.
+func TestAnExportedFingerprintReportsInfoAndStillStatesTheLimit(t *testing.T) {
+	at := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	rep := Run(context.Background(), Deps{
+		Forensics: withRoots("abc123"),
+		Roots:     &fakeRoots{exported: map[string]time.Time{"abc123": at}},
+	}, Options{Deep: true})
+
+	if has(rep, consts.IntegrityNoRootRetained) != nil {
+		t.Error("the caveat is still reported after a copy was taken")
+	}
+	got := has(rep, consts.IntegrityRootExported)
+	if got == nil {
+		t.Fatalf("the export was not reported at all; codes = %v", codes(rep))
+	}
+	if got.Severity != consts.IntegritySevInfo {
+		t.Errorf("severity = %q, want %q — this is a state, not a pass", got.Severity, consts.IntegritySevInfo)
+	}
+	if !strings.Contains(got.Message, "2026-08-09") {
+		t.Errorf("message %q does not say WHEN the copy was taken", got.Message)
+	}
+	// 🔒 It must keep saying what rohy cannot confirm. A message that only announced the export
+	// would read as a tick, which is the single false claim this feature must not make.
+	if !strings.Contains(got.Message, "cannot tell") {
+		t.Errorf("message %q drops the limit — it reads as confirmation", got.Message)
+	}
+	// And no action: there is nothing left to press.
+	if got.Action != consts.IntegrityActionNone {
+		t.Errorf("action = %q, want none", got.Action)
+	}
+}
+
+// A DIFFERENT fingerprint having been exported does not satisfy the current one. Sealing again
+// produces a new fingerprint, and a copy of the old one says nothing about the new image.
+func TestAnExportOfAnEarlierFingerprintDoesNotSatisfyTheCurrentOne(t *testing.T) {
+	at := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	rep := Run(context.Background(), Deps{
+		Forensics: withRoots("new-root"),
+		Roots:     &fakeRoots{exported: map[string]time.Time{"old-root": at}},
+	}, Options{Deep: true})
+
+	if has(rep, consts.IntegrityNoRootRetained) == nil {
+		t.Errorf("a copy of a superseded fingerprint satisfied the current one; codes = %v", codes(rep))
+	}
+	if has(rep, consts.IntegrityRootExported) != nil {
+		t.Error("reported the current fingerprint as exported on the strength of an older one")
+	}
+}
+
+// 🔒 No history to consult defaults to the CAVEAT, not to silence. A history lost to a corrupt
+// sidecar must not read as "a copy was taken".
+func TestAbsentHistoryDefaultsToTheCaveat(t *testing.T) {
+	rep := Run(context.Background(), Deps{Forensics: withRoots("abc123")}, Options{Deep: true})
+
+	if has(rep, consts.IntegrityNoRootRetained) == nil {
+		t.Errorf("a nil history suppressed the caveat; codes = %v", codes(rep))
+	}
+	if has(rep, consts.IntegrityRootExported) != nil {
+		t.Error("a nil history reported an export")
+	}
+}
+
+// A posture with no fingerprint at all still produces the caveat rather than looking up "".
+func TestNoFingerprintStillProducesTheCaveat(t *testing.T) {
+	f := compactedAndClean() // compacted, but Roots left nil
+	rep := Run(context.Background(), Deps{
+		Forensics: f,
+		Roots:     &fakeRoots{exported: map[string]time.Time{"": time.Now()}},
+	}, Options{Deep: true})
+
+	if has(rep, consts.IntegrityNoRootRetained) == nil {
+		t.Errorf("an empty fingerprint did not produce the caveat; codes = %v", codes(rep))
+	}
+	if has(rep, consts.IntegrityRootExported) != nil {
+		t.Error("an empty fingerprint matched an export record keyed on the empty string")
 	}
 }

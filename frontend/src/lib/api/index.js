@@ -547,6 +547,25 @@ export function compactCase() {
   return call(MAINTENANCE, 'CompactCase');
 }
 
+/**
+ * Returns the case-fingerprint artefact and records that a copy was taken.
+ *
+ * 🔒 rohy records that an export HAPPENED, never that a copy is HELD. It cannot see whether the copy
+ * survives, whether it went anywhere beyond the reach of someone able to rewrite this case, or
+ * whether it was transcribed correctly — which is exactly why an external copy is worth having, and
+ * why the satisfied state stays informational rather than becoming a tick.
+ *
+ * `establishes` / `does_not_establish` travel INSIDE the document, because the document is what gets
+ * forwarded and may be read by somebody who never saw the screen it came from.
+ *
+ * @returns {Promise<{snapshot:string, prev?:string, node_root?:string, edge_root?:string,
+ *   index_root?:string, tombstone_root?:string, sealed_at:string, events?:number,
+ *   app_version?:string, establishes:string[], does_not_establish:string[]}>}
+ */
+export function exportCaseFingerprint() {
+  return call(MAINTENANCE, 'ExportCaseFingerprint');
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

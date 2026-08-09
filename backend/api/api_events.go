@@ -281,6 +281,20 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 		close(done)
 	}()
 
+	// Sealing is DEFERRED, and registered second on purpose (plan §14.2).
+	//
+	// Defers run last-in-first-out, so this one runs BEFORE the cleanup above it: the case is
+	// sealed, and only then is the run marked idle and `done` closed. That ordering matters —
+	// `done` is what a clean shutdown waits on, and releasing it mid-compaction would let the
+	// store close underneath one.
+	//
+	// 🔒 A defer rather than a call at the end of the function, because the cancellation path
+	// returns from inside the file loop. Written as a trailing call it was skipped there, so a
+	// cancelled ingest left everything it had already written unaccounted for — found by
+	// TestCancelledIngestIsStillSealed, which is exactly the early return a future edit would
+	// reintroduce.
+	defer a.sealCase(emitter)
+
 	switch req.Source {
 	case consts.SourceFile:
 		// A request carrying more than one file (multi-select or a folder) tags its
@@ -335,6 +349,42 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 			emitter.Emit(consts.EventIngestError, AsError(consts.ErrCodeInternal, err))
 		}
 	}
+}
+
+// sealCase compacts the store once the whole ingest request is over (plan §14.2).
+//
+// WHY THIS EXISTS. Compaction is what computes the snapshot roots, and until it runs nothing in the
+// case can be proven — every event just ingested is recorded but unaccounted for. rohy used to
+// compact in exactly one place, clean shutdown, so a case that was force-quit or crashed had roots
+// for nothing from that session. An ingest is the natural evidence boundary: it is the moment new
+// records entered the case, and it is already an explicit action the user is watching.
+//
+// 🔒 ONCE PER REQUEST, NEVER PER FILE. It is deferred from runIngestion rather than called inside
+// the per-file loop, and that is the load-bearing part of the placement. Measured
+// (PERFORMANCE.md §18): compaction costs ~1.3 s and 566 MB on a 100k case after adding only 500
+// events — statistically identical to compacting all 100k from scratch, because it rewrites the
+// whole image regardless of how little was added. Compacting per file in a twelve-file ingest would
+// pay that twelve times and throw eleven of the results away, since only the last roots survive.
+//
+// 🔒 And never per chunk, for the same reason at a worse ratio.
+//
+// A CANCELLED ingest is still sealed. What it wrote is durable and already in the case, and leaving
+// it unaccounted for would mean a cancelled ingest silently produced evidence nothing covers —
+// which is the state this whole change exists to remove. The same judgement the correlation backfill
+// already makes about cancellation.
+//
+// 🔒 A failure here does NOT fail the ingest. The events are persisted; sealing is what gives them a
+// fingerprint. Reporting the ingest as failed because the fingerprint step did would be false, and
+// would invite someone to re-run an ingest that had already succeeded.
+func (a *EventsAPI) sealCase(emitter Emitter) {
+	if a.store == nil {
+		return
+	}
+	emitter.Emit(consts.EventCaseSealing, nil)
+	if err := a.store.Compact(); err != nil {
+		emitter.Emit(consts.EventIngestError, AsError(consts.ErrCodePersistence, err))
+	}
+	emitter.Emit(consts.EventCaseSealed, nil)
 }
 
 // filterFor builds the persistence-layer filter for a query, including resolving the

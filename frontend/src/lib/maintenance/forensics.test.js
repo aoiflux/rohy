@@ -105,3 +105,34 @@ describe('routes / MaintenanceView — forensic posture', () => {
     expect(out.body).not.toContain('Nothing wrong found');
   });
 });
+
+describe('lib/maintenance / the exported-copy claim', () => {
+  // 🔒 The single most important copy assertion in the feature. rohy sees that a file was written.
+  // It cannot see where the file went, whether it survives, or whether it was transcribed correctly
+  // — and the copy is worth having precisely because those are outside what this process observes.
+  // Any wording that reads as confirmation would be the one false claim here.
+  it('never claims a copy is held, only that one was saved', () => {
+    const text = UI.MAINT_FORENSIC_EXPORTED.toLowerCase();
+    expect(text).toContain('cannot tell');
+    expect(text).toMatch(/still exists|beyond the reach/);
+    // Not a tick, and not a promise.
+    expect(text).not.toMatch(/(verified|confirmed|secured|guaranteed|protected)/);
+    expect(text).not.toMatch(/is (now )?(safe|retained|kept)/);
+  });
+
+  it('tells the analyst to put the copy outside the case folder', () => {
+    // The instruction has to be explicit: a copy saved into rohy-data/ establishes nothing against
+    // anyone able to rewrite rohy-data/.
+    const hint = UI.MAINT_FORENSIC_ROOT_HINT.toLowerCase();
+    expect(hint).toContain('outside the case folder');
+    // And it has to say WHY, or it reads as a formality somebody skips.
+    expect(hint).toMatch(/against itself/);
+  });
+
+  it('has an export label distinct from the copy-to-clipboard label', () => {
+    // Two different acts: one puts 64 characters on the clipboard, the other writes a document that
+    // records which case and which image the fingerprint describes.
+    expect(UI.MAINT_FORENSIC_EXPORT).toBeTruthy();
+    expect(UI.MAINT_FORENSIC_EXPORT).not.toBe(UI.MAINT_FORENSIC_COPY);
+  });
+});
