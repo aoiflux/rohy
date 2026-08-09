@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"testing"
 	"time"
@@ -117,10 +118,28 @@ func peakHeapDelta(fn func()) uint64 {
 	return peak - baseline
 }
 
-// TestBoundedMemoryStreaming is the R-L1 gate: peak memory must NOT scale with input
-// size. It ingests a small and a 4× larger synthetic file through a discarding sink
-// and asserts the large run's peak heap stays bounded (both under an absolute ceiling
-// far below the file size, and not proportional to the dataset). Skipped in -short.
+// TestBoundedMemoryStreaming is the R-L1 gate: peak memory must NOT scale with input size.
+//
+// Two things about HOW it measures, both learned by this test failing a release build:
+//
+//  1. GOGC is pinned low for the duration. Peak HeapAlloc is a proxy for retention, and at the
+//     default it is a poor one — Go lets the heap grow to roughly twice the live set before
+//     collecting, so the sampled peak reflects accumulated GARBAGE as much as anything held. The
+//     unpinned numbers across four input sizes came out 10, 20, 13, 15 MiB: not even monotonic.
+//     Pinned, the same sizes give 4, 19, 18, 21 — a curve you can reason about.
+//
+//  2. BOTH runs are past the pipeline's steady state. The original test compared 15 against 60
+//     repeats, and 15 is too small: the buffers, batch and channel have not filled, so it measured
+//     a cold pipeline against a warm one and called the difference "scaling". Measured live heap
+//     by input: 11k records -> 4 MiB, 44k -> 19 MiB, 89k -> 18 MiB, 177k -> 21 MiB. It rises to a
+//     plateau and stays there, which is exactly what bounded streaming looks like — but only the
+//     comparisons that start at 44k or above can see it.
+//
+// So the gate is 44k records against 177k: FOUR times the data for the same memory. Truly linear
+// growth would show 4x here and cannot hide.
+//
+// Skipped in -short. The pinned GC and the larger fixture make this slower than most tests; that
+// is the price of the assertion meaning something.
 func TestBoundedMemoryStreaming(t *testing.T) {
 	if testing.Short() {
 		t.Skip("scale test skipped in -short")
@@ -128,11 +147,14 @@ func TestBoundedMemoryStreaming(t *testing.T) {
 	if raceEnabled {
 		t.Skip("memory bounds are not meaningful under -race instrumentation")
 	}
+	defer debug.SetGCPercent(debug.SetGCPercent(10))
+
 	dir := t.TempDir()
 	smallPath := filepath.Join(dir, "small.evtx")
 	largePath := filepath.Join(dir, "large.evtx")
-	synthEVTX(t, fixtureSecurity, smallPath, 15) // ~150 chunks
-	synthEVTX(t, fixtureSecurity, largePath, 60) // ~600 chunks, 4× data (~40 MB)
+	// Both past steady state; the large one carries 4x the records of the small.
+	synthEVTX(t, fixtureSecurity, smallPath, 60)
+	synthEVTX(t, fixtureSecurity, largePath, 240)
 
 	run := func(path string) (*countingSink, uint64) {
 		sink := &countingSink{}
@@ -152,16 +174,17 @@ func TestBoundedMemoryStreaming(t *testing.T) {
 		t.Fatalf("record count did not scale as expected: small=%d large=%d", smallSink.count, largeSink.count)
 	}
 
-	const ceiling = 96 << 20 // 96 MiB — far below the ~40 MB large file fully buffered + parsed
+	const ceiling = 96 << 20 // 96 MiB — far below the ~160 MB large file fully buffered
 	if largePeak > ceiling {
 		t.Errorf("peak heap %d MiB exceeds ceiling; memory not bounded", largePeak>>20)
 	}
-	// 4× the data must not cost ~4× the memory. Allow generous slack for GC/noise but
-	// fail on proportional growth. Only meaningful once the signal clears noise.
-	if largePeak > 8<<20 && smallPeak > 0 && largePeak > smallPeak*3 {
-		t.Errorf("peak heap scaled with input: small=%d MiB large=%d MiB (want sub-linear)", smallPeak>>20, largePeak>>20)
+	// Measured ratio is ~1.1x. Two is generous headroom for a slow or contended runner while
+	// still failing long before the 4x that genuine linear growth would produce.
+	if smallPeak > 0 && largePeak > smallPeak*2 {
+		t.Errorf("peak heap scaled with input: small=%d MiB large=%d MiB for 4x the records (want flat)",
+			smallPeak>>20, largePeak>>20)
 	}
-	t.Logf("records small=%d large=%d; peak heap small=%d MiB large=%d MiB",
+	t.Logf("records small=%d large=%d; peak live heap small=%d MiB large=%d MiB",
 		smallSink.count, largeSink.count, smallPeak>>20, largePeak>>20)
 }
 
