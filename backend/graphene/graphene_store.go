@@ -31,6 +31,10 @@ type Store struct {
 	// payloads holds the bulky per-event fields outside the graph, because the graph keeps
 	// its records resident. Opened alongside the graph so the two share a lifetime.
 	payloads *payload.Store
+	// forensic is the integrity posture this case was opened under (graphene_forensics.go).
+	// The zero value is the engine's permissive default, which is what every existing case
+	// already gets — see WithVerifyOnOpen for why that stays the default.
+	forensic forensicOptions
 }
 
 // Open opens (creating if necessary) a disk-backed store rooted at dir, eagerly. The WAL
@@ -70,7 +74,10 @@ func (s *Store) ensure() error {
 			s.payloads = payload.OpenInMemory()
 			return
 		}
-		g, err := graphene.Open(s.dir)
+		// The default posture uses the plain Open, so a case opened without asking for
+		// anything takes byte-for-byte the path every existing case already took. Only a
+		// deliberate posture reaches OpenWithOptions.
+		g, err := s.openGraph()
 		if err != nil {
 			s.openErr = err
 			return

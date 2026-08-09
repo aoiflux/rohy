@@ -18,7 +18,23 @@ const empty = () => ({
   status: null,
   /** @type {any|null} the last integrity report. */
   report: null,
-  /** Which pass is in flight: '' | 'check' | 'backfill' | 'repair' | 'rebuild'. */
+  /**
+   * @type {any|null} the case's forensic posture (§14) — what it can and cannot establish.
+   *
+   * Null means "not read yet", which is deliberately distinct from a posture whose `available`
+   * is false. The first is a question nobody has asked; the second is an answer.
+   */
+  forensics: null,
+  /**
+   * @type {any|null} the last image verification.
+   *
+   * Kept separately from `report` rather than folded into it because it is the one maintenance
+   * result the analyst copies out of the app — `computed` is the digest they compare against one
+   * they retained elsewhere, and that comparison is what turns damage detection into tamper
+   * detection.
+   */
+  image: null,
+  /** Which pass is in flight: '' | 'check' | 'backfill' | 'repair' | 'rebuild' | 'verify' | 'compact'. */
   running: '',
   /** @type {{done:number,total:number}|null} backfill progress, while one runs. */
   progress: null,
@@ -49,6 +65,56 @@ function create() {
     } catch (e) {
       fail(e);
       return null;
+    }
+  }
+
+  /** loadForensics reads the posture. Cheap, and worth knowing before anything else on the page is
+   *  read: it decides what the rest of the numbers can be taken to mean. */
+  async function loadForensics() {
+    try {
+      const forensics = await api.forensicStatus();
+      update((s) => ({ ...s, forensics }));
+      return forensics;
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /** verifyImage re-derives the image. Expensive, so it is a button and never implicit.
+   *
+   *  🔒 The previous result is cleared BEFORE the call, not replaced after it. A verdict computed
+   *  against the image as it was ten minutes ago looks current, and "verified" is exactly the kind
+   *  of word somebody acts on — the same reasoning that drops a stale testbench result on edit. */
+  async function verify() {
+    if (busy()) return null;
+    update((s) => ({ ...s, running: 'verify', error: '', lastResult: '', image: null }));
+    try {
+      const image = await api.verifyImage();
+      update((s) => ({ ...s, image, running: '', lastResult: 'verify' }));
+      return image;
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /** compact folds the WAL into a new image, then re-reads the posture — compaction is what
+   *  computes the roots, so the thing it changes is precisely the posture. Any prior image
+   *  verification is dropped: it was about a different image. */
+  async function compact() {
+    if (busy()) return false;
+    update((s) => ({ ...s, running: 'compact', error: '', lastResult: '', image: null }));
+    try {
+      await api.compactCase();
+      update((s) => ({ ...s, running: '', lastResult: 'compact' }));
+      await loadForensics();
+      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
+      update((s) => ({ ...s, report }));
+      return true;
+    } catch (e) {
+      fail(e);
+      return false;
     }
   }
 
@@ -89,7 +155,10 @@ function create() {
     subscribe,
     current: () => get({ subscribe }),
     loadStatus,
+    loadForensics,
     check,
+    verify,
+    compact,
     backfill: () => run('backfill', api.backfillCorrelationKeys),
     repair: () => run('repair', api.repairRelationIndex),
     rebuild: () => run('rebuild', api.rebuildIndexes),

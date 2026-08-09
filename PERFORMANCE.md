@@ -549,6 +549,10 @@ the decision is being changed — check that it is on purpose.
 | `TestCorrelationProjectionIsFlatInFieldCount`           | Projection cost depends on the vocabulary, never on the payload     |
 | `TestSlotsAreBoundedToTheirDomain`                      | Every per-slot bound still fits the widest legitimate value         |
 | `TestDatasetCacheIsInvalidatedByAWrite`                 | A prepared dataset never outlives the store version it was built on |
+| `TestVerifyImageDetectsAnEditedRecord`                  | The image check actually detects a one-bit edit to a record (§18)   |
+| `TestVerifyImageReportsNoImageRatherThanPassingOrFailing`| An unverifiable case never reads as a verified one (§18)            |
+| `TestInMemoryStoreReportsForensicsUnavailableNotClean`   | A backend with no forensic machinery says so, rather than looking clean |
+| `TestDefaultPostureClaimsNothingItHasNotGot`            | No integrity guarantee is reported that has not been configured      |
 
 ---
 
@@ -762,3 +766,73 @@ the benchmark is for.
 - **Cache invalidation is the whole risk here.** A stale dataset does not fail loudly; it
   produces a *plausible* graph from events that no longer match the case.
   `TestDatasetCacheIsInvalidatedByAWrite` and `TestBuildInvalidatesTheCache` pin it.
+
+---
+
+## 18. Verifying the image: why it is a button and not a startup step
+
+The engine rohy stores evidence in can re-derive every record hash and check the compacted
+image against the digest written with it. That closes a real gap: the structural validation
+which always runs at open catches a malformed or internally inconsistent file, and does **not**
+catch an edit to the records in a file that stays coherent — which is exactly what a deliberate
+edit looks like.
+
+There are two ways to ask for it, and the measurement picked the second decisively.
+
+| | Route | When it runs |
+| --- | --- | --- |
+| `VerifyOnOpen` | an engine option set at open | every launch |
+| `VerifyImage` | `disk.VerifyCSRDigest` + `VerifyCSRRoots`, package-level, storeless, keyless | when the analyst presses the button |
+
+### Measured
+
+Ryzen 9 5980HS, medians of three runs, on a **compacted** store (there must be an image to
+verify). `-benchtime 5x` at 10k, `3x` at 100k.
+
+| Events | Open, default | Open, verified | Ratio | `VerifyImage` alone |
+| -----: | ------------: | -------------: | ----: | ------------------: |
+| 10k    |         59 ms |         117 ms | 2.0×  |               65 ms |
+| 100k   |        500 ms |    **1117 ms** | 2.2×  |          **626 ms** |
+
+| Events | Allocated, default | Allocated, verified | Delta | `VerifyImage` alone |
+| -----: | -----------------: | ------------------: | ----: | ------------------: |
+| 10k    |            39.2 MB |             84.0 MB | +44.8 MB |            44.8 MB |
+| 100k   |             366 MB |             815 MB  | **+449 MB** |         **449 MB** |
+
+### The number that settles it
+
+**`VerifyOnOpen` is `VerifyImage` executed during open, and nothing else.** Read the deltas
+against the standalone column — at 100k the overhead is +617 ms against a standalone cost of
+626 ms, and the allocation delta is +449 MB against 449 MB, matching to three significant
+figures and to the allocation count (+5 100 090 vs 5 100 111).
+
+So the option buys no evidence the button does not. What it buys is automaticity, and it
+charges **+617 ms and +449 MB of allocation churn on every launch of a 100k case** for it.
+
+🔒 **Verification is on demand, and `VerifyOnOpen` stays off by default — permanently, not
+provisionally.** This is not a threshold that a faster machine could clear later; the two
+routes do identical work, so the tax is pure. It sits in the deep integrity check beside
+`VerifyIndexes`, which is where work proportional to the whole store already lives. Upstream's
+own reason for offering the package-level form is the same sentence §12a already makes:
+
+> a check that makes every open slower gets disabled, and a disabled check protects nothing
+
+🔒 **Off is a reported state.** `WithVerifyOnOpen` remains available for a strict per-case
+posture, and `ForensicStatus` reports which posture is in force, because a verification that is
+off without saying so is worse than one that was never offered.
+
+⚠️ **Verification is allocation-heavy, not just slow** — 449 MB of churn at 100k, ~4.5 kB per
+event. It is the wrong thing to run concurrently with a graph build, and the maintenance
+binding's single-pass guard is what keeps it from happening.
+
+### Three costs measured for free along the way
+
+- **Compaction is not optional overhead.** It computes the snapshot roots unconditionally, so
+  every store already pays for them whether or not anything reads them. Until the first
+  compaction there is no image, and nothing in the case can be proven.
+- **A missing image is not a failed check.** `VerifyImage` reports `no_image` (never compacted)
+  and `absent` (an old image digests never covered) as distinct from match and mismatch, so an
+  unverifiable case cannot read as a verified one.
+- **Proof verification is asymmetric in the useful direction.** Upstream measures building an
+  inclusion proof at ~8 ms per 10k nodes against ~5 µs to verify one — about 1500×. A recipient
+  checking evidence pays almost nothing.

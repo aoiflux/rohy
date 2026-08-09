@@ -22,10 +22,22 @@ export const ACTION = Object.freeze({
   REBUILD: 'rebuild_indexes',
   INGEST: 'ingest',
   REVIEW: 'review',
+  // Forensic posture (§14). COMPACT and VERIFY_IMAGE are things the app does; RETAIN_ROOT is not
+  // — keeping a value outside the case is by definition something rohy cannot do for you, and
+  // that is the whole point of it rather than a limitation.
+  COMPACT: 'compact',
+  VERIFY_IMAGE: 'verify_image',
+  RETAIN_ROOT: 'retain_root',
 });
 
 /** Actions the app can actually perform. Everything else is advice, and is shown as advice. */
-const RUNNABLE = new Set([ACTION.BACKFILL, ACTION.REPAIR, ACTION.REBUILD]);
+const RUNNABLE = new Set([
+  ACTION.BACKFILL,
+  ACTION.REPAIR,
+  ACTION.REBUILD,
+  ACTION.COMPACT,
+  ACTION.VERIFY_IMAGE,
+]);
 
 /**
  * runnable reports whether a finding's suggested action is a button or a sentence.

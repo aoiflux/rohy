@@ -40,13 +40,19 @@
   const busy = $derived($maintenance.running !== '');
   const progress = $derived(backfillFraction($maintenance.progress));
   const stale = $derived($maintenance.status?.stale ?? 0);
+  const forensics = $derived($maintenance.forensics);
+  const image = $derived($maintenance.image);
+
+  let copied = $state(false);
 
   let unsubscribe = () => {};
 
   onMount(() => {
-    // The projection status is cheap and is the one thing worth knowing before any button is
-    // pressed: it decides whether half the rule library can say anything at all.
+    // Two cheap reads, and both are things worth knowing before any button is pressed. The
+    // projection status decides whether half the rule library can say anything at all; the
+    // forensic posture decides what every other number on this page can be taken to mean.
     maintenance.loadStatus();
+    maintenance.loadForensics();
     unsubscribe = api.on(CHANNELS.MAINTENANCE_PROGRESS, (p) => maintenance.onProgress(p));
   });
   onDestroy(() => unsubscribe());
@@ -55,7 +61,26 @@
     if (action === ACTION.BACKFILL) return maintenance.backfill();
     if (action === ACTION.REPAIR) return maintenance.repair();
     if (action === ACTION.REBUILD) return maintenance.rebuild();
+    if (action === ACTION.COMPACT) return maintenance.compact();
+    if (action === ACTION.VERIFY_IMAGE) return maintenance.verify();
     return Promise.resolve(false);
+  }
+
+  /** copyRoot puts the fingerprint on the clipboard, because the whole instruction beside it is
+   *  "keep this somewhere else" and retyping sixty-four hex characters by hand is how a digit
+   *  gets transposed — which would later read as a case that had been altered. */
+  async function copyRoot() {
+    const value = forensics?.roots?.snapshot ?? '';
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } catch {
+      // Clipboard access can be refused. The value is on screen and selectable, so the copy
+      // button is a convenience — failing it silently is better than an error about a fingerprint
+      // the analyst can already read.
+    }
   }
 </script>
 
@@ -112,6 +137,80 @@
       </Button>
     {/if}
   </section>
+
+  <!--
+    What the case can prove (§14). Placed ABOVE the integrity report deliberately: it qualifies
+    everything below it. A report that says "no problems found" about a case that cannot establish
+    its own contents have not changed is saying much less than it appears to, and a reader who
+    meets the qualification after the verdict has already drawn a conclusion.
+  -->
+  <section class="card">
+    <h3>{UI.MAINT_FORENSIC_TITLE}</h3>
+    {#if forensics === null}
+      <p class="hint">{UI.MAINT_FORENSIC_UNREAD}</p>
+    {:else if !forensics.available}
+      <!-- 🔒 Reported, never rendered as an all-clear: there is nothing wrong, and there is also
+           nothing being checked. -->
+      <p class="hint">{UI.MAINT_FORENSIC_UNAVAILABLE}</p>
+    {:else}
+      {#if forensics.compacted}
+        <p class="hint">{UI.MAINT_FORENSIC_SEALED}</p>
+      {:else}
+        <p class="warn">{UI.MAINT_FORENSIC_UNSEALED}</p>
+        <div class="fixes">
+          <Button variant="tonal" onclick={() => maintenance.compact()} disabled={busy}>
+            {UI.MAINT_ACTION.compact}
+          </Button>
+        </div>
+      {/if}
+
+      <p class:hint={forensics.signed} class:warn={!forensics.signed}>
+        {forensics.signed ? UI.MAINT_FORENSIC_SIGNED : UI.MAINT_FORENSIC_UNSIGNED}
+      </p>
+
+      {#if forensics.roots?.snapshot}
+        <div class="root">
+          <span class="rootlabel">{UI.MAINT_FORENSIC_ROOT_LABEL}</span>
+          <!-- Selectable text, not just a copy button: the button can be refused by the
+               environment, and the value must still be reachable. -->
+          <code class="roothash">{forensics.roots.snapshot}</code>
+          <Button variant="text" onclick={copyRoot}>
+            {copied ? UI.MAINT_FORENSIC_COPIED : UI.MAINT_FORENSIC_COPY}
+          </Button>
+        </div>
+        <p class="hint">{UI.MAINT_FORENSIC_ROOT_HINT}</p>
+      {/if}
+    {/if}
+  </section>
+
+  <!-- The image check. Its own card because it is an action with a result, not a state. -->
+  {#if forensics?.available && forensics.compacted}
+    <section class="card">
+      <h3>{UI.MAINT_IMAGE_TITLE}</h3>
+      <p class="hint">{UI.MAINT_IMAGE_HINT}</p>
+      <div class="fixes">
+        <Button variant="tonal" onclick={() => maintenance.verify()} disabled={busy}>
+          {UI.MAINT_ACTION.verify_image}
+        </Button>
+      </div>
+      {#if image}
+        <!-- Four outcomes. `absent` and `no_image` both mean nothing was verified, and neither is
+             styled as a pass — an unverifiable case must not read as a verified one. -->
+        <p class:warn={image.digest !== 'match'} class:bad={image.digest === 'mismatch'}>
+          {UI.MAINT_IMAGE[image.digest] ?? image.digest}
+        </p>
+        {#if image.roots_error}
+          <p class="bad">{UI.MAINT_IMAGE_ROOTS_FAILED} {image.roots_error}</p>
+        {/if}
+        {#if image.computed}
+          <div class="root">
+            <span class="rootlabel">{UI.MAINT_IMAGE_COMPUTED}</span>
+            <code class="roothash">{image.computed}</code>
+          </div>
+        {/if}
+      {/if}
+    </section>
+  {/if}
 
   {#if !report}
     <p class="hint">{UI.MAINT_NOT_RUN}</p>
@@ -253,6 +352,39 @@
     margin: 0;
     font-size: 0.85rem;
     line-height: 1.45;
+  }
+  .bad {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: var(--md-sys-color-error);
+  }
+  /* The fingerprint. Monospace and wrapping, because it is sixty-four hex characters an analyst
+     compares by eye against one they wrote down — a truncated or ellipsised hash is worse than
+     none, since it invites a comparison that only checks the ends. */
+  .root {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .rootlabel {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .roothash {
+    flex: 1 1 22ch;
+    min-width: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--md-sys-color-surface-container-high);
+    font-family: var(--font-mono, monospace);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    user-select: all;
   }
   .counts,
   .findings,

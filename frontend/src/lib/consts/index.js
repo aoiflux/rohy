@@ -887,22 +887,78 @@ export const UI = Object.freeze({
     backfill: 'Fill in correlation fields',
     repair_relation_index: 'Repair the relation index',
     rebuild_indexes: 'Rebuild the indexes',
+    compact: 'Seal the case',
+    verify_image: 'Check the case has not changed',
   }),
   MAINT_ADVICE: Object.freeze({
     ingest: 'Ingest the missing logs to resolve this.',
     review: 'Worth a look; rohy will not change anything on its own.',
+    // 🔒 Not a button, and this is the point rather than a shortcoming: a value rohy stored for
+    // you would sit in the same folder as the evidence, where anyone able to change one could
+    // change the other. Keeping it elsewhere is the entire mechanism.
+    retain_root: 'Copy the case fingerprint below and keep it somewhere outside this case folder.',
   }),
   MAINT_RUNNING: Object.freeze({
     check: 'Checking the case…',
     backfill: 'Filling in correlation fields…',
     repair: 'Repairing the relation index…',
     rebuild: 'Rebuilding the indexes…',
+    verify: 'Re-reading the whole case…',
+    compact: 'Sealing the case…',
   }),
   MAINT_DONE: Object.freeze({
     backfill: 'Correlation fields filled in.',
     repair: 'Relation index repaired.',
     rebuild: 'Indexes rebuilt.',
+    compact: 'Case sealed. It now has a fingerprint that covers everything in it.',
   }),
+
+  // --- Forensic posture (Phase 8, plan §14) ---
+  //
+  // 🔒 The copy rule for this whole section: say what the case can establish and what it cannot,
+  // and never more. The machinery makes alteration DETECTABLE to somebody holding a value kept
+  // elsewhere. It does not prevent alteration, and it says nothing about whether the events
+  // themselves are true. Overstating a guarantee is worse than not having one, because it is
+  // believed exactly when it matters.
+  //
+  // 🔒 And none of it accuses. An unsigned, unsealed case is what rohy has always produced; it is
+  // a consequence of when the case was made, not a mistake the analyst made.
+  MAINT_FORENSIC_TITLE: 'What this case can prove',
+  MAINT_FORENSIC_UNAVAILABLE:
+    'This case is held in memory only, so there is no file to fingerprint and nothing here applies.',
+  MAINT_FORENSIC_UNREAD: 'Not read yet.',
+  MAINT_FORENSIC_SEALED: 'Sealed. The case has a fingerprint covering everything in it.',
+  MAINT_FORENSIC_UNSEALED:
+    'Not sealed yet. Everything ingested so far is recorded, but nothing in the case can be ' +
+    'proven to anyone until it is sealed — which is not the same as anything being missing.',
+  MAINT_FORENSIC_UNSIGNED:
+    'Writes are not signed, so nothing in this case can be attributed to a person. This cannot ' +
+    'be added afterwards: what is already written stays unattributed.',
+  MAINT_FORENSIC_SIGNED: 'Writes are signed, so each one can be attributed.',
+  MAINT_FORENSIC_ROOT_LABEL: 'Case fingerprint',
+  MAINT_FORENSIC_ROOT_HINT:
+    'Keep a copy of this somewhere outside the case folder — a ticket, a case log, an email. ' +
+    'Every check rohy runs compares the case against itself, which cannot tell an intact case ' +
+    'from an altered one. A fingerprint you kept elsewhere can.',
+  MAINT_FORENSIC_COPY: 'Copy fingerprint',
+  MAINT_FORENSIC_COPIED: 'Copied.',
+  MAINT_IMAGE_TITLE: 'Has the case changed?',
+  MAINT_IMAGE_HINT:
+    'Re-reads every record and compares it against the fingerprint written with it. Proportional ' +
+    'to the size of the case, so it is a button rather than something every launch pays for.',
+  MAINT_IMAGE: Object.freeze({
+    match:
+      'Unchanged since it was sealed. This detects damage and accidental change; it becomes proof ' +
+      'against deliberate change only when compared with a fingerprint you kept elsewhere.',
+    mismatch:
+      'The case does not match the fingerprint written with it: it has changed since it was ' +
+      'sealed. A fingerprint cannot tell damage from an edit.',
+    absent: 'This case was sealed before rohy recorded fingerprints, so there is nothing covering ' +
+      'its contents. Sealing it again fixes that.',
+    no_image: 'Nothing to check: this case has not been sealed yet.',
+  }),
+  MAINT_IMAGE_COMPUTED: 'Fingerprint read from the case now',
+  MAINT_IMAGE_ROOTS_FAILED: 'The records do not match the fingerprints beside them:',
   MAINT_PROJECTION_TITLE: 'Correlation fields',
   MAINT_PROJECTION_OK: 'Every event carries the correlation fields this build uses.',
   MAINT_PROJECTION_STALE:

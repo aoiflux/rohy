@@ -6,6 +6,7 @@ import (
 	"rohy/backend/caseintegrity"
 	"rohy/backend/consts"
 	"rohy/backend/findings"
+	"rohy/backend/graphene"
 	"rohy/backend/graphreg"
 	"rohy/backend/rules"
 )
@@ -58,6 +59,10 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 	out := caseintegrity.Deps{LayoutDir: d.LayoutDir}
 	if a.store != nil {
 		out.Events = a.store
+		// The posture checks read the same store through a narrower interface. Attached
+		// separately so a Deps assembled without it reports the posture as unknown rather than
+		// as fine (plan §14.8).
+		out.Forensics = a.store
 	}
 	if d.Findings != nil {
 		out.Findings = d.Findings
@@ -114,6 +119,61 @@ func (a *MaintenanceAPI) RepairRelationIndex() (int, error) {
 		return 0, AsError(consts.ErrCodePersistence, err)
 	}
 	return n, nil
+}
+
+// --- Forensic posture (plan §14) ---
+
+// ForensicStatus reports what this case can and cannot establish about its own contents.
+//
+// Cheap: configuration plus, at most, the roots the last compaction already computed. Safe to
+// call on view mount, and it needs to be — the posture decides how every other number on the
+// screen should be read.
+func (a *MaintenanceAPI) ForensicStatus() graphene.ForensicStatus {
+	return a.store.ForensicStatus()
+}
+
+// VerifyImage re-derives the case image's digest and Merkle roots.
+//
+// 🔒 An explicit action, never a startup step. It reads the whole image — ~626 ms and 449 MB of
+// allocation churn on a 100k case (PERFORMANCE.md §18) — and it is the same work `VerifyOnOpen`
+// would do on every single launch, which is exactly why rohy does not do it that way.
+//
+// It takes the maintenance lock despite writing nothing. That is a departure from CheckIntegrity,
+// which deliberately does not, and the reason is the allocation figure rather than correctness:
+// 449 MB of churn beside a running backfill would make both slower and neither wrong, and the
+// analyst cannot tell which pass is responsible.
+func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
+	if err := a.begin(); err != nil {
+		return graphene.ImageCheck{}, AsError(consts.ErrCodeInternal, err)
+	}
+	defer a.finish()
+
+	check, err := a.store.VerifyImage()
+	if err != nil {
+		return check, AsError(consts.ErrCodePersistence, err)
+	}
+	return check, nil
+}
+
+// CompactCase folds the write-ahead log into a new image.
+//
+// This is the remedy the posture findings offer, and what it actually buys is worth stating: a
+// compaction is what COMPUTES the snapshot roots. Until one has run, nothing in the case can be
+// proven — every event is recorded but unaccounted for.
+//
+// 🔒 It is offered as a button rather than run on a timer for the usual reason: the cost is
+// proportional to the whole store. rohy already compacts on clean shutdown; this is how an
+// analyst asks for it now, without closing the case.
+func (a *MaintenanceAPI) CompactCase() error {
+	if err := a.begin(); err != nil {
+		return AsError(consts.ErrCodeInternal, err)
+	}
+	defer a.finish()
+
+	if err := a.store.Compact(); err != nil {
+		return AsError(consts.ErrCodePersistence, err)
+	}
+	return nil
 }
 
 // RebuildIndexes re-derives the property index from the stored records. It is the fix offered for

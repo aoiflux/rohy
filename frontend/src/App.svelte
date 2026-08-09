@@ -1,21 +1,13 @@
 <script>
   // Root shell: applies the theme once, renders the active route, and hosts the
-  // central snackbar. Routing is a simple switch on the route store (P5.1).
+  // central snackbar. Routing is a lookup in the route table (P5.1) — see routes/views.js
+  // for why it is a table rather than the {#if} chain it started as.
   import { onMount } from 'svelte';
   import { theme } from './stores/theme.js';
   import { route } from './stores/router.js';
   import { ingestion } from './stores/ingestion.js';
-  import { ROUTES } from './lib/consts/index.js';
+  import { viewFor } from './routes/views.js';
 
-  import Splash from './routes/Splash.svelte';
-  import PermissionCheck from './routes/PermissionCheck.svelte';
-  import Dashboard from './routes/Dashboard.svelte';
-  import EventsView from './routes/EventsView.svelte';
-  import GraphView from './routes/GraphView.svelte';
-  import RulesView from './routes/RulesView.svelte';
-  import TimelineView from './routes/TimelineView.svelte';
-  import AlgorithmsView from './routes/AlgorithmsView.svelte';
-  import MaintenanceView from './routes/MaintenanceView.svelte';
   import TitleBar from './components/material/TitleBar.svelte';
   import SnackbarHost from './components/material/SnackbarHost.svelte';
   import ShortcutsHelp from './components/material/ShortcutsHelp.svelte';
@@ -23,6 +15,8 @@
   import AboutDialog from './components/material/AboutDialog.svelte';
   import StatusBar from './components/material/StatusBar.svelte';
   import AppContextMenu from './components/material/AppContextMenu.svelte';
+
+  const View = $derived(viewFor($route));
 
   onMount(() => {
     theme.init();
@@ -50,23 +44,7 @@
   -->
   {#key $route}
     <div class="content route-enter">
-      {#if $route === ROUTES.SPLASH}
-        <Splash />
-      {:else if $route === ROUTES.PERMISSION}
-        <PermissionCheck />
-      {:else if $route === ROUTES.EVENTS}
-        <EventsView />
-      {:else if $route === ROUTES.GRAPH}
-        <GraphView />
-      {:else if $route === ROUTES.RULES}
-        <RulesView />
-      {:else if $route === ROUTES.TIMELINE}
-        <TimelineView />
-      {:else if $route === ROUTES.ALGORITHMS}
-        <AlgorithmsView />
-      {:else}
-        <Dashboard />
-      {/if}
+      <View />
     </div>
   {/key}
 

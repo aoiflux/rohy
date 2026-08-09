@@ -75,6 +75,16 @@ type Options struct {
 	Deep bool
 }
 
+// ForensicStore is the slice of the store the posture checks read (plan §14.8).
+//
+// It is a SEPARATE interface from EventStore, and deliberately optional, because the questions
+// differ in kind: EventStore answers "is this case broken", this answers "what can this case
+// prove". A Deps with no ForensicStore reports the posture as unknown rather than as fine.
+type ForensicStore interface {
+	ForensicStatus() graphene.ForensicStatus
+	VerifyImage() (graphene.ImageCheck, error)
+}
+
 // EventStore is the slice of the graph store the checks need.
 type EventStore interface {
 	Inventory() (graphene.Inventory, error)
@@ -115,6 +125,7 @@ type Deps struct {
 	Findings  FindingStore
 	Graphs    GraphRegistry
 	Rules     RuleSource
+	Forensics ForensicStore
 	LayoutDir string
 	// PayloadSize and PayloadUsed describe the cold store: how many bytes the log holds, and how
 	// far the furthest referenced record extends. The difference is orphaned tail.
@@ -142,6 +153,7 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 		func() { checkPayloadTail(&rep, deps) },
 		func() { checkProjection(&rep, inv, ok) },
 		func() { checkRules(&rep, deps, inv, ok) },
+		func() { checkForensicPosture(&rep, deps, opts) },
 	}
 	for _, step := range steps {
 		if ctx != nil && ctx.Err() != nil {
@@ -541,6 +553,112 @@ func (r *Report) add(f Finding) { r.Findings = append(r.Findings, f) }
 // note records a check that could not run. Reported rather than swallowed: a detector that failed
 // silently would leave a clean-looking report that had not actually looked.
 func (r *Report) note(msg string) { r.Errors = append(r.Errors, msg) }
+
+// checkForensicPosture reports what the case can and cannot prove (plan §14.8).
+//
+// 🔒 THESE ARE POSTURES, NOT FAULTS. Every one of them is the honest consequence of when and how
+// the case was written, and most of them are the state of every case rohy has ever produced. They
+// are reported because silence about them is what lets an analyst assume a guarantee that is not
+// there — the same reason a quick integrity check says the deep index verification did not run.
+//
+// 🔒 A posture that could not be READ is reported as unknown, never as fine. That is the rule the
+// whole package is built on, and it matters most here: a forensic all-clear from a check that did
+// not look is the most damaging thing this report could produce.
+func checkForensicPosture(rep *Report, deps Deps, opts Options) {
+	if deps.Forensics == nil {
+		rep.note("the case's integrity posture could not be read, so nothing here reports on it")
+		return
+	}
+
+	st := deps.Forensics.ForensicStatus()
+	if !st.Available {
+		// Not a warning. There is no image to hash on this backend, so there is nothing wrong —
+		// but reporting nothing at all would leave the section looking clean.
+		rep.add(Finding{
+			Code: consts.IntegrityForensicsAbsent, Severity: consts.IntegritySevInfo,
+			Message: fmt.Sprintf(consts.MsgIntegrityForensicsAbsent, st.Reason),
+		})
+		return
+	}
+
+	// Never compacted comes first and returns: with no image, every check below it is asking
+	// about a file that does not exist, and answering them would produce three findings for one
+	// situation.
+	if !st.Compacted {
+		rep.add(Finding{
+			Code: consts.IntegrityNeverCompacted, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityNeverCompacted, Action: consts.IntegrityActionCompact,
+		})
+		return
+	}
+
+	if !st.Signed {
+		rep.add(Finding{
+			Code: consts.IntegrityUnsignedCommits, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityUnsignedCommits,
+			// No action: there is nothing to press. Signing is a decision about key custody made
+			// when a case is created, and offering a button here would imply the existing writes
+			// could be attributed retrospectively. They cannot.
+		})
+	}
+
+	// 🔒 The standing caveat, and it is reported at every depth. An internally-consistent check
+	// is the store vouching for itself, and that is true whether or not the image verifies.
+	rep.add(Finding{
+		Code: consts.IntegrityNoRootRetained, Severity: consts.IntegritySevWarn,
+		Message: consts.MsgIntegrityNoRootRetained, Action: consts.IntegrityActionRetainRoot,
+	})
+
+	checkImage(rep, deps, opts)
+}
+
+// checkImage re-derives the image, in deep mode only.
+//
+// 🔒 Deep only, and a quick run SAYS it did not look rather than staying silent — exactly the
+// judgement the index verification already carries. The measurement is in PERFORMANCE.md §18:
+// ~626 ms and 449 MB of allocation churn on a 100k case, which is not something to spend on
+// every press of a button labelled "check".
+func checkImage(rep *Report, deps Deps, opts Options) {
+	if !opts.Deep {
+		rep.add(Finding{
+			Code: consts.IntegrityImageUnverified, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityImageUnverified, Action: consts.IntegrityActionVerifyImage,
+		})
+		return
+	}
+
+	check, err := deps.Forensics.VerifyImage()
+	if err != nil {
+		rep.note("could not verify the case image: " + err.Error())
+		return
+	}
+
+	switch check.Digest {
+	case graphene.DigestMismatch:
+		rep.add(Finding{
+			Code: consts.IntegrityImageAltered, Severity: consts.IntegritySevError,
+			Message: consts.MsgIntegrityImageAltered, Action: consts.IntegrityActionReview,
+		})
+	case graphene.DigestAbsent:
+		// An image digests never covered. Distinct from a case never compacted, and from a
+		// failure: there was nothing to check, so nothing passed.
+		rep.add(Finding{
+			Code: consts.IntegrityImageUncovered, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityImageUncovered, Action: consts.IntegrityActionCompact,
+		})
+	case graphene.DigestMatch:
+		// The roots are the second, stronger check: the digest says the bytes are unchanged, the
+		// roots say those bytes are the records they claim to be. A roots failure on a matching
+		// digest is the serious combination — it means the file was rewritten coherently.
+		if check.RootsError != "" {
+			rep.add(Finding{
+				Code: consts.IntegrityImageAltered, Severity: consts.IntegritySevError,
+				Message: consts.MsgIntegrityImageAltered + " (" + check.RootsError + ")",
+				Action:  consts.IntegrityActionReview,
+			})
+		}
+	}
+}
 
 // sortFindings groups by severity, then by code, then by subject, so the same case produces the
 // same report every time and the most serious thing is at the top.

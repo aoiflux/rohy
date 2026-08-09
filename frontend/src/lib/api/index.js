@@ -498,6 +498,55 @@ export function rebuildIndexes() {
   return call(MAINTENANCE, 'RebuildIndexes');
 }
 
+// --- Forensic posture (Phase 8, plan §14) ---
+//
+// What this case can and cannot ESTABLISH about its own contents, as distinct from whether it is
+// broken. For an existing case the answer is mostly a consequence of when it was written.
+
+/**
+ * Reports the case's integrity posture. Cheap — configuration plus roots the last compaction
+ * already computed — so it is safe to call on view mount, and it needs to be: the posture decides
+ * how every other number on the page should be read.
+ *
+ * `available` is false on a backend with no image at all, in which case every other field is
+ * meaningless and `reason` says why. It is NOT the same as a clean posture.
+ *
+ * @returns {Promise<{available:boolean, reason?:string, compacted:boolean,
+ *   roots?:{snapshot:string, prev?:string, node_root:string, edge_root:string, index_root:string,
+ *           tombstone_root?:string, body_version:number},
+ *   signed:boolean, require_signed:boolean, verify_on_open:boolean,
+ *   audit:boolean, retention:boolean, redaction:boolean}>}
+ */
+export function forensicStatus() {
+  return call(MAINTENANCE, 'ForensicStatus');
+}
+
+/**
+ * Re-derives the case image's digest and Merkle roots.
+ *
+ * Expensive and proportional to the whole image — ~626 ms and 449 MB of allocation churn on a
+ * 100k case (PERFORMANCE.md §18) — which is exactly why rohy does not do this on every launch.
+ *
+ * FOUR outcomes, and two of them mean "nothing was verified": `no_image` (never compacted) and
+ * `absent` (an image digests never covered). Neither is a pass and neither is a failure.
+ *
+ * @returns {Promise<{digest:'match'|'mismatch'|'absent'|'no_image', computed?:string,
+ *   roots_checked:boolean, roots_error?:string}>}
+ */
+export function verifyImage() {
+  return call(MAINTENANCE, 'VerifyImage');
+}
+
+/**
+ * Folds the write-ahead log into a new image.
+ *
+ * This is what COMPUTES the snapshot roots: until a compaction has run, nothing in the case can be
+ * proven — every event is recorded but unaccounted for.
+ */
+export function compactCase() {
+  return call(MAINTENANCE, 'CompactCase');
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

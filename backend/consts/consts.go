@@ -974,6 +974,22 @@ const (
 	IntegrityRuleInert         = "rule_inert"
 	IntegrityRuleBlocked       = "rule_blocked"
 	IntegrityRuleUnmatched     = "rule_unmatched"
+
+	// Forensic posture (v0.2.0 Phase 8, plan §14.8).
+	//
+	// These differ in kind from every code above them. The others report a case that is
+	// BROKEN; these report what a case can and cannot PROVE, which for an existing case is
+	// simply the honest consequence of when it was written.
+	//
+	// 🔒 A posture is not a fault, and the copy must not read as an accusation. "Unsigned" is
+	// the default state of every case rohy has ever produced, not something the analyst did.
+	IntegrityImageUnverified = "image_unverified"
+	IntegrityImageAltered    = "image_altered"
+	IntegrityNeverCompacted  = "never_compacted"
+	IntegrityImageUncovered  = "image_uncovered"
+	IntegrityUnsignedCommits = "unsigned_commits"
+	IntegrityNoRootRetained  = "no_root_retained"
+	IntegrityForensicsAbsent = "forensics_unavailable"
 )
 
 // Suggested actions a finding can carry, so the UI offers the fix rather than describing it.
@@ -984,6 +1000,17 @@ const (
 	IntegrityActionRebuild  = "rebuild_indexes"
 	IntegrityActionIngest   = "ingest"
 	IntegrityActionReview   = "review"
+	// IntegrityActionCompact folds the write-ahead log into a new image. It is the remedy for
+	// most of the forensic postures, because compaction is what computes the snapshot roots —
+	// until it runs, nothing in the case can be proven.
+	IntegrityActionCompact = "compact"
+	// IntegrityActionVerifyImage runs the on-demand image check. Offered rather than run,
+	// because it is proportional to the whole store (PERFORMANCE.md §18).
+	IntegrityActionVerifyImage = "verify_image"
+	// IntegrityActionRetainRoot exports the snapshot root for the analyst to keep OUTSIDE the
+	// case. Every check the app can run compares the store against itself; a root kept
+	// elsewhere is the only thing that distinguishes "internally consistent" from "unaltered".
+	IntegrityActionRetainRoot = "retain_root"
 )
 
 const (
@@ -1002,6 +1029,22 @@ const (
 	MsgIntegrityRuleInert     = "rule %q cannot match: this case holds no %s events."
 	MsgIntegrityRuleBlocked   = "rule %q needs the %q correlation field, which no event in this case carries. It will report zero matches, which is not the same as a clean result."
 	MsgIntegrityRuleUnmatched = "rule %q could match — every step has events — but the pattern does not occur in this case."
+)
+
+// Forensic-posture messages (plan §14.8).
+//
+// 🔒 Every one of these describes a STATE and its consequence, and none of them accuses. They
+// also never overstate what the machinery does: the engine can make alteration DETECTABLE to
+// someone holding an independently retained value; it cannot prevent it, and it cannot vouch
+// for whether what it was told is true.
+const (
+	MsgIntegrityImageUnverified = "the case image has not been checked against the digest it was written with. Verifying is a separate action because it reads the whole image — nothing is known to be wrong."
+	MsgIntegrityImageAltered    = "the case image does not match the digest written with it: it has changed since it was written. A digest cannot tell damage from an edit."
+	MsgIntegrityNeverCompacted  = "this case has never been compacted, so nothing in it can be proven yet. Every event is recorded but unaccounted for — which is not the same as missing."
+	MsgIntegrityImageUncovered  = "this case's image predates integrity digests, so there is nothing covering its contents. Compacting rewrites it with one."
+	MsgIntegrityUnsignedCommits = "writes to this case are not signed, so nothing in it can be attributed to anyone. This cannot be applied retrospectively: what is already written stays unattributed."
+	MsgIntegrityNoRootRetained  = "no snapshot root has been kept outside this case. Every check rohy can run compares the case against itself, which cannot distinguish an intact case from an altered one."
+	MsgIntegrityForensicsAbsent = "this case has no integrity machinery: %s"
 )
 
 // --- Annotation layers (v0.2.0) ---
