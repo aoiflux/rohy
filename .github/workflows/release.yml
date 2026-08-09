@@ -98,7 +98,16 @@ jobs:
         shell: bash
         run: rm -rf frontend/dist
 
-      - name: Build windows/amd64 and windows/arm64
+      # 🔒 Each architecture is PACKAGED inside the loop, before the next iteration starts.
+      #
+      # `wails build -clean` wipes build/bin, so a binary left sitting there is destroyed by the
+      # next architecture's build. That is exactly how the v0.2.0 release broke: both binaries
+      # built successfully, and packaging then could not find the first one. macOS has always had
+      # this shape; Windows built both first and packaged afterwards, which cannot work.
+      #
+      # Keeping -clean is the point — it is what guarantees the embedded frontend is rebuilt from
+      # scratch rather than carried over from the previous architecture.
+      - name: Build and package windows/amd64 and windows/arm64
         shell: bash
         run: |
           set -euo pipefail
@@ -107,22 +116,17 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           PKG=rohy/backend/version
           LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
-          for arch in amd64 arm64; do
-            wails build -clean -platform "windows/${arch}" -ldflags "$LDFLAGS" -o "rohy-${arch}.exe"
-          done
-          test -f frontend/dist/index.html
-
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
           V=${{ needs.version.outputs.version }}
           mkdir -p dist
           for arch in amd64 arm64; do
+            wails build -clean -platform "windows/${arch}" -ldflags "$LDFLAGS" -o "rohy-${arch}.exe"
+            # Proves the frontend was rebuilt for THIS architecture, not carried over.
+            test -f frontend/dist/index.html
             cp "build/bin/rohy-${arch}.exe" "rohy.exe"
             7z a -tzip "dist/rohy_${V}_windows_${arch}.zip" rohy.exe LICENSE README.md >/dev/null
             rm rohy.exe
           done
+          ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
@@ -282,6 +286,10 @@ jobs:
     needs: [version, windows, linux, macos]
     runs-on: ubuntu-latest
     steps:
+      # The repository is needed here, not just the artefacts: the release body is assembled from
+      # RELEASE_NOTES.md below. Without this the notes step has no file to read.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: staged
