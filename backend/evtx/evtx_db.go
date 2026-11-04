@@ -68,7 +68,12 @@ func ingestDB(ctx context.Context, opts Options, sink EventSink, reporter Report
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			pending = append(pending, normalizeDBRow(row, catalogue))
+			var ev *graphene.Event
+			if err := guardRecord(func() error { ev = normalizeDBRow(row, catalogue); return nil }); err != nil {
+				skips = append(skips, err.Error())
+				return nil
+			}
+			pending = append(pending, ev)
 			if len(pending) >= consts.DBRowBatch && !send() {
 				return context.Canceled
 			}

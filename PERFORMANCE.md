@@ -557,6 +557,10 @@ the decision is being changed — check that it is on purpose.
 | `TestCancelledIngestIsStillSealed`                      | A cancelled ingest still seals what it wrote (§18)                   |
 | `TestUnknownFingerprintIsNotExported`                   | A lost fingerprint history defaults to the caveat, never to "kept"   |
 | `TestReObservingDoesNotRetractAnExport`                 | Reading the posture cannot retract a recorded export                 |
+| `TestWindowsIdentityHashIsFrozen`                       | A literal digest: identity cannot change without a deliberate act    |
+| `TestUnspecifiedAddressIsAbsentNotAKey`                 | 0.0.0.0 is a sentinel, not a key every local logon shares            |
+| `TestAddressSpellingsUnifyIntoOneKey`                   | `::ffff:`v4 and v4 are one correlation key, not two                  |
+| `TestGuardDoesNotDisturbACleanIngest`                   | Panic containment costs the happy path nothing                       |
 
 ---
 
@@ -665,8 +669,8 @@ lineage correlation all need to compare *field values* across events, and the wh
 the cold store is that reading it per event is the expensive path.
 
 So a **fixed, bounded projection** of those fields comes back into the record —
-`consts.CorrelationSlots`, ten named slots stored **by position** (`ck`) with a version
-(`ckv`). Everything else stays cold.
+`consts.CorrelationSlots`, ten named slots at v0.2.0 (thirteen since the network vocabulary
+below) stored **by position** (`ck`) with a version (`ckv`). Everything else stays cold.
 
 ### The measurement that forced the design
 
@@ -690,7 +694,7 @@ it, both of which the number is what justified:
 | | B/event |
 |---|---:|
 | Typical (a 4688 process-creation event) | **71** |
-| The format's worst case (all ten slots at their bound) | **324** |
+| The format's worst case (all ten slots at their bound; 381 at thirteen, below) | **324** |
 | Ceiling asserted by `TestCorrelationProjectionBudget` | 400 |
 | _(baseline node record, for scale)_ | _483_ |
 
@@ -708,7 +712,7 @@ Even at worst case the extrapolation is 309 MB at 1M events, against the ~1.6 kB
 - **Every new slot needs a bound that fits its widest legitimate value.** Too tight is worse
   than the memory it saves: a truncated value becomes a *wrong* correlation key, and two
   unrelated events correlate. `TestSlotsAreBoundedToTheirDomain` checks each one against the
-  widest real value of its kind (a full `uint64` id, the longest IPv6 literal).
+  widest real value of its kind (a full `uint64` id, the longest canonical IPv6 address).
 - **Absent is not empty.** A field that was not present projects to nothing, so it can never
   match another absent field. `-`, `S-1-0-0`, `null`, `N/A` and a zero identifier all mean
   absent. Without this a field matcher becomes a false-positive engine, correlating every
@@ -727,6 +731,52 @@ the payload cold store per event, which is exactly the expensive path §14 was b
 An event whose payload cannot be read is **left unstamped rather than stamped as empty**.
 Stamping it current would mark it permanently done at the wrong answer; leaving it means the
 next run retries it.
+
+---
+
+### The network vocabulary, and what it actually cost (v0.3.0)
+
+`CorrelationKeyVersion` 3 added `dst_ip`, `dst_port` and `protocol` so IDS, firewall and capture
+evidence can correlate with Windows events. The vocabulary was budgeted at **300–450 B** before
+anyone did the arithmetic. Measured, it cost **+57 B**:
+
+| | B/event |
+|---|---:|
+| worst case, ten slots (v2) | 324 |
+| worst case, thirteen slots (v3) | **381** |
+| ceiling, unchanged | 400 |
+| typical 4688, unchanged | 71 |
+
+Two things account for the gap between the estimate and the number, and both are worth
+remembering the next time a slot is proposed:
+
+- **`ip_address` was already the source-address slot.** Every alias it reads — `IpAddress`,
+  `ClientAddress`, `SourceNetworkAddress`, `SourceIp` — names the party that *initiated*, and so
+  do Suricata's `src_ip`, nginx's `remote_addr` and iptables' `SRC=`. A separate `src_ip` slot
+  would have been 39 bytes of duplicate. It is an alias instead (`CorrelationSlotAliases`), which
+  costs nothing on the wire.
+- **Canonicalization paid for a quarter of the rest.** Addresses now normalize to their RFC 5952
+  form, and `netip.Addr.String()` emits at most 39 characters, so slot 8's bound came *down* from
+  45. The 45 was sized for the longest uncanonicalized IPv6 literal, which can no longer be
+  stored.
+
+🔒 The rule the budget test states — *shrink the vocabulary, never raise the ceiling* — held, and
+was the reason the cheap design was found. The first sketch priced a maximalist vocabulary
+(src_ip, dst_ip, both ports, protocol, method, status, host, uri) at over 400 B and concluded the
+budget had to move. The ceiling refusing to move is what forced the question "which of these is
+actually a join key?", and the answer was four of them.
+
+⚠️ **Two correctness bugs came out of the same change**, both live in v0.2.0 for Windows-only
+cases:
+
+- `::ffff:10.0.0.5` and `10.0.0.5` were different correlation keys, so any rule joining across a
+  v4-mapped spelling silently matched nothing.
+- `0.0.0.0` on a 4624 means "not a network logon". It is not in `CorrelationAbsentValues`, so
+  **every local logon in a case shared one `ip_address` key** — a false-positive generator of
+  exactly the kind `bucketByKey`'s own comment warns about, in a spelling that list did not cover.
+
+Neither was found by a benchmark. Both were found by asking what a *second* source would have to
+write to match the first.
 
 ---
 

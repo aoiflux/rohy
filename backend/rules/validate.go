@@ -256,10 +256,11 @@ func (s *Spec) matchFieldProblems(algo consts.AlgorithmDescriptor) []ValidationE
 		return out
 	}
 
-	seen := map[string]bool{}
+	seen := map[int]string{} // slot → the spelling that first claimed it
 	for i, name := range s.MatchFields {
 		name = trimmed(name)
-		if _, ok := consts.CorrelationSlotIndex(name); !ok {
+		slot, ok := consts.CorrelationSlotIndex(name)
+		if !ok {
 			out = append(out, ValidationError{
 				Code: consts.RuleErrUnknownMatchField, Field: consts.FieldMatchFields, Index: i,
 				Message: fmt.Sprintf(consts.MsgRuleUnknownMatchField, s.MatchFields[i],
@@ -267,14 +268,20 @@ func (s *Spec) matchFieldProblems(algo consts.AlgorithmDescriptor) []ValidationE
 			})
 			continue
 		}
-		// A repeated field narrows nothing and is almost always a paste error.
-		if seen[name] {
+		// A repeated field narrows nothing and is almost always a paste error. Keyed on the SLOT,
+		// so an alias and the name it stands for ("src_ip" beside "ip_address") are one field.
+		if first, dup := seen[slot]; dup {
+			msg := fmt.Sprintf(consts.MsgRuleDuplicateMatchField, name)
+			if first != name {
+				msg = fmt.Sprintf(consts.MsgRuleAliasDuplicateMatchField, name, first)
+			}
 			out = append(out, ValidationError{
 				Code: consts.RuleErrDuplicateMatchField, Field: consts.FieldMatchFields, Index: i,
-				Message: fmt.Sprintf(consts.MsgRuleDuplicateMatchField, name),
+				Message: msg,
 			})
+			continue
 		}
-		seen[name] = true
+		seen[slot] = name
 	}
 	return out
 }
@@ -456,6 +463,11 @@ func (s *Spec) inertFieldAdvisories() []ValidationError {
 	}
 	if s.LineageDepth != 0 && !algorithmReads(algo, consts.FieldLineageDepth) {
 		warn(consts.FieldLineageDepth)
+	}
+	// Only a NON-default scope is worth saying: an algorithm that ignores match_scope partitions
+	// by computer, so a file stating "computer" asks for exactly what it gets.
+	if sc := trimmed(s.MatchScope); sc != "" && sc != consts.DefaultScope && !algorithmReads(algo, consts.FieldMatchScope) {
+		warn(consts.FieldMatchScope)
 	}
 	// A sequence on an algorithm that does not match one is the same class of problem, but it
 	// gets its own code because it is the likeliest of these to be a genuine misunderstanding

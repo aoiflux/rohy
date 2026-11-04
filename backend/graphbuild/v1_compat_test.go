@@ -75,6 +75,9 @@ func TestV1RuleUnaffectedByV2FieldsBeingPresent(t *testing.T) {
 	decorated.MatchFields = []string{"logon_id"}
 	decorated.WindowWithin = "5m"
 	decorated.LineageDepth = 3
+	// The one that once leaked: honoured on sequence, it would join this multi-host fixture
+	// across computers where a v0.1.0 build would not.
+	decorated.MatchScope = consts.ScopeGlobal
 
 	a := runRuleEdges(t, plain, events)
 	b := runRuleEdges(t, &decorated, events)

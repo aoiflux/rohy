@@ -209,10 +209,24 @@ func TestCorrelationProjectionBudget(t *testing.T) {
 	//     already on the other endpoint of a lineage edge, one strictly less precise than
 	//     logon_id.
 	//
-	// What is left costs ~370 B at a worst case no real Windows event reaches, and ~70 B on a
+	// What is left costs ~381 B at a worst case no real event reaches, and ~71 B on a
 	// representative 4688. Against an 867 B/event baseline that is around +8% typical to make
 	// field, temporal and lineage correlation possible at all, which is a trade worth making —
 	// and unlike the estimate it replaced, it is a number this test will hold to.
+	//
+	// CorrelationKeyVersion 3 added dst_ip, dst_port and protocol for multi-source ingestion and
+	// the vocabulary still fits, which is the outcome worth recording: the network slots were
+	// budgeted at 300–450 B before anyone did the arithmetic, and the real figure is +57 B.
+	// Two things made the difference, and both are worth keeping in mind next time —
+	//
+	//   - ip_address was ALREADY the source-address slot. Every alias it reads (IpAddress,
+	//     ClientAddress, SourceNetworkAddress, SourceIp) names the party that initiated, and so
+	//     do src_ip, remote_addr and iptables' SRC=. A second slot for it would have been 39
+	//     bytes of duplicate.
+	//   - canonicalizing addresses PAID FOR PART OF IT. Addr.String() emits at most 39
+	//     characters, so slot 8 came down from 45 and funded a quarter of the new vocabulary.
+	//
+	// The response to a breach is still to shrink the vocabulary, never to raise this number.
 	const budget = 400
 	if worstCost > budget {
 		t.Errorf("correlation projection costs %d B/event at the format's worst case, above the "+

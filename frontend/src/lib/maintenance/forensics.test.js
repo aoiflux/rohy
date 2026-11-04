@@ -76,6 +76,14 @@ describe('lib/maintenance / forensic actions', () => {
     // and a reader who conflates them goes looking for data loss that never happened.
     expect(UI.MAINT_FORENSIC_UNSEALED.toLowerCase()).toContain('not the same as');
   });
+
+  it('says an unreadable fingerprint leaves sealing unknown, not absent', () => {
+    // A read failure must not read as "not sealed yet": that copy invites sealing, which would
+    // write a fresh fingerprint over the cause.
+    const text = UI.MAINT_FORENSIC_ROOTS_UNREADABLE.toLowerCase();
+    expect(text).toContain('unknown');
+    expect(text).not.toContain(UI.MAINT_FORENSIC_UNSEALED.toLowerCase());
+  });
 });
 
 describe('routes / MaintenanceView — forensic posture', () => {

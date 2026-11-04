@@ -37,6 +37,12 @@ func TestCorrelationSlotVocabularyGolden(t *testing.T) {
 		"subject_user",
 		"ip_address",
 		"service_name",
+		// Network slots, appended for multi-source ingestion at CorrelationKeyVersion 3. Note
+		// there is no source-address slot: ip_address already IS one, since every alias it reads
+		// names the party that initiated the interaction.
+		"dst_ip",
+		"dst_port",
+		"protocol",
 	}
 	if len(consts.CorrelationSlots) != len(want) {
 		t.Fatalf("slot count changed: got %d, want %d — bump consts.CorrelationKeyVersion and update this golden",
@@ -265,8 +271,13 @@ func TestSlotsAreBoundedToTheirDomain(t *testing.T) {
 		"process_id":        "0xffffffffffffffff",
 		"new_process_id":    "0xffffffffffffffff",
 		"parent_process_id": "0xffffffffffffffff",
-		// The longest IPv6 literal form.
-		"ip_address": "0000:0000:0000:0000:0000:ffff:192.168.100.228",
+		// The longest CANONICAL IPv6 form. Not the longest literal: the address class
+		// canonicalizes to RFC 5952, and Addr.String() never emits more than this — which is
+		// exactly why the bound is 39 rather than the 45 an uncanonicalized literal needs.
+		"ip_address": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+		"dst_ip":     "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+		"dst_port":   "65535",
+		"protocol":   "ipv6-icmp",
 	}
 	sources := map[string]string{
 		"logon_id":          "TargetLogonId",
@@ -275,6 +286,9 @@ func TestSlotsAreBoundedToTheirDomain(t *testing.T) {
 		"new_process_id":    "NewProcessId",
 		"parent_process_id": "ParentProcessId",
 		"ip_address":        "IpAddress",
+		"dst_ip":            "DestinationIp",
+		"dst_port":          "DestinationPort",
+		"protocol":          "Protocol",
 	}
 	for slot, value := range widest {
 		i := slotOf(t, slot)
@@ -445,4 +459,291 @@ func TestLegacyRelationDecodesAsUnrecorded(t *testing.T) {
 	if got.RelVersion != 0 {
 		t.Fatalf("an unstamped relation must report version 0, got %d", got.RelVersion)
 	}
+}
+
+// --- address, port and protocol canonicalization (CorrelationKeyVersion 3) ---
+
+// 🔒 The join this exists for. Windows writes some addresses v4-mapped; Suricata, nginx and
+// iptables write the plain form. Under the old plain class those were two different correlation
+// keys and any cross-source rule matching on ip_address silently found nothing.
+func TestAddressSpellingsUnifyIntoOneKey(t *testing.T) {
+	same := []string{
+		"10.0.0.5",
+		"::ffff:10.0.0.5",
+		"::FFFF:10.0.0.5",
+		"  10.0.0.5  ",
+		"10.0.0.5:445", // some producers write the endpoint; the port has its own slot
+	}
+	i := slotOf(t, "ip_address")
+	want := ""
+	for n, v := range same {
+		got := ExtractCorrelationKeys(map[string]string{"IpAddress": v})
+		if i >= len(got) || got[i] == "" {
+			t.Fatalf("%q projected to nothing", v)
+		}
+		if n == 0 {
+			want = got[i]
+			continue
+		}
+		if got[i] != want {
+			t.Errorf("%q projected %q, want %q — these are the same host and must be one key", v, got[i], want)
+		}
+	}
+
+	v6 := []string{"2001:0db8:0000:0000:0000:0000:0000:0001", "2001:DB8::1", "2001:db8::1"}
+	want = ""
+	for n, v := range v6 {
+		got := ExtractCorrelationKeys(map[string]string{"IpAddress": v})
+		if n == 0 {
+			want = got[i]
+			continue
+		}
+		if got[i] != want {
+			t.Errorf("%q projected %q, want %q", v, got[i], want)
+		}
+	}
+}
+
+// 🔒 The false-positive bug this fixes. 0.0.0.0 on a 4624 means "not a network logon" — it is a
+// SENTINEL, not an address. It is not in consts.CorrelationAbsentValues, so before the address
+// class every local logon in a case shared one ip_address key and a field rule matching on it
+// correlated all of them with each other.
+func TestUnspecifiedAddressIsAbsentNotAKey(t *testing.T) {
+	i := slotOf(t, "ip_address")
+	for _, v := range []string{"0.0.0.0", "::", "0:0:0:0:0:0:0:0", "::ffff:0.0.0.0"} {
+		got := ExtractCorrelationKeys(map[string]string{"IpAddress": v})
+		if i < len(got) && got[i] != "" {
+			t.Errorf("%q projected %q — the unspecified address is a sentinel, and treating it "+
+				"as a value buckets every local logon in the case together", v, got[i])
+		}
+	}
+}
+
+// A zone is host-local, so it cannot mean anything across two hosts' records.
+func TestAddressZoneIsStripped(t *testing.T) {
+	i := slotOf(t, "ip_address")
+	withZone := ExtractCorrelationKeys(map[string]string{"IpAddress": "fe80::1%eth0"})
+	plain := ExtractCorrelationKeys(map[string]string{"IpAddress": "fe80::1"})
+	if i >= len(withZone) || withZone[i] == "" {
+		t.Fatal("a zoned address projected to nothing")
+	}
+	if withZone[i] != plain[i] {
+		t.Errorf("zoned %q != plain %q", withZone[i], plain[i])
+	}
+}
+
+// 🔒 A non-address is dropped, NOT truncated. This diverges deliberately from the identifier
+// class, which keeps unparseable values verbatim: a 39-byte slot cannot hold a hostname, and a
+// truncated one manufactures a correlation key that is wrong rather than merely short.
+func TestNonAddressProjectsNothingRatherThanTruncating(t *testing.T) {
+	i := slotOf(t, "ip_address")
+	for _, v := range []string{
+		"workstation-01.corp.example.com",
+		"not-an-address",
+		"999.999.999.999",
+	} {
+		got := ExtractCorrelationKeys(map[string]string{"IpAddress": v})
+		if i < len(got) && got[i] != "" {
+			t.Errorf("%q projected %q — a hostname is not an address and must not become a key",
+				v, got[i])
+		}
+	}
+}
+
+// 🔒 Sysmon 3 writes Protocol=tcp; Windows 5156 writes Protocol=6. Without the number-to-keyword
+// mapping the same protocol never correlates across those two providers.
+func TestProtocolNumbersAndNamesUnify(t *testing.T) {
+	i := slotOf(t, "protocol")
+	byNumber := ExtractCorrelationKeys(map[string]string{"Protocol": "6"})
+	byName := ExtractCorrelationKeys(map[string]string{"Protocol": "TCP"})
+	if i >= len(byNumber) || byNumber[i] == "" {
+		t.Fatal("a numeric protocol projected to nothing")
+	}
+	if byNumber[i] != byName[i] {
+		t.Errorf("Protocol=6 projected %q but Protocol=TCP projected %q", byNumber[i], byName[i])
+	}
+	if byNumber[i] != "tcp" {
+		t.Errorf("protocol 6 projected %q, want tcp", byNumber[i])
+	}
+	// An unlisted number stays decimal rather than being given an invented name.
+	odd := ExtractCorrelationKeys(map[string]string{"Protocol": "253"})
+	if odd[i] != "253" {
+		t.Errorf("unlisted protocol projected %q, want the decimal verbatim", odd[i])
+	}
+}
+
+func TestPortCanonicalization(t *testing.T) {
+	i := slotOf(t, "dst_port")
+	cases := map[string]string{
+		"443":   "443",
+		"00443": "443", // leading zeros are the same port
+		"0":     "",    // port 0 means "none"
+		"https": "",    // a service name is not a port
+		"70000": "",    // out of range
+		"":      "",
+	}
+	for in, want := range cases {
+		got := ExtractCorrelationKeys(map[string]string{"DestinationPort": in})
+		var have string
+		if i < len(got) {
+			have = got[i]
+		}
+		if have != want {
+			t.Errorf("DestinationPort=%q projected %q, want %q", in, have, want)
+		}
+	}
+}
+
+// The Suricata field spellings must reach the slots, or every EVE event projects nothing and no
+// field rule can ever match one — silently.
+func TestSuricataFieldNamesProjectIntoTheNetworkSlots(t *testing.T) {
+	got := ExtractCorrelationKeys(map[string]string{
+		"src_ip": "10.0.0.5", "dest_ip": "93.184.216.34", "dest_port": "443", "proto": "TCP",
+	})
+	for slot, want := range map[string]string{
+		"ip_address": "10.0.0.5",
+		"dst_ip":     "93.184.216.34",
+		"dst_port":   "443",
+		"protocol":   "tcp",
+	} {
+		i := slotOf(t, slot)
+		if i >= len(got) || got[i] != want {
+			var have string
+			if i < len(got) {
+				have = got[i]
+			}
+			t.Errorf("%s projected %q, want %q", slot, have, want)
+		}
+	}
+}
+
+// 🔒 A Windows 4624 and a Suricata alert naming the same host must land on the SAME key. This is
+// the whole point of the vocabulary change, asserted directly rather than inferred.
+func TestWindowsAndSuricataAgreeOnAnAddressKey(t *testing.T) {
+	i := slotOf(t, "ip_address")
+	win := ExtractCorrelationKeys(map[string]string{"IpAddress": "::ffff:203.0.113.9"})
+	eve := ExtractCorrelationKeys(map[string]string{"src_ip": "203.0.113.9"})
+	if i >= len(win) || win[i] == "" {
+		t.Fatal("the Windows record projected no address")
+	}
+	if win[i] != eve[i] {
+		t.Errorf("Windows projected %q, Suricata projected %q — the cross-source join would "+
+			"silently find nothing", win[i], eve[i])
+	}
+}
+
+// A rule author may write src_ip; it resolves to the ip_address slot rather than costing one.
+func TestSrcIPResolvesToTheIPAddressSlot(t *testing.T) {
+	i, ok := consts.CorrelationSlotIndex("src_ip")
+	if !ok {
+		t.Fatal("src_ip does not resolve — a network analyst's first guess is refused")
+	}
+	if i != consts.SlotIPAddress {
+		t.Errorf("src_ip resolves to slot %d, want %d (ip_address)", i, consts.SlotIPAddress)
+	}
+}
+
+// 🔒 A protocol number is one byte. Kept verbatim, an unlisted number had no length bound —
+// "000…0253" of any length went into a 10-byte slot — and "0253" and "253" were two keys.
+func TestProtocolNumbersAreBoundedAndCanonical(t *testing.T) {
+	i := slotOf(t, "protocol")
+	cases := map[string]string{
+		"253":                          "253",
+		"0253":                         "253",
+		"0000000000000000000000000253": "253",
+		"256":                          "", // not a protocol number
+		"99999999999999999999999":      "",
+		"0":                            "", // the "no protocol" of a bind or listen record
+		"58":                           "ipv6-icmp",
+		"ICMPv6":                       "ipv6-icmp", // iptables' spelling of 58
+		"ipv6-icmp":                    "ipv6-icmp",
+	}
+	for in, want := range cases {
+		got := ExtractCorrelationKeys(map[string]string{"Protocol": in})
+		var have string
+		if i < len(got) {
+			have = got[i]
+		}
+		if have != want {
+			t.Errorf("Protocol=%q projected %q, want %q", in, have, want)
+		}
+		if len(have) > consts.CorrelationSlotMaxLen[i] {
+			t.Errorf("Protocol=%q projected %d bytes, past the slot bound %d", in, len(have), consts.CorrelationSlotMaxLen[i])
+		}
+	}
+}
+
+// Bracketed endpoints are how IPv6 addresses with a port are written. Brackets are stripped only
+// as a pair, so a stray one is not quietly accepted as an address.
+func TestBracketedAddressesCanonicalize(t *testing.T) {
+	i := slotOf(t, "ip_address")
+	cases := map[string]string{
+		"[::1]":                 "::1",
+		"[::1]:80":              "::1",
+		"[fe80::1%eth0]:443":    "fe80::1",
+		"[::ffff:10.0.0.5]:445": "10.0.0.5",
+		"10.0.0.5]":             "",
+		"[10.0.0.5":             "",
+	}
+	for in, want := range cases {
+		got := ExtractCorrelationKeys(map[string]string{"IpAddress": in})
+		var have string
+		if i < len(got) {
+			have = got[i]
+		}
+		if have != want {
+			t.Errorf("IpAddress=%q projected %q, want %q", in, have, want)
+		}
+	}
+}
+
+// 🔒 Loopback is evidence, not a sentinel: a 4624 from 127.0.0.1 is how a tunnelled RDP logon
+// looks. It stays a key. The cost — global-scope rules on an address field link loopback activity
+// across hosts — is documented in RULES.md §9 rather than paid by hiding the evidence.
+func TestLoopbackIsAKey(t *testing.T) {
+	i := slotOf(t, "ip_address")
+	for _, v := range []string{"127.0.0.1", "::1"} {
+		got := ExtractCorrelationKeys(map[string]string{"IpAddress": v})
+		if i >= len(got) || got[i] != v {
+			t.Errorf("IpAddress=%q projected %v, want it kept as %q", v, got, v)
+		}
+	}
+}
+
+// 🔒 WFP names endpoints by the local side, so an inbound 5156 lists this machine's listener as
+// the "source". ip_address means the initiator, so inbound records are oriented before
+// projection. The inbound fields are Microsoft's own 5156 example.
+func TestInboundWFPIsOrientedByInitiator(t *testing.T) {
+	wfp := func(direction string) map[string]string {
+		return map[string]string{
+			"Direction": direction, "Application": `\device\harddiskvolume2\documents\listener.exe`,
+			"SourceAddress": "10.0.0.10", "SourcePort": "3333",
+			"DestAddress": "10.0.0.100", "DestPort": "49278", "Protocol": "6",
+		}
+	}
+	check := func(name string, got []string, want map[string]string) {
+		t.Helper()
+		for slot, w := range want {
+			j := slotOf(t, slot)
+			var have string
+			if j < len(got) {
+				have = got[j]
+			}
+			if have != w {
+				t.Errorf("%s: %s = %q, want %q", name, slot, have, w)
+			}
+		}
+	}
+
+	inbound := map[string]string{"ip_address": "10.0.0.100", "dst_ip": "10.0.0.10", "dst_port": "3333", "protocol": "tcp"}
+	check("inbound", ExtractCorrelationKeys(wfp("%%14592")), inbound)
+	check("inbound, rendered", ExtractCorrelationKeys(wfp("Inbound")), inbound)
+	check("outbound", ExtractCorrelationKeys(wfp("%%14593")),
+		map[string]string{"ip_address": "10.0.0.10", "dst_ip": "10.0.0.100", "dst_port": "49278", "protocol": "tcp"})
+
+	// Sysmon 3 has no Direction field; its spellings are left as written.
+	sysmon := ExtractCorrelationKeys(map[string]string{
+		"Initiated": "false", "SourceIp": "203.0.113.9", "DestinationIp": "10.0.0.10", "DestinationPort": "3389",
+	})
+	check("sysmon", sysmon, map[string]string{"ip_address": "203.0.113.9", "dst_ip": "10.0.0.10", "dst_port": "3389"})
 }

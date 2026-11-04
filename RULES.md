@@ -167,7 +167,11 @@ This is only true because every v0.2.0 field is read by a *new* algorithm. The o
 `match_scope`, which would have applied to `sequence` as well — an older build would have ignored
 it and quietly scoped by computer. Rather than carry a version to protect one combination, that
 combination was removed: `match_scope` belongs to `field`, `temporal` and `lineage` only. Global
-scope is meaningless without `match_fields` anyway, and a `sequence` rule has none.
+scope is meaningless without `match_fields` anyway, and a `sequence` rule has none. A `sequence`
+rule that sets `match_scope: "global"` still loads — the field is preserved, like any field its
+algorithm does not read — but it is matched per computer, exactly as an older build matches it,
+and both the editor and `rohyctl validate` warn that the field has no effect. (v0.2.0 read it
+for `sequence` by mistake; the fix shipped in v0.3.0.)
 
 **Version-bump policy** (what forces a new `format_version`):
 
@@ -306,17 +310,98 @@ is ingested:
 | `process_name` | The image of the process this event is about, basename only. |
 | `target_user` | The account acted upon. |
 | `subject_user` | The account acting. |
-| `ip_address` | The remote address involved. |
+| `ip_address` | The address of the party that **initiated** the interaction. Also spelled `src_ip`. |
 | `service_name` | The service involved (7045, 4697…). |
+| `dst_ip` | The address of the responder — the target of the connection. |
+| `dst_port` | The port being reached. |
+| `protocol` | The transport protocol, as a lowercase keyword (`tcp`, `udp`, `icmp`…). |
+
+`ip_address` and `src_ip` are two names for one field. `ip_address` is the older spelling and
+what the stored format uses; `src_ip` is accepted because it is the name a network analyst
+reaches for. Either resolves to the same value — writing both in one rule is a duplicate, not a
+pair, and the editor and `rohyctl validate` both say so. A relation's basis always names the
+field by its stored spelling, so a rule written with `src_ip` produces edges whose basis reads
+`ip_address=…`.
+
+**Initiator first, whichever way the record is written.** Windows Filtering Platform events
+(5156 and its neighbours) name their endpoints by the *local* side: on an inbound connection,
+`SourceAddress` is this machine's listener and `DestAddress` the remote peer. rohy reads the
+record's `Direction` and swaps the two for inbound connections, so `ip_address` is the remote
+initiator and `dst_ip`/`dst_port` this machine's listener. Sysmon event 3 is read as written
+(`SourceIp` as the initiator); that has not yet been checked against an inbound sample.
 
 Values are normalized so two spellings of one thing compare equal: identifiers become
 lowercase `0x`-prefixed hex whether the provider wrote decimal or hex, image paths reduce to
 their lowercased basename, and `-`, the null SID, `null` and `n/a` count as **absent** rather
 than as values.
 
-**Events ingested before v0.2.0 have no projection**, so field, temporal and lineage rules
-under-report against them. rohy reports the count rather than returning the short answer as
-though it were the whole one, and offers a one-off backfill that fills them in.
+Addresses get their own normalization, and two parts of it change what matches:
+
+- **One spelling per address.** `::ffff:10.0.0.5` and `10.0.0.5` are the same host, as are
+  `2001:0DB8::1` and `2001:db8::1`. A zone suffix (`fe80::1%eth0`) is dropped, because it means
+  something only on the machine that wrote it.
+- **The unspecified address is absent.** `0.0.0.0` and `::` are what Windows writes to mean
+  "not a network logon". They are sentinels, not addresses, so they project nothing — otherwise
+  every local logon in a case would share one `ip_address` value and correlate with all the
+  others.
+
+A value that is not an address projects nothing rather than being stored truncated: a hostname
+in an address field is not a wrong address, it is a different kind of thing, and keeping a
+shortened copy of it would manufacture a match.
+
+**Loopback is kept.** `127.0.0.1` and `::1` are real values — a logon from `127.0.0.1` is what a
+tunnelled RDP session looks like — so they project like any other address. The cost is worth
+knowing: under `match_scope: "global"`, an address rule links loopback activity on every host in
+the case, because every host's loopback is spelled the same. Prefer the default scope when the
+evidence is loopback, or add a second field that separates the hosts.
+
+`protocol` reads numbers and keywords alike, because providers disagree — Sysmon writes
+`Protocol=tcp` and Windows 5156 writes `Protocol=6` for the same connection. A number past 255
+is not a protocol and projects nothing, and neither does `0`, which is what bind and listen
+records write for "no protocol".
+
+### ⚠️ Correlating across sources needs `match_scope: global`
+
+`match_scope` defaults to `computer`, and the computer of a network-sensor event is the
+**sensor**, not the host the traffic concerns. So a rule joining IDS or firewall evidence to
+Windows events at the default scope partitions the two apart and matches **nothing** — with no
+error, because finding nothing is a legal outcome.
+
+Any rule whose steps come from different kinds of source must say `match_scope: "global"` and
+name the field that ties them together. **No non-Windows reader ships yet** — every source rohy
+ingests today is Windows event data — so the example below is the shape such a rule will take
+once one does, not something that matches today:
+
+```jsonc
+{
+  "algorithm": "temporal",
+  "sequence": ["suricata:alert", "4624"],
+  "match_fields": ["src_ip"],
+  "match_scope": "global",
+  "window_within": "10m"
+}
+```
+
+A plain `sequence` rule cannot use global scope at all: it does not read `match_scope` (§5), and
+global scope without a shared field would correlate a whole case with itself anyway. With
+`match_fields` it is the only scope that can work.
+
+**Events ingested before the current projection recipe have no usable one**, so field, temporal
+and lineage rules under-report against them. rohy reports the count rather than returning the
+short answer as though it were the whole one, and offers a one-off backfill that fills them in.
+
+The recipe version is at **3**. It was last raised when the network fields above were added and
+addresses gained their own normalization — so a case ingested by an earlier build needs the
+backfill before an `ip_address` rule is accurate on it. Existing Windows events project
+differently in four ways, which is why the whole projection is re-read rather than only the new
+slots:
+
+- `SourceAddress` now feeds `ip_address`, so WFP events (5156 and its neighbours) carry one,
+  oriented by `Direction` as described above.
+- WFP and Sysmon network events gain `dst_ip`, `dst_port` and `protocol`.
+- A non-address in an address field — a hostname, `LOCAL` — now projects nothing instead of a
+  truncated string.
+- Address spellings are unified, and the unspecified address is absent.
 
 ## 10. Where rules live
 

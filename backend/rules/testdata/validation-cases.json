@@ -395,6 +395,48 @@
     ]
   },
   {
+    "name": "v2: an alias for a correlation field is accepted",
+    "why": "src_ip is another name for ip_address. Every validator must accept what the loader accepts, or an editor underlines a rule that loads.",
+    "source": [
+      "{",
+      "  \"name\": \"Alias Field\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"src_ip\"]",
+      "}"
+    ],
+    "codes": [],
+    "warnings": []
+  },
+  {
+    "name": "v2: an alias beside the name it stands for is a duplicate",
+    "why": "src_ip and ip_address are one slot, so listing both narrows nothing.",
+    "source": [
+      "{",
+      "  \"name\": \"Alias Duplicate\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"algorithm\": \"field\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_fields\": [\"ip_address\", \"src_ip\"]",
+      "}"
+    ],
+    "codes": [
+      "duplicate_match_field"
+    ],
+    "locations": [
+      {
+        "code": "duplicate_match_field",
+        "field": "match_fields",
+        "index": 1,
+        "line": 7,
+        "col": 34
+      }
+    ]
+  },
+  {
     "name": "v2: a repeated correlation field is refused",
     "why": "Listing a field twice narrows nothing and is almost always a paste error.",
     "source": [
@@ -599,5 +641,37 @@
     "warnings": [
       "field_not_for_algorithm"
     ]
+  },
+  {
+    "name": "v2: match_scope on a sequence rule is preserved but not read",
+    "why": "A v0.1.0 build ignores match_scope and scopes by computer, so honouring it on sequence would make one file produce different graphs on different builds. The author is told rather than silently narrowed.",
+    "source": [
+      "{",
+      "  \"name\": \"Scoped Sequence\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_scope\": \"global\"",
+      "}"
+    ],
+    "codes": [],
+    "warnings": [
+      "field_not_for_algorithm"
+    ]
+  },
+  {
+    "name": "v2: stating the default scope on a sequence rule says nothing",
+    "why": "Computer is what sequence does anyway, so the file asks for exactly what it gets.",
+    "source": [
+      "{",
+      "  \"name\": \"Default Scope Sequence\",",
+      "  \"description\": \"4625 then 4624.\",",
+      "  \"channels\": [\"Security\"],",
+      "  \"sequence\": [\"4625\", \"4624\"],",
+      "  \"match_scope\": \"computer\"",
+      "}"
+    ],
+    "codes": [],
+    "warnings": []
   }
 ]

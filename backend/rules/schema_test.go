@@ -250,6 +250,55 @@ func TestAppliesToNamesRealAlgorithms(t *testing.T) {
 	}
 }
 
+// TestAppliesToMatchesWhatTheAlgorithmsRead pins a field's applies_to to exactly the algorithms
+// whose descriptor lists it. The two were stated separately, and they drifted: match_scope
+// applied to every algorithm in the schema while the sequence descriptor (correctly) did not
+// read it, so the form offered a control that changed the graph on this build and not on v0.1.0.
+func TestAppliesToMatchesWhatTheAlgorithmsRead(t *testing.T) {
+	for _, f := range Describe().Fields {
+		readers := algorithmsReading(f.Name)
+		if len(readers) == 0 {
+			continue // not an algorithm-specific field; its applies_to is governed elsewhere
+		}
+		if strings.Join(f.AppliesTo, ",") != strings.Join(readers, ",") {
+			t.Errorf("field %q applies_to %v, but the algorithms reading it are %v",
+				f.Name, f.AppliesTo, readers)
+		}
+	}
+}
+
+// TestSequenceIgnoresMatchScope is the reversal stated as behaviour: a sequence rule asking for
+// global scope still partitions by computer, as a v0.1.0 build would, and is told so.
+func TestSequenceIgnoresMatchScope(t *testing.T) {
+	s, err := Parse([]byte(`{"name":"Scoped Sequence","description":"4625 then 4624.",
+		"sequence":["4625","4624"],"match_scope":"global"}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := s.ScopeOrDefault(); got != consts.DefaultScope {
+		t.Errorf("sequence scope = %q, want %q — v0.1.0 ignores match_scope", got, consts.DefaultScope)
+	}
+	warned := false
+	for _, w := range s.inertFieldAdvisories() {
+		if w.Field == consts.FieldMatchScope && w.Code == consts.RuleWarnFieldNotForAlgorithm {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("a sequence rule asking for global scope must be told the field has no effect")
+	}
+
+	field, err := Parse([]byte(`{"name":"Scoped Field","description":"4625 then 4624.",
+		"algorithm":"field","sequence":["4625","4624"],"match_fields":["logon_id"],
+		"match_scope":"global"}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := field.ScopeOrDefault(); got != consts.ScopeGlobal {
+		t.Errorf("field scope = %q, want %q — algorithms that read match_scope honour it", got, consts.ScopeGlobal)
+	}
+}
+
 // TestSchemaDefaultsAreAccepted does the same for the defaults, including the one the form
 // seeds a brand-new rule with.
 func TestSchemaDefaultsAreAccepted(t *testing.T) {

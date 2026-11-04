@@ -268,10 +268,14 @@ function matchFieldProblems(value, schema, descriptor, algorithm) {
   if (!reads(descriptor, RULE_FIELDS.MATCH_FIELDS)) return out;
 
   const known = enumOf(schema, RULE_FIELDS.MATCH_FIELDS);
-  const seen = new Set();
+  // Served aliases (src_ip → ip_address) are accepted exactly as the loader accepts them, and
+  // duplicates are judged on the field they stand for.
+  const aliases = fieldOf(schema, RULE_FIELDS.MATCH_FIELDS)?.aliases || {};
+  const seen = new Map(); // canonical field → the spelling that first claimed it
   fields.forEach((raw, i) => {
     const name = String(raw ?? '').trim();
-    if (known.length > 0 && !known.includes(name)) {
+    const canonical = Object.hasOwn(aliases, name) ? aliases[name] : name;
+    if (known.length > 0 && !known.includes(canonical)) {
       out.push(
         problem(
           RULE_PROBLEMS.UNKNOWN_MATCH_FIELD,
@@ -282,17 +286,21 @@ function matchFieldProblems(value, schema, descriptor, algorithm) {
       );
       return;
     }
-    if (seen.has(name)) {
+    if (seen.has(canonical)) {
+      const first = seen.get(canonical);
       out.push(
         problem(
           RULE_PROBLEMS.DUPLICATE_MATCH_FIELD,
           RULE_FIELDS.MATCH_FIELDS,
           i,
-          `match_fields lists "${name}" more than once`,
+          first === name
+            ? `match_fields lists "${name}" more than once`
+            : `match_fields lists "${name}", another name for "${first}", which is already listed`,
         ),
       );
+      return;
     }
-    seen.add(name);
+    seen.set(canonical, name);
   });
   return out;
 }
@@ -480,6 +488,13 @@ function inertFieldAdvisories(value, schema) {
     RULE_FIELDS.LINEAGE_DEPTH,
   ]) {
     if (set(field) && !reads(descriptor, field)) warn(field);
+  }
+  // Only a NON-default scope is worth saying: an algorithm that ignores match_scope partitions
+  // by computer, so a file stating the default asks for exactly what it gets.
+  const scope = String(value[RULE_FIELDS.MATCH_SCOPE] ?? '').trim();
+  const scopeDefault = fieldOf(schema, RULE_FIELDS.MATCH_SCOPE)?.default;
+  if (scope !== '' && scope !== scopeDefault && !reads(descriptor, RULE_FIELDS.MATCH_SCOPE)) {
+    warn(RULE_FIELDS.MATCH_SCOPE);
   }
 
   // A sequence on an algorithm that does not match one gets its own code: it is the likeliest

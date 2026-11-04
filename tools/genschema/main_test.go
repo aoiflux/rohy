@@ -142,11 +142,23 @@ func TestMatchFieldsOffersTheCorrelationVocabulary(t *testing.T) {
 	mf, _ := p["match_fields"].(map[string]any)
 	items, _ := mf["items"].(map[string]any)
 	enum, _ := items["enum"].([]any)
-	if len(enum) != len(consts.CorrelationSlots) {
-		t.Fatalf("match_fields offers %d values, the vocabulary has %d", len(enum), len(consts.CorrelationSlots))
+	if want := len(consts.CorrelationSlots) + len(consts.CorrelationSlotAliases); len(enum) != want {
+		t.Fatalf("match_fields offers %d values, the vocabulary has %d names and aliases", len(enum), want)
 	}
 	if enum[0] != consts.CorrelationSlots[0] {
 		t.Errorf("first offered field = %v, want %q", enum[0], consts.CorrelationSlots[0])
+	}
+	// 🔒 Every alias the loader resolves is offered, or the editor underlines a rule that loads.
+	for alias := range consts.CorrelationSlotAliases {
+		found := false
+		for _, v := range enum {
+			if v == alias {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("alias %q resolves in the loader but is not in the schema enum", alias)
+		}
 	}
 }
 

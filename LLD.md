@@ -517,24 +517,31 @@ record. Two properties make it affordable:
 var CorrelationSlots = []string{
     "logon_id", "subject_logon_id", "process_id", "new_process_id", "parent_process_id",
     "process_name", "target_user", "subject_user", "ip_address", "service_name",
+    "dst_ip", "dst_port", "protocol", // v0.3.0, appended — recipe version 3
 }
 ```
 
-- **Values are stored by POSITION, not by name.** A map would repeat ten key names on every
+- **Values are stored by POSITION, not by name.** A map would repeat thirteen key names on every
   event forever. Measured: the same values keyed by name cost **+138 B/event** of pure
-  vocabulary.
+  vocabulary (at ten slots).
 - **Each slot is bounded to its own domain**, not to one generous cap — identifiers 18 bytes
-  ("0x" plus the 16 hex digits of a uint64), an image basename 40, an account 32, an IPv6
-  literal 45.
+  ("0x" plus the 16 hex digits of a uint64), an image basename 40, an account 32, an address 39
+  (the longest RFC 5952 IPv6 form, which canonicalization guarantees), a port 5, a protocol
+  keyword 10.
+- **Aliases are names, not slots.** `src_ip` resolves to the `ip_address` position
+  (`consts.CorrelationSlotAliases`); it costs nothing on the wire and is served in the schema so
+  every validator accepts it.
 
 The budget was **measured, not chosen**, and the first measurement failed. A twelve-slot
 vocabulary sharing a 64-byte cap cost **819 B/event** at the format's worst case, against a
 483 B baseline node record — most of the way back to what 5.5 removed. The response was to
 shrink the vocabulary, not to raise the ceiling: per-slot bounds, and two slots dropped
 (`parent_process_name`, redundant with the other endpoint of a lineage edge;
-`session_id`, subsumed by `logon_id`). It now costs **324 B worst case and 71 B on a
+`session_id`, subsumed by `logon_id`). At ten slots it cost **324 B worst case and 71 B on a
 representative 4688** — about +8% typical against the 867 B/event baseline, to make field,
-temporal and lineage correlation possible at all.
+temporal and lineage correlation possible at all. The three network slots of v0.3.0 take the
+worst case to **381 B** under the same 400 B ceiling; the typical 4688 is unchanged at 71 B,
+because positions past the last filled slot are trimmed (PERFORMANCE.md §16).
 
 `TestCorrelationProjectionBudget` fails the build if that number is exceeded, measuring the
 **encoded node record** rather than the heap: the heap tests carry ~1000 B/event of GC noise,
@@ -1735,11 +1742,17 @@ refuses the name, which is the guard a version would otherwise be (RULES.md §5)
 ### Add a correlation field
 
 1. **Append** to `consts.CorrelationSlots` — never reorder or reuse a slot (§5.6).
-2. Add its source field names, class and length bound alongside.
+2. Add its source field names, class and length bound alongside. A field whose provider names
+   endpoints by the local side (as WFP does) needs orienting in `graphene/correlate.go` before
+   projection, or its meaning flips with the connection's direction.
 3. Bump `consts.CorrelationKeyVersion`, so existing events become detectably stale and the
    backfill re-reads them.
 4. Check `TestCorrelationProjectionBudget` still passes. If it does not, shrink the
    vocabulary — do not raise the ceiling.
+5. Regenerate the goldens: `go test ./backend/rules/ -run TestSchemaGolden -update-schema-golden`
+   and `go run ./tools/genschema`. A second NAME for an existing slot goes in
+   `consts.CorrelationSlotAliases` instead — it is served as `aliases` and lands in the generated
+   enum, so the editor, `rohyctl` and VS Code all accept it.
 
 ### Add an ingestion source
 
@@ -1747,7 +1760,12 @@ refuses the name, which is the guard a version would otherwise be (RULES.md §5)
 2. Write a normalizer that produces `*graphene.Event` — **hashing over the same
    ordered fields** as the existing ones, or cross-source dedup breaks.
 3. Dispatch to it in `evtx.Ingest`.
-4. Add a `consts.SourceType*`.
+4. Add a `consts.SourceType*`, **and its entry in `consts.identityRecipes`**. Windows event data
+   takes `IdentityRecipeWindows`; a source whose scalars do not identify a record (two IDS
+   alerts in one microsecond) takes `IdentityRecipeRecordBytes`, or its records collapse into
+   one. `TestEverySourceTypeHasADeliberateIdentityRecipe` fails until the choice is made.
+5. If the reader hands records over on its own goroutine, wrap each record's normalization in
+   `guardRecord`: `runIngestion`'s recover cannot catch a panic on another goroutine.
 
 Reuse `runSink` unchanged. Dedup, batching, bookmarks, progress and crash-safety
 come for free — that is the entire reason the sink is a separate function.

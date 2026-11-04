@@ -265,6 +265,15 @@ func (a *EventsAPI) CancelIngestion() {
 	cancel()
 }
 
+// reportIngestPanic tells the analyst the run ended on a fault. It guards its own Emit, because
+// the emitter may be what panicked, and a second panic inside a deferred recover is not caught by
+// anything — it would end the process the first recover was there to keep alive.
+func reportIngestPanic(emitter Emitter, fault any) {
+	defer func() { _ = recover() }()
+	emitter.Emit(consts.EventIngestError,
+		AsError(consts.ErrCodeInternal, fmt.Errorf(consts.MsgIngestPanic, fault)))
+}
+
 // runIngestion executes the job off the caller's goroutine and clears running state
 // on exit. Per-file Started/Progress/Complete events are emitted by the reporter.
 func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *evtx.Gate, done chan struct{}, emitter Emitter) {
@@ -294,6 +303,23 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 	// TestCancelledIngestIsStillSealed, which is exactly the early return a future edit would
 	// reintroduce.
 	defer a.sealCase(emitter)
+
+	// The outermost guard, registered LAST so it runs FIRST — before sealing, before the state
+	// resets, before `done` closes.
+	//
+	// 🔒 What it buys is not crash-avoidance; parseAndNormalize already contains per-chunk faults.
+	// It is that a fault anywhere else on this goroutine — a reader's plumbing, a normalizer
+	// reached by a path without its own guard — ends as a REPORTED ingest error with the case
+	// sealed and the window still up, instead of the application disappearing while an analyst is
+	// part way through a case. Deferred cleanup does run during a panic, so sealing and the state
+	// reset would happen either way; what would not happen is the analyst being told.
+	//
+	// The ingest is still over. This does not resume anything, and it must not pretend to.
+	defer func() {
+		if r := recover(); r != nil {
+			reportIngestPanic(emitter, r)
+		}
+	}()
 
 	switch req.Source {
 	case consts.SourceFile:

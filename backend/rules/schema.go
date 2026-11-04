@@ -50,18 +50,22 @@ var FieldGroupOrder = []string{GroupIdentity, GroupMatcher, GroupMetadata}
 // is where the format's genuinely surprising rules live — that the id is a slug of the name,
 // that labels[i] sits between two steps, that a higher format_version is refused outright.
 type Field struct {
-	Name        string    `json:"name"`
-	Kind        FieldKind `json:"kind"`
-	Required    bool      `json:"required"`
-	Group       string    `json:"group"`
-	ReadOnly    bool      `json:"read_only"`
-	Default     any       `json:"default,omitempty"`
-	Enum        []string  `json:"enum,omitempty"`
-	MinItems    int       `json:"min_items,omitempty"`
-	MaxItems    int       `json:"max_items,omitempty"`
-	Description string    `json:"description"`
-	Guidance    string    `json:"guidance"`
-	Example     any       `json:"example"`
+	Name     string    `json:"name"`
+	Kind     FieldKind `json:"kind"`
+	Required bool      `json:"required"`
+	Group    string    `json:"group"`
+	ReadOnly bool      `json:"read_only"`
+	Default  any       `json:"default,omitempty"`
+	Enum     []string  `json:"enum,omitempty"`
+	// Aliases are further spellings the loader accepts for an Enum value, mapped to that value.
+	// Served rather than restated, so every validator accepts exactly what the loader does: an
+	// alias the loader takes but an editor underlines teaches the author a rule that is not true.
+	Aliases     map[string]string `json:"aliases,omitempty"`
+	MinItems    int               `json:"min_items,omitempty"`
+	MaxItems    int               `json:"max_items,omitempty"`
+	Description string            `json:"description"`
+	Guidance    string            `json:"guidance"`
+	Example     any               `json:"example"`
 	// AppliesTo names the algorithms that READ this field. Empty means every algorithm.
 	//
 	// It is what lets the guided form show a rule's actual controls instead of every control
@@ -160,6 +164,7 @@ func Describe() Schema {
 				Kind:        KindStringArray,
 				Group:       GroupMatcher,
 				Enum:        consts.CorrelationSlots,
+				Aliases:     correlationAliasNames(),
 				MaxItems:    consts.CorrelationSlotCount,
 				AppliesTo:   []string{consts.AlgoField, consts.AlgoTemporal},
 				Description: "Correlation fields every event in a match must share.",
@@ -176,7 +181,7 @@ func Describe() Schema {
 				Group:       GroupMatcher,
 				Default:     consts.DefaultScope,
 				Enum:        consts.CorrelationScopes,
-				AppliesTo:   consts.AlgorithmNames(),
+				AppliesTo:   algorithmsReading(consts.FieldMatchScope),
 				Description: "How events are partitioned before matching.",
 				Guidance: "'" + consts.ScopeComputer + "' matches within one host, which is almost always " +
 					"what you want — a chain assembled across unrelated machines is not evidence of " +
@@ -323,6 +328,28 @@ func algorithmsRequiringSequence() []string {
 	var out []string
 	for _, a := range consts.Algorithms {
 		if a.RequiresSequence {
+			out = append(out, a.Name)
+		}
+	}
+	return out
+}
+
+// correlationAliasNames renders consts.CorrelationSlotAliases by slot NAME, the form a rule file
+// and the frontend use.
+func correlationAliasNames() map[string]string {
+	out := make(map[string]string, len(consts.CorrelationSlotAliases))
+	for alias, slot := range consts.CorrelationSlotAliases {
+		out[alias] = consts.CorrelationSlots[slot]
+	}
+	return out
+}
+
+// algorithmsReading names the algorithms whose descriptor lists a field, so a field's
+// AppliesTo is derived from what the matchers read rather than restated beside it.
+func algorithmsReading(field string) []string {
+	var out []string
+	for _, a := range consts.Algorithms {
+		if algorithmReads(a, field) {
 			out = append(out, a.Name)
 		}
 	}

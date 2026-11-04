@@ -108,6 +108,34 @@ func TestUnavailableForensicsIsReportedAsInfoNotSilence(t *testing.T) {
 	}
 }
 
+// 🔒 A fingerprint that cannot be read is a fault, and it must not present as "never compacted".
+// That one is normal and offers a button; pressing it would write a fresh image over whatever
+// made the read fail, and the analyst would never learn there had been a problem.
+func TestUnreadableRootsAreAnErrorNotNeverCompacted(t *testing.T) {
+	f := &fakeForensics{status: graphene.ForensicStatus{Available: true, RootsError: "roots: short read"}}
+	rep := Run(context.Background(), Deps{Forensics: f}, Options{Deep: true})
+
+	got := has(rep, consts.IntegrityRootsUnreadable)
+	if got == nil {
+		t.Fatalf("unreadable roots not reported; codes = %v", codes(rep))
+	}
+	if got.Severity != consts.IntegritySevError {
+		t.Errorf("severity = %q, want %q", got.Severity, consts.IntegritySevError)
+	}
+	if !strings.Contains(got.Message, "short read") {
+		t.Errorf("message %q does not carry the read error", got.Message)
+	}
+	if got.Action == consts.IntegrityActionCompact {
+		t.Error("offered compaction as the fix for a fingerprint that could not be read")
+	}
+	if has(rep, consts.IntegrityNeverCompacted) != nil {
+		t.Error("reported never_compacted for a case whose roots could not be read")
+	}
+	if f.verifies != 0 {
+		t.Errorf("VerifyImage called %d times with an unreadable fingerprint", f.verifies)
+	}
+}
+
 // 🔒 An uncompacted case produces ONE finding, not four. With no image, "unsigned", "unverified"
 // and "no root retained" are all asking about a file that does not exist, and four findings for
 // one situation is how a report becomes something people skim.

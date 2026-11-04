@@ -595,6 +595,17 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) {
 		return
 	}
 
+	// An unreadable fingerprint comes before "never compacted" and must not present as it: that
+	// one is normal and offers compaction, which would write a fresh image over whatever made the
+	// read fail. A fault, so an error, and no action — the remedy depends on the cause.
+	if st.RootsError != "" {
+		rep.add(Finding{
+			Code: consts.IntegrityRootsUnreadable, Severity: consts.IntegritySevError,
+			Message: fmt.Sprintf(consts.MsgIntegrityRootsUnreadable, st.RootsError),
+		})
+		return
+	}
+
 	// Never compacted comes first and returns: with no image, every check below it is asking
 	// about a file that does not exist, and answering them would produce three findings for one
 	// situation.

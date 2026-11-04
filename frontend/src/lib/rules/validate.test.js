@@ -38,6 +38,10 @@ describe('validate — shared fixture parity with the Go validator', () => {
       for (const code of testCase.warnings || []) {
         expect(report.warnings.map((w) => w.code)).toContain(code);
       }
+      // An explicit empty list (as opposed to an absent one) asserts there are none.
+      if (Array.isArray(testCase.warnings) && testCase.warnings.length === 0) {
+        expect(report.warnings.map((w) => w.code)).toEqual([]);
+      }
       expect(report.unknownFields).toEqual(testCase.unknown_fields || []);
 
       for (const want of testCase.locations || []) {

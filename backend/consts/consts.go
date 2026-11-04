@@ -89,9 +89,9 @@ const (
 // So a BOUNDED, SELECTED projection of those values is computed once at normalize time and
 // stored in the node record instead. Two properties make it affordable:
 //
-//   - Values are stored BY POSITION, not by name. A map would repeat twelve key names on
-//     every event forever — around 180 bytes of pure vocabulary per event, comparable to the
-//     entire budget for the feature. A slice costs the values and nothing else.
+//   - Values are stored BY POSITION, not by name. A map would repeat every key name on every
+//     event forever — around 180 bytes of pure vocabulary per event when there were twelve,
+//     comparable to the entire budget for the feature. A slice costs the values and nothing else.
 //   - The vocabulary is capped at CorrelationSlotCount slots of CorrelationValueMaxLen bytes,
 //     so the worst case is bounded rather than tracking how verbose a log happens to be.
 //
@@ -100,11 +100,53 @@ const (
 // nothing would report an error. A vocabulary change bumps CorrelationKeyVersion, which makes
 // existing events detectably stale and re-runs the backfill.
 const (
-	CorrelationSlotCount = 10
+	CorrelationSlotCount = 13
 	// CorrelationValueMaxLen is the widest any single slot may be. It is the ceiling the
 	// per-slot limits below sit under, not a limit anything actually uses — see
 	// CorrelationSlotMaxLen, which is what bounds the cost.
-	CorrelationValueMaxLen = 45
+	//
+	// It was 45, the length of the longest uncanonicalized IPv6 literal, back when the address
+	// slot was the widest. Addresses are now canonicalized to their RFC 5952 form, which is at
+	// most 39 characters, so the widest slot is process_name at 40 and the ceiling follows it
+	// down. Lowering it is safe precisely because it is a ceiling and not a default.
+	CorrelationValueMaxLen = 40
+)
+
+// Identity recipes (multi-source ingestion).
+//
+// WHAT THIS SOLVES. A dated event is identified by
+// event_id · timestamp · provider · channel · computer · user · source_identifier. Those seven
+// scalars identify a WINDOWS record completely: two EVTX records in one file at one instant
+// with the same id, provider, channel, computer and user genuinely are one record read
+// twice, and counting them as two occurrences is correct.
+//
+// That stops being true the moment a source is not Windows. Two Suricata alerts in the same
+// microsecond on one sensor share every one of those fields; so do two nginx requests in the
+// same SECOND on one vhost — and nginx timestamps have second resolution, so at 100 req/s
+// that is a ~100:1 silent collapse reported as de-duplication. The records are never stored,
+// so the loss is unrecoverable without a re-ingest.
+//
+// 🔒 The recipe is chosen by SourceType, in one place (Event.StampIdentity), for exactly the
+// reason ComputeNormalizedHash is: there is more than one normalizer, and a copy of this rule
+// in each would drift into "the same event correlates from one source and not from another".
+const (
+	IdentityRecipeWindows = "windows"
+	// IdentityRecipeRecordBytes adds the record's own content digest to the identity, for sources
+	// whose scalars do not discriminate. Content is the right discriminator because it is
+	// deterministic and order-free: a resumed, reordered or partially re-read ingest produces the
+	// same identities, which a line number or a within-second counter would not. It also extends
+	// the existing doctrine rather than inventing a second one — two byte-identical records at
+	// one instant from one source stay one event with an occurrence count of two, exactly as
+	// Windows already behaves. `evtx_db.go` already does this for catalogue rows.
+	IdentityRecipeRecordBytes = "record_bytes"
+	// IdentityTagRecordBytes is folded into the hash INPUT for the record-bytes recipe, so a
+	// future change to that recipe produces different digests by construction — a re-ingest then
+	// creates visibly new events instead of half-matching the old ones. Deliberately NOT applied
+	// to the Windows recipe, so every Windows hash ever written stays byte-identical.
+	IdentityTagRecordBytes = "idr:1"
+)
+
+const (
 	// CorrelationKeyVersion identifies the extraction recipe the stored slots were written
 	// against. Bump it in the same change that alters CorrelationSlots, CorrelationSlotSources,
 	// CorrelationSlotMaxLen, or the normalization applied to a value.
@@ -113,7 +155,12 @@ const (
 	//    concerns" rather than only "the session this event created". Events projected under
 	//    recipe 1 carry no logon_id on anything but a logon, so they are stale and the backfill
 	//    re-reads them.
-	CorrelationKeyVersion = 2
+	//
+	// 3: the network vocabulary (dst_ip, dst_port, protocol) and address canonicalization. The
+	//    canonicalization alone would force this: ip_address changed class from plain to
+	//    address, so ::ffff:10.0.0.5 now projects as 10.0.0.5 and the unspecified address
+	//    0.0.0.0 now projects as absent instead of as a key every local logon shared.
+	CorrelationKeyVersion = 3
 )
 
 // Slot indices. These are the wire format — the position a value occupies in an event's
@@ -129,6 +176,17 @@ const (
 	SlotSubjectUser
 	SlotIPAddress
 	SlotServiceName
+	// Network slots (multi-source ingestion). APPENDED, never inserted — position is the wire
+	// format, so a Windows event stored under an older vocabulary still reads correctly and
+	// simply carries nothing here.
+	//
+	// Note what is NOT here: a source address. `ip_address` above already IS the source slot —
+	// every one of its aliases (IpAddress, ClientAddress, SourceNetworkAddress, SourceIp) names
+	// the party that INITIATED the interaction, and so do Suricata's src_ip, nginx's
+	// remote_addr and iptables' SRC=. A second slot for it would be 39 bytes of duplicate.
+	SlotDstIP
+	SlotDstPort
+	SlotProtocol
 )
 
 // CorrelationSlotMaxLen bounds each slot at the widest value that field can legitimately
@@ -143,8 +201,11 @@ const (
 //	identifiers   18   "0x" plus the 16 hex digits of a uint64; nothing longer is a number
 //	image         40   a basename, not a path — "cmd.exe", "MpCmdRun.exe"
 //	account       32   the SAM account limit is 20; 32 leaves room for the odd long UPN prefix
-//	address       45   the maximum length of an IPv6 literal
+//	address       39   the longest RFC 5952 form, which canonicalization guarantees (an
+//	                   uncanonicalized IPv6 literal can reach 45; it is never stored as written)
 //	service       40   long service names exist; longer ones are display text, not identity
+//	port           5   65535
+//	protocol      10   the longest keyword stored, "ipv6-icmp", with a byte to spare
 var CorrelationSlotMaxLen = map[int]int{
 	SlotLogonID:         18,
 	SlotSubjectLogonID:  18,
@@ -154,8 +215,11 @@ var CorrelationSlotMaxLen = map[int]int{
 	SlotProcessName:     40,
 	SlotTargetUser:      32,
 	SlotSubjectUser:     32,
-	SlotIPAddress:       45,
+	SlotIPAddress:       39,
 	SlotServiceName:     40,
+	SlotDstIP:           39,
+	SlotDstPort:         5,
+	SlotProtocol:        10,
 }
 
 // CorrelationSlots names each slot for rule authors (a rule's match_fields lists these
@@ -179,8 +243,13 @@ var CorrelationSlotMaxLen = map[int]int{
 //	process_name        the image of the process this event is ABOUT, basename only.
 //	target_user         the account acted upon.
 //	subject_user        the account acting.
-//	ip_address          the remote address involved.
+//	ip_address          the address of the party that INITIATED the interaction (also
+//	                    accepted as src_ip). WFP records are oriented by Direction first,
+//	                    because they name endpoints by the local side.
 //	service_name        the service involved (7045, 4697…).
+//	dst_ip              the address of the responder — the target of the connection.
+//	dst_port            the port being reached.
+//	protocol            the transport protocol, as a lowercase IANA keyword.
 //
 // Two candidates were measured out of the vocabulary rather than kept for completeness:
 //
@@ -203,6 +272,18 @@ var CorrelationSlots = []string{
 	"subject_user",
 	"ip_address",
 	"service_name",
+	"dst_ip",
+	"dst_port",
+	"protocol",
+}
+
+// CorrelationSlotAliases are additional NAMES a rule author may write for an existing slot.
+//
+// The wire name can never change — position is the format — but the vocabulary a rule author
+// reads can. `src_ip` is the name a network analyst reaches for, and it means exactly what
+// `ip_address` already means, so it resolves to the same slot rather than costing a second one.
+var CorrelationSlotAliases = map[string]int{
+	"src_ip": SlotIPAddress,
 }
 
 // CorrelationSlotSources maps each slot to the EventData field names that feed it, tried in
@@ -239,8 +320,22 @@ var CorrelationSlotSources = map[int][]string{
 	SlotProcessName:     {"NewProcessName", "Image", "ProcessName", "Application"},
 	SlotTargetUser:      {"TargetUserName", "AccountName", "MemberName"},
 	SlotSubjectUser:     {"SubjectUserName"},
-	SlotIPAddress:       {"IpAddress", "ClientAddress", "SourceNetworkAddress", "SourceIp"},
-	SlotServiceName:     {"ServiceName", "ServiceFileName"},
+	// Windows spellings stay FIRST so no already-stored record's projection changes when a
+	// non-Windows alias is appended below it.
+	//
+	// SourceAddress closes a real gap: Windows 5156 (WFP connection allowed) writes it, and
+	// until now projected no ip_address at all.
+	SlotIPAddress: {
+		"IpAddress", "ClientAddress", "SourceNetworkAddress", "SourceAddress", "SourceIp",
+		"src_ip", "source_ip", "ip_src", "remote_addr", "client_ip", "saddr", "SRC",
+	},
+	SlotServiceName: {"ServiceName", "ServiceFileName"},
+	SlotDstIP: {
+		"DestinationIp", "DestAddress", "DestinationAddress",
+		"dest_ip", "dst_ip", "destination_ip", "ip_dst", "daddr", "DST",
+	},
+	SlotDstPort:  {"DestinationPort", "DestPort", "dest_port", "dst_port", "dport", "DPT"},
+	SlotProtocol: {"Protocol", "proto", "ip_proto", "PROTO"},
 }
 
 // CorrelationAbsentValues are the literals Windows writes to mean "not applicable", for ANY
@@ -276,7 +371,51 @@ const (
 	SlotClassImage = "image"
 	// SlotClassPlain trims and lowercases only.
 	SlotClassPlain = "plain"
+	// SlotClassAddress canonicalizes an IP address to its RFC 5952 form.
+	//
+	// This is a CORRECTNESS fix, not a tidiness one. Under the plain class two spellings of one
+	// address are two different correlation keys, so the join silently fails:
+	//
+	//	::ffff:10.0.0.5   (what Windows writes in some records)
+	//	10.0.0.5          (what Suricata, nginx and iptables write)
+	//	2001:0DB8::1  vs  2001:db8::1        (expanded vs zero-compressed)
+	//	fe80::1%eth0  vs  fe80::1            (zone is host-local and meaningless across hosts)
+	//
+	// It also makes the unspecified address ABSENT. `0.0.0.0` on a 4624 means "not a network
+	// logon"; it is not in CorrelationAbsentValues, so before this every local logon bucketed
+	// together under one key — the false-positive engine bucketByKey's own comment warns about,
+	// in a spelling that list does not cover.
+	//
+	// 🔒 A value that is not an address projects NOTHING, which diverges deliberately from
+	// SlotClassIdentifier's "keep it verbatim". A 39-byte slot cannot honestly hold a hostname,
+	// and truncating one manufactures a correlation key that is simply wrong — worse than the
+	// bytes it saves.
+	SlotClassAddress = "address"
+	// SlotClassPort canonicalizes a transport port to its decimal form. Zero is absent; a
+	// non-numeric value is absent, because every producer in scope writes a number and a service
+	// NAME is not a port.
+	SlotClassPort = "port"
+	// SlotClassProtocol canonicalizes a transport protocol to a lowercase IANA keyword,
+	// resolving numbers through CorrelationProtocolNames.
+	//
+	// The mapping is load-bearing rather than cosmetic: Sysmon 3 writes `Protocol=tcp` and
+	// Windows 5156 writes `Protocol=6` for the same thing. Without it they never correlate.
+	SlotClassProtocol = "protocol"
 )
+
+// CorrelationProtocolNames maps IP protocol numbers to the IANA keyword, for the protocol slot
+// class. Only the protocols that appear in the evidence rohy reads — an unlisted number stays
+// decimal, which still correlates with itself.
+var CorrelationProtocolNames = map[uint64]string{
+	1: "icmp", 6: "tcp", 17: "udp", 47: "gre", 50: "esp", 51: "ah", 58: "ipv6-icmp", 132: "sctp",
+}
+
+// CorrelationProtocolKeywords maps other spellings of a protocol keyword, already lowercased, to
+// the IANA keyword CorrelationProtocolNames uses. iptables writes ICMPv6 for what Windows numbers
+// 58, and without this the two never correlate.
+var CorrelationProtocolKeywords = map[string]string{
+	"icmpv6": "ipv6-icmp",
+}
 
 // CorrelationSlotClasses assigns each slot its canonicalization.
 var CorrelationSlotClasses = map[int]string{
@@ -288,8 +427,11 @@ var CorrelationSlotClasses = map[int]string{
 	SlotProcessName:     SlotClassImage,
 	SlotTargetUser:      SlotClassPlain,
 	SlotSubjectUser:     SlotClassPlain,
-	SlotIPAddress:       SlotClassPlain,
+	SlotIPAddress:       SlotClassAddress,
 	SlotServiceName:     SlotClassPlain,
+	SlotDstIP:           SlotClassAddress,
+	SlotDstPort:         SlotClassPort,
+	SlotProtocol:        SlotClassProtocol,
 }
 
 // CorrelationZeroIsAbsent reports whether a numeric zero means "no such thing" for a slot
@@ -298,11 +440,18 @@ func CorrelationZeroIsAbsent(class string) bool { return class == SlotClassIdent
 
 // CorrelationSlotIndex resolves a slot name to its index, or (-1, false) when the name is not
 // part of the vocabulary. Rule validation uses it to reject an unknown match_fields entry.
+//
+// Aliases resolve too (CorrelationSlotAliases), so a rule may say `src_ip` where the wire name is
+// `ip_address`. The wire name is what the golden schema pins; the alias is only a spelling a rule
+// author may use.
 func CorrelationSlotIndex(name string) (int, bool) {
 	for i, s := range CorrelationSlots {
 		if s == name {
 			return i, true
 		}
+	}
+	if i, ok := CorrelationSlotAliases[name]; ok {
+		return i, true
 	}
 	return -1, false
 }
@@ -993,6 +1142,7 @@ const (
 	IntegrityImageUnverified = "image_unverified"
 	IntegrityImageAltered    = "image_altered"
 	IntegrityNeverCompacted  = "never_compacted"
+	IntegrityRootsUnreadable = "roots_unreadable"
 	IntegrityImageUncovered  = "image_uncovered"
 	IntegrityUnsignedCommits = "unsigned_commits"
 	IntegrityNoRootRetained  = "no_root_retained"
@@ -1049,6 +1199,7 @@ const (
 	MsgIntegrityImageUnverified = "the case image has not been checked against the digest it was written with. Verifying is a separate action because it reads the whole image — nothing is known to be wrong."
 	MsgIntegrityImageAltered    = "the case image does not match the digest written with it: it has changed since it was written. A digest cannot tell damage from an edit."
 	MsgIntegrityNeverCompacted  = "this case has never been compacted, so nothing in it can be proven yet. Every event is recorded but unaccounted for — which is not the same as missing."
+	MsgIntegrityRootsUnreadable = "this case's fingerprint could not be read, so whether it was ever sealed is unknown: %s. Compacting would write a new one over whatever caused this, so find the cause first."
 	MsgIntegrityImageUncovered  = "this case's image predates integrity digests, so there is nothing covering its contents. Compacting rewrites it with one."
 	MsgIntegrityUnsignedCommits = "writes to this case are not signed, so nothing in it can be attributed to anyone. This cannot be applied retrospectively: what is already written stays unattributed."
 	MsgIntegrityNoRootRetained  = "no copy of this case's fingerprint has been taken out of the app. Every check rohy can run compares the case against itself, which cannot distinguish an intact case from an altered one."
@@ -1265,15 +1416,18 @@ const (
 	MsgRuleMatchFieldsRequired = "the %q algorithm needs at least one entry in match_fields"
 	MsgRuleUnknownMatchField   = "%q is not a correlation field (available: %s)"
 	MsgRuleDuplicateMatchField = "match_fields lists %q more than once"
-	MsgRuleUnknownScope        = "unknown match_scope %q (expected one of: %s)"
-	MsgRuleWindowRequired      = "the %q algorithm needs a window_within duration (for example \"5m\")"
-	MsgRuleBadDuration         = "%s is not a duration: %v (expected a value like \"90s\", \"5m\" or \"2h\")"
-	MsgRuleWindowNotPositive   = "%s must be greater than zero"
-	MsgRuleWindowTooLarge      = "%s of %s exceeds the maximum of %s — check the units"
-	MsgRuleWindowTotalTooSmall = "window_total (%s) is shorter than window_within (%s), so no match could ever complete"
-	MsgRuleLineageIDsEmpty     = "lineage_create_ids contains an empty event ID at position %d"
-	MsgRuleLineageDepthRange   = "lineage_depth must be between 0 and %d"
-	MsgRuleChannelEmpty        = "channels contains an empty entry at position %d"
+	// MsgRuleAliasDuplicateMatchField is the same problem written with two spellings, which is
+	// worth naming: "listed more than once" about a name that appears once reads as a bug.
+	MsgRuleAliasDuplicateMatchField = "match_fields lists %q, another name for %q, which is already listed"
+	MsgRuleUnknownScope             = "unknown match_scope %q (expected one of: %s)"
+	MsgRuleWindowRequired           = "the %q algorithm needs a window_within duration (for example \"5m\")"
+	MsgRuleBadDuration              = "%s is not a duration: %v (expected a value like \"90s\", \"5m\" or \"2h\")"
+	MsgRuleWindowNotPositive        = "%s must be greater than zero"
+	MsgRuleWindowTooLarge           = "%s of %s exceeds the maximum of %s — check the units"
+	MsgRuleWindowTotalTooSmall      = "window_total (%s) is shorter than window_within (%s), so no match could ever complete"
+	MsgRuleLineageIDsEmpty          = "lineage_create_ids contains an empty event ID at position %d"
+	MsgRuleLineageDepthRange        = "lineage_depth must be between 0 and %d"
+	MsgRuleChannelEmpty             = "channels contains an empty entry at position %d"
 	// Advisory messages for the algorithm-aware checks.
 	MsgRuleFieldNotForAlgorithm = "field %q has no effect for the %q algorithm — it is preserved on save but is not read"
 	MsgRuleNoChannels           = "this rule does not declare the channels it needs, so rohy cannot tell you when a case is missing the log it depends on"
@@ -1345,6 +1499,48 @@ const (
 	// source_identifier for a live run spanning several channels.
 	SourceIdentifierSeparator = ", "
 )
+
+// IdentityRecipeFor selects how a source type's records are identified (see
+// IdentityRecipeWindows).
+//
+// 🔒 The DEFAULT IS WINDOWS, and that is deliberate rather than lazy. Every source type that
+// exists today is Windows event data — EVTX files, EVTX-in-SQLite, the live channel, the message
+// catalogue — so an unknown value defaulting to the Windows recipe keeps every already-written
+// hash byte-identical, which is what stops this change from re-identifying every event in every
+// existing case and orphaning every finding keyed to one.
+//
+// A new source type must therefore be ADDED TO identityRecipes with its recipe chosen. Forgetting
+// is a real failure — a non-Windows source would silently take the Windows recipe and collapse
+// records on a coarse instant — so TestEverySourceTypeHasADeliberateIdentityRecipe reads every
+// SourceType* constant declared in this package and fails on one with no entry, rather than
+// leaving it to reviewer memory.
+//
+// ⚠️ The sink applies it to DATED events only. An undated event keeps the identity its
+// normalizer computed, because that normalizer may have folded in discriminators the sink cannot
+// see (a catalogue row's message). A record-bytes source that can produce undated records must
+// therefore add its own discriminator in its normalizer as well.
+func IdentityRecipeFor(sourceType string) string {
+	if recipe, ok := identityRecipes[sourceType]; ok {
+		return recipe
+	}
+	return IdentityRecipeWindows
+}
+
+// identityRecipes is the deliberate choice of recipe for every source type.
+//
+// Every entry is Windows today, and that is the correct state rather than an unfinished one:
+// every source rohy currently reads is Windows event data, where the scalars do identify a
+// record. The table exists now because it is what the sink dispatches through — landing it
+// separately, with the Windows path proven unchanged, is what keeps the first non-Windows source
+// from having to edit the identity rule and the sink in the same commit as its parser. That
+// source adds itself here with IdentityRecipeRecordBytes.
+var identityRecipes = map[string]string{
+	SourceTypeSingleEVTX: IdentityRecipeWindows,
+	SourceTypeMultiEVTX:  IdentityRecipeWindows,
+	SourceTypeLiveSystem: IdentityRecipeWindows,
+	SourceTypeSQLiteDB:   IdentityRecipeWindows,
+	SourceTypeMessageDB:  IdentityRecipeWindows,
+}
 
 // --- SQLite (.db) EVTX source (P17) ---
 //
@@ -1500,10 +1696,26 @@ const (
 
 // --- Ingestion error / status message templates ---
 const (
-	MsgOpenFailed      = "failed to open EVTX source %q: %v"
-	MsgNotEvtx         = "%q is not a readable EVTX file: %v"
-	MsgChunkParseFail  = "skipped malformed chunk at offset %d: %v"
-	MsgRecordNormFail  = "skipped record %d: %v"
+	MsgOpenFailed     = "failed to open EVTX source %q: %v"
+	MsgNotEvtx        = "%q is not a readable EVTX file: %v"
+	MsgChunkParseFail = "skipped malformed chunk at offset %d: %v"
+	// MsgChunkShortfall reports records a chunk header declares but the parser did not return.
+	// The parser stops silently at a damaged record, so without this the loss has no trace.
+	MsgChunkShortfall = "the chunk at offset %d declares %d record(s) but only %d could be read; the rest were skipped"
+	MsgRecordNormFail = "skipped record %d: %v"
+	// MsgChunkPanic reports a parser that failed hard enough to panic on input rohy did not
+	// write. It names the recovery explicitly rather than describing the chunk as merely
+	// "malformed", because the two say different things about the file — and because an analyst
+	// seeing this should know the parser, not just the data, was surprised.
+	MsgChunkPanic = "recovered from a parser fault on the chunk at offset %d; its records were skipped and the remaining chunks continue: %v"
+	// MsgRecordPanic is the same recovery for a path that hands records over one at a time
+	// (a .db row, a live event), so the skip is one record rather than a chunk.
+	MsgRecordPanic = "recovered from a parser fault on one record; it was skipped and the rest continue: %v"
+	// MsgIngestPanic reports a fault that reached the top of the ingest goroutine. Batches
+	// already written are durable and the case is still sealed — but the batch being assembled
+	// when it struck was never written, and the message says so rather than overstating what
+	// was saved.
+	MsgIngestPanic     = "the ingestion stopped on an internal fault. Everything already written is saved; the batch in progress was not: %v"
 	MsgPersistFailed   = "failed to persist event batch: %v"
 	MsgLiveUnsupported = "live event-log ingestion is only supported on Windows"
 

@@ -142,6 +142,10 @@ type ForensicStatus struct {
 	// a different thing from absent.
 	Compacted bool           `json:"compacted"`
 	Roots     *SnapshotRoots `json:"roots,omitempty"`
+	// RootsError is set when the roots could not be read. Kept apart from Compacted on purpose:
+	// "never sealed" is normal and has a remedy, while an unreadable fingerprint is a fault, and
+	// reporting it as the first would hide it behind a button that writes a fresh image.
+	RootsError string `json:"roots_error,omitempty"`
 
 	// Signed reports whether commits made by THIS session carry a signature, and RequireSigned
 	// whether an unsigned commit in the log would be refused.
@@ -349,7 +353,7 @@ func (s *Store) ForensicStatus() ForensicStatus {
 	// different, and only one of them is normal.
 	roots, err := s.SnapshotRoots()
 	if err != nil {
-		st.Reason = err.Error()
+		st.RootsError = err.Error()
 		return st
 	}
 	if roots == nil {

@@ -8,6 +8,52 @@
 
 ---
 
+## Unreleased (v0.3.0)
+
+_Work in progress. Rename this heading to `## v0.3.0 — "<name>"` before tagging: the release job
+publishes only a `## v<version>` section._
+
+### ⚠️ Action required: run the correlation backfill
+
+The correlation projection recipe is now version **3**. Every event in a case ingested by an
+earlier build reports stale correlation keys until the backfill on the Maintenance page has run,
+and field, temporal and lineage rules under-report against it until then. Nothing is lost —
+the backfill re-reads the stored fields — but the result of a rule run before it is not the
+whole answer.
+
+### Fixed
+
+- **Temporal chains with a repeated event ID were assembled wrongly.** When one event could
+  satisfy several steps (`4625, 4625, 4625, 4624`), the chain was rebuilt from overwritten
+  pointers: the built-in *Failed Logon Burst Then Success Within Five Minutes* drew
+  `F2 → F2 → F3 → S` — an edge from an event to itself, with the first failure missing — and
+  `window_total` was measured from the wrong first step. Rebuilding the graphs that rule (or any
+  temporal rule with a repeated ID) produced is recommended.
+- **`match_scope` was read by `sequence` rules.** The reversal recorded in RULES.md §5 removed
+  that combination, but the matcher still honoured it, so one rule file could match across hosts
+  on v0.2.0 and per host on v0.1.0. A `sequence` rule is now always matched per computer, and a
+  rule that sets `match_scope: "global"` gets a warning that the field has no effect. **This
+  narrows any such rule you wrote** — switch it to `field` or `temporal` with a shared field if
+  cross-host matching was the intent.
+- **An unreadable case fingerprint reported as "never sealed".** It is now its own error, with
+  the read failure shown, and no seal button — sealing would write over whatever caused it.
+- A latent data race in the shared prepared dataset when a rule asked for a scope the build had
+  not prepared.
+
+### Changed
+
+- **Three network correlation fields:** `dst_ip`, `dst_port` and `protocol`, plus `src_ip` as a
+  second name for `ip_address`. Addresses are normalized to one spelling (RFC 5952, v4-mapped
+  unmapped, zone dropped), and the unspecified address is absent rather than a value shared by
+  every local logon. RULES.md §9 has the details.
+- **WFP events are oriented by initiator.** For an inbound 5156, `ip_address` is the remote peer
+  and `dst_ip`/`dst_port` this machine's listener, matching what the fields mean everywhere else.
+- **Parser faults are contained.** A parser that fails on hostile input now skips and reports the
+  chunk or record it was reading instead of ending the application, and a damaged EVTX chunk
+  reports how many of its declared records could not be read instead of losing them silently.
+
+---
+
 ## v0.2.0 — "Andromeda"
 
 _The release that learned to say what a match actually proves._

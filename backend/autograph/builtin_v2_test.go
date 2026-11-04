@@ -113,8 +113,13 @@ func TestBuiltinFailedLogonBurstRespectsItsWindow(t *testing.T) {
 		ev(3, "4625", "HOST-A", 120),
 		ev(4, "4624", "HOST-A", 180),
 	}
-	if res := Generate(&rule.Spec, burst); res.Matches != 1 {
+	res := Generate(&rule.Spec, burst)
+	if res.Matches != 1 {
 		t.Fatalf("a burst inside the window should match: %d", res.Matches)
+	}
+	// The chain itself, not only the count: every failure in order, then the success.
+	if want := [][2]uint64{{1, 2}, {2, 3}, {3, 4}}; !sameEdges(edgeList(res), want) {
+		t.Errorf("chain = %v, want %v", edgeList(res), want)
 	}
 
 	// The same events with the success a day later. The unbounded rule would still pair them,

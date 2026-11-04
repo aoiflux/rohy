@@ -98,7 +98,17 @@ func (s *Spec) AlgorithmOrDefault() string {
 }
 
 // ScopeOrDefault resolves the correlation scope, defaulting to the originating computer.
+//
+// 🔒 An algorithm that does not read match_scope gets the default whatever the file says. That
+// is `sequence`: v0.1.0 builds ignore the field and scope by computer, so honouring it here
+// would make one rule file produce a wider graph on this build than on an older one — the
+// divergence the format-version reversal removed the combination to avoid (RULES.md §5). Every
+// reader of the scope goes through here, so the matcher, the dataset requirements and
+// `rohyctl explain` cannot disagree about it.
 func (s *Spec) ScopeOrDefault() string {
+	if algo, ok := consts.AlgorithmByName(s.AlgorithmOrDefault()); ok && !algorithmReads(algo, consts.FieldMatchScope) {
+		return consts.DefaultScope
+	}
 	if sc := trimmed(s.MatchScope); sc != "" {
 		return sc
 	}

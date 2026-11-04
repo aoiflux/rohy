@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"rohy/backend/consts"
 	"rohy/backend/rules"
@@ -159,7 +160,7 @@ func property(f rules.Field) map[string]any {
 		p["type"] = "array"
 		items := map[string]any{"type": "string"}
 		if len(f.Enum) > 0 {
-			items["enum"] = f.Enum
+			items["enum"] = withAliases(f)
 		}
 		p["items"] = items
 		if f.MinItems > 0 {
@@ -171,7 +172,7 @@ func property(f rules.Field) map[string]any {
 	default:
 		p["type"] = "string"
 		if len(f.Enum) > 0 {
-			p["enum"] = f.Enum
+			p["enum"] = withAliases(f)
 		}
 	}
 
@@ -184,6 +185,23 @@ func property(f rules.Field) map[string]any {
 		p["examples"] = []any{f.Example}
 	}
 	return p
+}
+
+// withAliases is a field's enum followed by the aliases the loader also accepts, sorted so the
+// output is deterministic.
+//
+// 🔒 The aliases are in the enum, not only in the description. JSON Schema cannot say "this is
+// another spelling of that", but leaving them out would underline a rule the loader accepts —
+// the exact drift this file exists to prevent. Canonical names come first so a completion list
+// leads with them.
+func withAliases(f rules.Field) []string {
+	out := append([]string{}, f.Enum...)
+	aliases := make([]string, 0, len(f.Aliases))
+	for alias := range f.Aliases {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	return append(out, aliases...)
 }
 
 // describe assembles the hover text an editor shows: what the field is, how to choose a value,
@@ -203,6 +221,17 @@ func describe(f rules.Field) string {
 	// where it carries the actual warning.
 	if n := len(f.AppliesTo); n > 0 && n < len(consts.AlgorithmNames()) {
 		out += "\n\nRead by: " + join(f.AppliesTo) + ". Other algorithms preserve it but ignore it."
+	}
+	if len(f.Aliases) > 0 {
+		names := make([]string, 0, len(f.Aliases))
+		for alias := range f.Aliases {
+			names = append(names, alias)
+		}
+		sort.Strings(names)
+		for i, alias := range names {
+			names[i] = alias + " = " + f.Aliases[alias]
+		}
+		out += "\n\nAlso accepted: " + join(names) + "."
 	}
 	if f.ReadOnly {
 		out += "\n\nSet by rohy, not by the rule file."

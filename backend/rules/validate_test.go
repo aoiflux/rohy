@@ -85,6 +85,10 @@ func TestValidateSourceAgainstSharedFixture(t *testing.T) {
 					t.Errorf("missing warning %q, got %v", code, codesOf(report.Warnings))
 				}
 			}
+			// An explicit empty list (as opposed to an absent one) asserts there are none.
+			if tc.Warnings != nil && len(tc.Warnings) == 0 && len(report.Warnings) != 0 {
+				t.Errorf("want no warnings, got %v", codesOf(report.Warnings))
+			}
 			if strings.Join(report.UnknownFields, ",") != strings.Join(tc.UnknownFields, ",") {
 				t.Errorf("unknown fields = %v, want %v", report.UnknownFields, tc.UnknownFields)
 			}

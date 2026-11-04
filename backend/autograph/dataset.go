@@ -135,13 +135,16 @@ func Prepare(events []*graphene.Event, req Requirements) *Dataset {
 // requirements are computed from the same rules that are about to run — but returning nothing
 // would silently produce an empty graph, and a rule finding nothing because of a wiring
 // mistake must not look like a rule finding nothing because the pattern is absent.
+//
+// 🔒 The on-demand partition is NOT stored. A prepared dataset is cached and shared — a dry run
+// and a build can read the same one concurrently — so writing to it here would be an
+// unsynchronised map write on a read path. Recomputing on a miss costs O(n) on a path that
+// should not be taken; a race costs a crashed build.
 func (d *Dataset) Groups(scope string) []Group {
 	if groups, ok := d.partitions[scope]; ok {
 		return groups
 	}
-	groups := partitionBy(d.Events, scope)
-	d.partitions[scope] = groups
-	return groups
+	return partitionBy(d.Events, scope)
 }
 
 // partitionBy splits chronologically ordered events into scope groups.

@@ -1417,6 +1417,7 @@ export namespace graphene {
 	    reason?: string;
 	    compacted: boolean;
 	    roots?: SnapshotRoots;
+	    roots_error?: string;
 	    signed: boolean;
 	    require_signed: boolean;
 	    verify_on_open: boolean;
@@ -1434,6 +1435,7 @@ export namespace graphene {
 	        this.reason = source["reason"];
 	        this.compacted = source["compacted"];
 	        this.roots = this.convertValues(source["roots"], SnapshotRoots);
+	        this.roots_error = source["roots_error"];
 	        this.signed = source["signed"];
 	        this.require_signed = source["require_signed"];
 	        this.verify_on_open = source["verify_on_open"];

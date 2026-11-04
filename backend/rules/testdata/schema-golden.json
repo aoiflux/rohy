@@ -16,7 +16,10 @@
     "target_user",
     "subject_user",
     "ip_address",
-    "service_name"
+    "service_name",
+    "dst_ip",
+    "dst_port",
+    "protocol"
   ],
   "algorithms": [
     {
@@ -107,9 +110,15 @@
         "target_user",
         "subject_user",
         "ip_address",
-        "service_name"
+        "service_name",
+        "dst_ip",
+        "dst_port",
+        "protocol"
       ],
-      "max_items": 10,
+      "aliases": {
+        "src_ip": "ip_address"
+      },
+      "max_items": 13,
       "applies_to": [
         "field",
         "temporal"
@@ -127,7 +136,6 @@
         "global"
       ],
       "applies_to": [
-        "sequence",
         "field",
         "temporal",
         "lineage"

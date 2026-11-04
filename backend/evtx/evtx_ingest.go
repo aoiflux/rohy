@@ -3,6 +3,7 @@ package evtx
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
@@ -134,7 +135,10 @@ type chunkResult struct {
 	events   []*graphene.Event
 	parseErr string
 	normErrs []string
-	maxRecID uint64
+	// shortfall is how many records the chunk header declares that the parser did not return.
+	// Counted as skipped, so "read N" never quietly means "read N of more".
+	shortfall int
+	maxRecID  uint64
 	// channel is set by the live reader so the sink can advance that channel's durable
 	// bookmark once the batch is persisted. Empty for the file source.
 	channel string
@@ -150,6 +154,14 @@ func Ingest(ctx context.Context, opts Options, sink EventSink, reporter Reporter
 	if reporter == nil {
 		reporter = NoopReporter{}
 	}
+
+	// 🔒 Every reader below starts goroutines that block on their sends until the sink drains
+	// them or ctx ends. If the sink returns early — a fatal persist error, or a panic unwinding
+	// through here to runIngestion's guard — nothing drains them, and they would hold their
+	// evidence-file handles until the process exits (on Windows, that blocks moving or deleting
+	// the file). Cancelling a derived context on every return releases them, whatever ended the run.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	switch opts.Source {
 	case consts.SourceFile:
@@ -232,14 +244,69 @@ func ingestFile(ctx context.Context, opts Options, sink EventSink, reporter Repo
 	return runSink(ctx, opts, sink, reporter, resultCh, len(offsets))
 }
 
+// guardRecord runs one record's normalization and turns a panic into an error for that record.
+//
+// The reason is parseAndNormalize's (below). The .db and live paths hand records over one at a
+// time, so their guard is per record rather than per chunk, and it must run on THEIR goroutines:
+// runIngestion's recover cannot catch a panic on another goroutine, and an unrecovered one there
+// ends the process.
+func guardRecord(normalize func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf(consts.MsgRecordPanic, r)
+		}
+	}()
+	return normalize()
+}
+
 // parseAndNormalize parses one chunk and normalizes its records into events,
 // collecting non-fatal errors rather than aborting the run.
-func parseAndNormalize(wfd *os.File, offset int64, minRecordID uint64) chunkResult {
-	var res chunkResult
-	records, err := parseChunkAt(wfd, offset, minRecordID)
+//
+// 🔒 A PANIC IN A PARSER BECOMES A REPORTED, COUNTED SKIP — never a dead process.
+//
+// Everything below this line runs on bytes rohy did not write: a `.evtx` from a machine under
+// investigation. The binary-XML parser and the XML flattener are both recursive and neither
+// validates its input against a hostile producer. (A `.db` row's `raw_xml` and a live record
+// reach the same flattener on their own goroutines; guardRecord covers those.)
+//
+// The forensic argument decides the granularity and the placement. rohy is halfway through
+// ingesting a case when this fires, and a crash leaves the analyst unable to tell whether the
+// missing records are absent from the EVIDENCE or absent because rohy died — which is exactly
+// the ambiguity every counter in Progress exists to remove. A skipped record is counted and
+// named; a dead process is neither.
+//
+// Per CHUNK rather than per record, and that is forced rather than chosen: parseChunkAt is one
+// library call that returns ~100 records at once, so there is no per-record seam inside it to
+// guard. That matches the blast radius consts.MsgChunkParseFail already has for a chunk that
+// fails to parse honestly.
+//
+// ⚠️ recover() catches panics, not stack exhaustion or OOM. It reduces the crash surface; it
+// does not remove it. A parser reached through this path still needs its own depth and size
+// bounds — a guard is not a substitute for one.
+// The reader is an io.ReadSeeker rather than an *os.File because that is all parseChunkAt needs,
+// and it is what lets FuzzParseAndNormalize drive this function from memory. Fuzzing it through a
+// temp file per execution collapsed the measured rate to zero — a run that reported PASS having
+// explored almost nothing.
+func parseAndNormalize(wfd io.ReadSeeker, offset int64, minRecordID uint64) (res chunkResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Discard whatever partial slice the panic interrupted: records normalized before a
+			// parser lost its footing are not trustworthy evidence, and a half-chunk reported as
+			// a whole one is worse than a chunk reported as failed.
+			res = chunkResult{parseErr: fmt.Sprintf(consts.MsgChunkPanic, offset, r)}
+		}
+	}()
+
+	records, expected, err := parseChunkAt(wfd, offset, minRecordID)
 	if err != nil {
 		res.parseErr = fmt.Sprintf(consts.MsgChunkParseFail, offset, err)
 		return res
+	}
+	// The parser stops at a damaged record and returns what it had without an error, so the
+	// shortfall against the header's own range is the only sign the rest of the chunk was lost.
+	if expected > len(records) {
+		res.shortfall = expected - len(records)
+		res.parseErr = fmt.Sprintf(consts.MsgChunkShortfall, offset, expected, len(records))
 	}
 	res.events = make([]*graphene.Event, 0, len(records))
 	for _, rec := range records {
@@ -375,6 +442,7 @@ loop:
 				reporter.RecordError(consts.ErrCodeParse, e)
 				p.RecordsSkipped++
 			}
+			p.RecordsSkipped += res.shortfall
 			if res.maxRecID > p.LastRecordID {
 				p.LastRecordID = res.maxRecID
 			}
@@ -394,8 +462,15 @@ loop:
 				// only for dated events: an undated one excludes source by rule, and its
 				// normalizer may have added discriminators (a catalogue row's message) that
 				// this layer cannot see and must not drop.
+				//
+				// 🔒 StampIdentity, not ComputeNormalizedHash: the recipe depends on the source
+				// type stamped one line above. For every Windows source it IS
+				// ComputeNormalizedHash with no extras, so existing hashes are byte-identical —
+				// but a source whose seven scalars do not identify a record (two Suricata alerts
+				// in one microsecond, two nginx requests in one second) would otherwise collapse
+				// into one event and be reported as duplicates. See consts.IdentityRecipeFor.
 				if !ev.Timestamp.IsZero() {
-					ev.ComputeNormalizedHash()
+					ev.StampIdentity()
 				}
 				if opts.Idempotent {
 					// Duplicate already in the current unflushed batch: bump its count.

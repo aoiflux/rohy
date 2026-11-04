@@ -931,6 +931,11 @@ export const UI = Object.freeze({
   MAINT_FORENSIC_UNSEALED:
     'Not sealed yet. Everything ingested so far is recorded, but nothing in the case can be ' +
     'proven to anyone until it is sealed — which is not the same as anything being missing.',
+  // 🔒 Deliberately offers no seal button. Sealing would write a fresh fingerprint over whatever
+  // made this one unreadable, and the analyst would never learn there had been a problem.
+  MAINT_FORENSIC_ROOTS_UNREADABLE:
+    'The case fingerprint could not be read, so whether this case was ever sealed is unknown. ' +
+    'Sealing again would hide the cause; check the case folder first.',
   MAINT_FORENSIC_UNSIGNED:
     'Writes are not signed, so nothing in this case can be attributed to a person. This cannot ' +
     'be added afterwards: what is already written stays unattributed.',

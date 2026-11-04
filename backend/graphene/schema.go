@@ -137,6 +137,37 @@ func (e *Event) ComputeNormalizedHash(extraIdentity ...string) {
 	e.HashNormalized = utils.HashFields(append(fields, extraIdentity...)...)
 }
 
+// StampIdentity computes HashNormalized under the recipe its source type calls for.
+//
+// This is the single place the per-source identity rule lives, for the same reason
+// ComputeNormalizedHash is: there is more than one normalizer, and a copy of the rule in each
+// would drift into "the same event correlates from one source and not from another".
+//
+// Callers must set SourceType and SourceIdentifier first. Ingestion does both at the sink, which
+// is the first point at which the source is known.
+//
+// 🔒 The Windows recipe calls ComputeNormalizedHash with NO extra arguments, and must keep
+// doing so. HashFields(a,b,c) and HashFields(a,b,c,"") are different digests, so passing an
+// unconditional extra — even an empty one — would re-identify every event in every existing case
+// and orphan every finding hash-keyed to one. TestWindowsIdentityHashIsFrozen pins the digest
+// itself, so this cannot regress quietly.
+func (e *Event) StampIdentity() {
+	e.stampIdentityWith(consts.IdentityRecipeFor(e.SourceType))
+}
+
+// stampIdentityWith applies a named recipe. Split from StampIdentity so the record-bytes branch
+// can be tested while no source type selects it yet.
+func (e *Event) stampIdentityWith(recipe string) {
+	switch recipe {
+	case consts.IdentityRecipeRecordBytes:
+		// HashRaw is already the digest of the record as it was read, computed by every
+		// normalizer, so the discriminator costs nothing extra to obtain.
+		e.ComputeNormalizedHash(consts.IdentityTagRecordBytes, e.HashRaw)
+	default:
+		e.ComputeNormalizedHash()
+	}
+}
+
 // AddSourceOccurrence records one more occurrence of this event from the given source,
 // keeping DeduplicationCount equal to the sum of SourceCounts so the two can never
 // disagree about how many times the event was seen.

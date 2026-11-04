@@ -82,7 +82,7 @@
       "type": "integer"
     },
     "match_fields": {
-      "description": "Correlation fields every event in a match must share.\n\nThis is what turns a match from 'these happened in this order on this host' into 'and they concern the same logon session'. An event that carries no value for a listed field is EXCLUDED from matching rather than grouped with the others, and the run reports how many were left out. Listing more fields narrows further; listing one good one usually beats listing three.\n\nRead by: field and temporal. Other algorithms preserve it but ignore it.",
+      "description": "Correlation fields every event in a match must share.\n\nThis is what turns a match from 'these happened in this order on this host' into 'and they concern the same logon session'. An event that carries no value for a listed field is EXCLUDED from matching rather than grouped with the others, and the run reports how many were left out. Listing more fields narrows further; listing one good one usually beats listing three.\n\nRead by: field and temporal. Other algorithms preserve it but ignore it.\n\nAlso accepted: src_ip = ip_address.",
       "examples": [
         [
           "logon_id"
@@ -99,16 +99,20 @@
           "target_user",
           "subject_user",
           "ip_address",
-          "service_name"
+          "service_name",
+          "dst_ip",
+          "dst_port",
+          "protocol",
+          "src_ip"
         ],
         "type": "string"
       },
-      "maxItems": 10,
+      "maxItems": 13,
       "type": "array"
     },
     "match_scope": {
       "default": "computer",
-      "description": "How events are partitioned before matching.\n\n'computer' matches within one host, which is almost always what you want — a chain assembled across unrelated machines is not evidence of anything. 'global' drops that partition and should be paired with match_fields, or it will correlate across your whole case.",
+      "description": "How events are partitioned before matching.\n\n'computer' matches within one host, which is almost always what you want — a chain assembled across unrelated machines is not evidence of anything. 'global' drops that partition and should be paired with match_fields, or it will correlate across your whole case.\n\nRead by: field, temporal and lineage. Other algorithms preserve it but ignore it.",
       "enum": [
         "computer",
         "global"

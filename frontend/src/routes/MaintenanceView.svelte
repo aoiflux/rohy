@@ -170,7 +170,10 @@
            nothing being checked. -->
       <p class="hint">{UI.MAINT_FORENSIC_UNAVAILABLE}</p>
     {:else}
-      {#if forensics.compacted}
+      {#if forensics.roots_error}
+        <p class="warn">{UI.MAINT_FORENSIC_ROOTS_UNREADABLE}</p>
+        <p class="hint"><code>{forensics.roots_error}</code></p>
+      {:else if forensics.compacted}
         <p class="hint">{UI.MAINT_FORENSIC_SEALED}</p>
       {:else}
         <p class="warn">{UI.MAINT_FORENSIC_UNSEALED}</p>

@@ -48,12 +48,16 @@ func TestNormalizeRecordFromFixture(t *testing.T) {
 		t.Fatal("no chunks found in fixture")
 	}
 
-	recs, err := parseChunkAt(fd, offsets[0], 0)
+	recs, expected, err := parseChunkAt(fd, offsets[0], 0)
 	if err != nil {
 		t.Fatalf("parseChunkAt: %v", err)
 	}
 	if len(recs) == 0 {
 		t.Fatal("no records parsed")
+	}
+	// An undamaged chunk returns every record its header declares.
+	if expected != len(recs) {
+		t.Errorf("chunk header declares %d records, parser returned %d", expected, len(recs))
 	}
 
 	ev, err := normalizeRecord(recs[0])

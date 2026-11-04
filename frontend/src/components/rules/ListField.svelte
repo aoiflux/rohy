@@ -13,6 +13,7 @@
   // Both write back the whole array in one change, so a list edit is one undo step rather than
   // one per row.
   import { UI } from '../../lib/consts/index.js';
+  import { selectedChoices, toggleChoice } from '../../lib/rules/choices.js';
 
   let {
     field,
@@ -23,15 +24,13 @@
   } = $props();
 
   const options = $derived(field?.enum ?? []);
+  const aliases = $derived(field?.aliases ?? {});
   const closed = $derived(options.length > 0);
-  const selected = $derived(new Set(items));
+  const selected = $derived(selectedChoices(items, aliases));
 
-  function toggle(option) {
-    // Order follows the vocabulary rather than click order, so two rules selecting the same
-    // fields are byte-identical regardless of how they were assembled.
-    const next = options.filter((o) => (o === option ? !selected.has(o) : selected.has(o)));
-    onchange?.(next);
-  }
+  // The selection rules (aliases, values outside the vocabulary, vocabulary order) live in
+  // lib/rules/choices.js, where they are tested.
+  const toggle = (option) => onchange?.(toggleChoice(items, option, options, aliases));
 
   function setAt(index, text) {
     const next = [...items];

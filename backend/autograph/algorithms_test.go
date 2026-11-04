@@ -1,6 +1,7 @@
 package autograph
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -235,6 +236,89 @@ func TestTemporalScopeIsolation(t *testing.T) {
 	}
 }
 
+// edgeList returns the relations' endpoints in emission order, which for one match is the chain
+// from the first step to the last.
+func edgeList(res Result) [][2]uint64 {
+	out := make([][2]uint64, 0, len(res.Relations))
+	for _, r := range res.Relations {
+		out = append(out, [2]uint64{r.From, r.To})
+	}
+	return out
+}
+
+func sameEdges(got, want [][2]uint64) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestTemporalChainUsesEachStepsOwnEvent is the regression test for a parent pointer kept per
+// STEP rather than per completion. An event that can satisfy several steps re-completes the
+// earlier ones after the later ones have already read them, and a pointer per step then hands
+// the chain the overwritten value: this burst came back as F2→F2→F3→S, a self-loop with the first
+// failure missing.
+func TestTemporalChainUsesEachStepsOwnEvent(t *testing.T) {
+	s := spec(t, `{"name":"burst then success","algorithm":"temporal",
+		"sequence":["4625","4625","4625","4624"],"window_within":"5m"}`)
+	res := Generate(s, []*graphene.Event{
+		ev(1, "4625", "H", 0),
+		ev(2, "4625", "H", 10),
+		ev(3, "4625", "H", 20),
+		ev(4, "4624", "H", 30),
+	})
+	if res.Matches != 1 {
+		t.Fatalf("matches = %d, want 1", res.Matches)
+	}
+	if want := [][2]uint64{{1, 2}, {2, 3}, {3, 4}}; !sameEdges(edgeList(res), want) {
+		t.Errorf("chain = %v, want %v", edgeList(res), want)
+	}
+}
+
+// TestTemporalRepeatedStepsKeepDistinctEvents covers the shortest form of the same defect: a
+// three-step sequence of one event id, where the final event also re-completes step 1 in the
+// same visit that finishes the match.
+func TestTemporalRepeatedStepsKeepDistinctEvents(t *testing.T) {
+	s := spec(t, `{"name":"three failures","algorithm":"temporal",
+		"sequence":["4625","4625","4625"],"window_within":"5m"}`)
+	res := Generate(s, []*graphene.Event{
+		ev(1, "4625", "H", 0),
+		ev(2, "4625", "H", 10),
+		ev(3, "4625", "H", 20),
+	})
+	if want := [][2]uint64{{1, 2}, {2, 3}}; res.Matches != 1 || !sameEdges(edgeList(res), want) {
+		t.Fatalf("matches = %d, chain = %v, want one match %v", res.Matches, edgeList(res), want)
+	}
+	for _, r := range res.Relations {
+		if r.From == r.To {
+			t.Errorf("self-loop %d->%d: an event cannot follow itself", r.From, r.To)
+		}
+	}
+}
+
+// TestTemporalTotalWindowIsMeasuredFromTheFirstStep pins where window_total starts. The only
+// chain here runs from event 1 at +0 to event 4 at +5m, over a 4m total, so nothing may match.
+// Measured from an overwritten pointer, the anchor became event 2 (+2m) and the chain passed.
+func TestTemporalTotalWindowIsMeasuredFromTheFirstStep(t *testing.T) {
+	s := spec(t, `{"name":"bounded burst","algorithm":"temporal",
+		"sequence":["4625","4625","4625","4624"],"window_within":"2m","window_total":"4m"}`)
+	res := Generate(s, []*graphene.Event{
+		ev(1, "4625", "H", 0),
+		ev(2, "4625", "H", 120),
+		ev(3, "4625", "H", 240),
+		ev(4, "4624", "H", 300),
+	})
+	if res.Matches != 0 {
+		t.Fatalf("matches = %d, chain = %v, want 0 — the chain spans 5m against a 4m total",
+			res.Matches, edgeList(res))
+	}
+}
+
 // --- lineage ---
 
 // proc builds a 4688-shaped creation event: ProcessId is the creator, NewProcessId the child.
@@ -449,11 +533,46 @@ func TestGlobalScopeIsOnePartition(t *testing.T) {
 		t.Fatalf("global scope must be one partition holding everything, got %d groups", len(groups))
 	}
 
-	s := spec(t, `{"name":"cross host","sequence":["4625","4624"],
-		"match_scope":"global"}`)
-	res := GenerateWith(s, ds)
-	if res.Matches != 1 {
-		t.Fatalf("global scope should correlate across hosts, got %d matches", res.Matches)
+	// An algorithm that reads match_scope correlates across hosts in a global partition.
+	shared := []*graphene.Event{
+		evk(1, "4625", "HOST-A", 0, map[string]string{"TargetUserName": "alice"}),
+		evk(2, "4624", "HOST-B", 10, map[string]string{"TargetUserName": "alice"}),
+	}
+	field := spec(t, `{"name":"cross host","algorithm":"field","sequence":["4625","4624"],
+		"match_fields":["target_user"],"match_scope":"global"}`)
+	if res := GenerateWith(field, Prepare(shared, Requirements{Scopes: []string{consts.ScopeGlobal}})); res.Matches != 1 {
+		t.Fatalf("a global field rule should correlate across hosts, got %d matches", res.Matches)
+	}
+
+	// sequence does not read match_scope: a v0.1.0 build scopes it by computer, so this one must
+	// too, or the same file would draw a cross-host edge on one build and not the other.
+	seq := spec(t, `{"name":"cross host","sequence":["4625","4624"],"match_scope":"global"}`)
+	if res := GenerateWith(seq, ds); res.Matches != 0 {
+		t.Fatalf("a sequence rule must stay per computer whatever match_scope says, got %d matches", res.Matches)
+	}
+}
+
+// TestUnpreparedScopeDoesNotWriteTheSharedDataset is meaningful under -race: a cached dataset is
+// read concurrently, so a scope partitioned on demand must not be stored back into it.
+func TestUnpreparedScopeDoesNotWriteTheSharedDataset(t *testing.T) {
+	ds := Prepare([]*graphene.Event{
+		ev(1, "4625", "HOST-A", 0),
+		ev(2, "4624", "HOST-B", 10),
+	}, Requirements{Scopes: []string{consts.ScopeComputer}})
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if groups := ds.Groups(consts.ScopeGlobal); len(groups) != 1 || len(groups[0].Events) != 2 {
+				t.Errorf("on-demand global partition = %d groups, want 1 holding both events", len(groups))
+			}
+		}()
+	}
+	wg.Wait()
+	if _, stored := ds.partitions[consts.ScopeGlobal]; stored {
+		t.Error("an on-demand partition was written into the shared dataset")
 	}
 }
 

@@ -35,16 +35,17 @@ var updateGolden = flag.Bool("update-schema-golden", false,
 
 // goldenField is the structural projection of one field descriptor.
 type goldenField struct {
-	Name      string    `json:"name"`
-	Kind      FieldKind `json:"kind"`
-	Required  bool      `json:"required"`
-	Group     string    `json:"group"`
-	ReadOnly  bool      `json:"read_only"`
-	Default   any       `json:"default,omitempty"`
-	Enum      []string  `json:"enum,omitempty"`
-	MinItems  int       `json:"min_items,omitempty"`
-	MaxItems  int       `json:"max_items,omitempty"`
-	AppliesTo []string  `json:"applies_to,omitempty"`
+	Name      string            `json:"name"`
+	Kind      FieldKind         `json:"kind"`
+	Required  bool              `json:"required"`
+	Group     string            `json:"group"`
+	ReadOnly  bool              `json:"read_only"`
+	Default   any               `json:"default,omitempty"`
+	Enum      []string          `json:"enum,omitempty"`
+	Aliases   map[string]string `json:"aliases,omitempty"`
+	MinItems  int               `json:"min_items,omitempty"`
+	MaxItems  int               `json:"max_items,omitempty"`
+	AppliesTo []string          `json:"applies_to,omitempty"`
 }
 
 // goldenSchema is the structural projection of the whole descriptor.
@@ -75,6 +76,7 @@ func structuralSchema() goldenSchema {
 			ReadOnly:  f.ReadOnly,
 			Default:   f.Default,
 			Enum:      f.Enum,
+			Aliases:   f.Aliases,
 			MinItems:  f.MinItems,
 			MaxItems:  f.MaxItems,
 			AppliesTo: f.AppliesTo,

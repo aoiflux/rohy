@@ -78,9 +78,15 @@ func (temporalAlgorithm) Generate(spec *rules.Spec, ds *Dataset) Result {
 // occurrence whose consecutive steps fall inside the window.
 //
 // last[s]   the index of the most recent event that completed step s, or -1
-// prev[s]   the index that step s-1 was satisfied at when step s was completed, so a finished
+// chain[s]  the events that satisfied steps 0..s for THAT completion, first step first
 //
-//	match can be walked back into the chain that produced it
+// 🔒 chain[s] is rewritten whenever last[s] is, so it always describes the completion last[s]
+// names. A single parent pointer per step does not: an event that can satisfy several steps
+// re-completes the earlier ones after a later step has already read them, and walking the
+// pointers back then splices in the newer completion. A 4625×3 → 4624 burst came back as
+// F2→F2→F3→S — a self-loop with the first failure missing — and window_total was measured
+// from the wrong anchor. Copying the chain costs O(len(sequence)) per completion and nothing
+// per event.
 func matchWindowed(spec *rules.Spec, events []*graphene.Event, within, total time.Duration,
 	basis []string, res *Result) {
 
@@ -95,10 +101,14 @@ func matchWindowed(spec *rules.Spec, events []*graphene.Event, within, total tim
 	}
 
 	last := make([]int, n)
-	prev := make([]int, n)
+	chain := make([][]int, n)
+	for s := range chain {
+		chain[s] = make([]int, s+1)
+	}
+	// chain[s] is only read while last[s] >= 0, so clearing last is enough.
 	reset := func() {
 		for s := range last {
-			last[s], prev[s] = -1, -1
+			last[s] = -1
 		}
 	}
 	reset()
@@ -115,7 +125,7 @@ func matchWindowed(spec *rules.Spec, events []*graphene.Event, within, total tim
 		for k := len(steps) - 1; k >= 0; k-- {
 			s := steps[k]
 			if s == 0 {
-				last[0], prev[0] = i, -1
+				last[0], chain[0][0] = i, i
 				continue
 			}
 			j := last[s-1]
@@ -125,17 +135,21 @@ func matchWindowed(spec *rules.Spec, events []*graphene.Event, within, total tim
 			if events[i].Timestamp.Sub(events[j].Timestamp) > within {
 				continue
 			}
-			if total > 0 && events[i].Timestamp.Sub(events[anchorOf(prev, last, s-1, j)].Timestamp) > total {
+			// window_total is measured from the first step of the chain being extended.
+			if total > 0 && events[i].Timestamp.Sub(events[chain[s-1][0]].Timestamp) > total {
 				continue
 			}
-			last[s], prev[s] = i, j
+			last[s] = i
+			copy(chain[s], chain[s-1])
+			chain[s][s] = i
 		}
 
 		// The final step completing on this event is a finished occurrence.
 		if last[n-1] != i {
 			continue
 		}
-		matched := walkBack(prev, last, n, i)
+		// Consumed by emitChain and temporalBasis before the next completion can rewrite it.
+		matched := chain[n-1]
 		if res.Matches >= maxMatches {
 			res.Truncated = true
 			res.Dropped++
@@ -147,30 +161,6 @@ func matchWindowed(spec *rules.Spec, events []*graphene.Event, within, total tim
 		// Non-overlapping: nothing from this occurrence may take part in the next one.
 		reset()
 	}
-}
-
-// anchorOf walks the parent chain back from a completed step to the index of step 0, which is
-// what the total-window bound is measured from.
-func anchorOf(prev, last []int, step, at int) int {
-	idx := at
-	for s := step; s > 0; s-- {
-		p := prev[s]
-		if p < 0 {
-			break
-		}
-		idx = p
-	}
-	return idx
-}
-
-// walkBack reconstructs the matched indices, first step to last, from the parent pointers.
-func walkBack(prev, last []int, n, end int) []int {
-	matched := make([]int, n)
-	matched[n-1] = end
-	for s := n - 1; s > 0; s-- {
-		matched[s-1] = prev[s]
-	}
-	return matched
 }
 
 // temporalBasis states the gap that satisfied the window, appended to any field basis.

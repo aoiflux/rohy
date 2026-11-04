@@ -150,7 +150,12 @@ func renderBatch(channel string, handles []windows.Handle) chunkResult {
 			res.normErrs = append(res.normErrs, fmt.Sprintf(consts.MsgRenderFail, err))
 			continue
 		}
-		ev, recordID, err := normalizeXMLRecord(xml)
+		var ev *graphene.Event
+		var recordID uint64
+		err = guardRecord(func() (err error) {
+			ev, recordID, err = normalizeXMLRecord(xml)
+			return err
+		})
 		if err != nil {
 			res.normErrs = append(res.normErrs, fmt.Sprintf(consts.MsgLiveNormFail, err))
 			continue
