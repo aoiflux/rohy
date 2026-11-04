@@ -21,6 +21,30 @@ and field, temporal and lineage rules under-report against it until then. Nothin
 the backfill re-reads the stored fields — but the result of a rule run before it is not the
 whole answer.
 
+### Added
+
+- **Event proofs.** *Save proof…* in the event drawer writes `event-<id>-proof.json`: a file
+  that lets somebody without the case, or rohy, check that this one event was in the sealed case
+  whose fingerprint they hold. They run `rohyctl verify-proof --root <fingerprint> <file>`. The
+  check covers the event's content as well as its presence: graphene's inclusion proof, the
+  event's stored record exactly as the case holds it, and the raw record, whose hash the stored
+  record carries. The file holds this event's full record, including the path it was read from.
+  It holds no other event's content.
+  - **What the file does reveal about the rest of the case:** how many records it has, this
+    event's position among them, and hashes from which nothing can be read back. Someone who
+    already holds another event's exact record could use those hashes to confirm that event is
+    in the case too.
+  - **A proof is only as good as the fingerprint it is checked against.** It must be the
+    fingerprint of the seal the proof was built from, kept outside the case. The drawer says
+    when no copy of that fingerprint has been saved.
+  - **When an event cannot be proven yet, the drawer says why instead of failing.** The event
+    arrived after the last seal, or changed after it (a re-ingest moves its occurrence count, a
+    backfill rewrites its correlation fields). In each case it offers to seal the case.
+  - **A raw record that no longer matches its hash is reported as damage**, not exported.
+- **`rohyctl verify-proof`.** rohyctl's rule is now worded as "it never opens a case", and a
+  test enforces it. It already reached graphene's store types through `consts`, so "no graphene"
+  was no longer accurate.
+
 ### Fixed
 
 - **Temporal chains with a repeated event ID were assembled wrongly.** When one event could

@@ -132,6 +132,7 @@ rohy/
 │   ├── graphreg/            Registry of named graphs
 │   ├── layout/              Canvas node positions and viewport
 │   ├── findings/            Analyst annotations (flag, tags, note)
+│   ├── eventproof/          Event proof documents: assemble and verify, storeless (§18.1)
 │   ├── utils/               Hashing primitives
 │   └── version/             Build identity, injected at link time
 │
@@ -1573,6 +1574,36 @@ proportional to the whole store, and a structurally damaged index section is
 already rejected while the file is parsed — so running it on every open would tax
 every launch to re-prove something almost always true. Its trigger points are the
 test suite and an explicit user-initiated check.
+
+### 18.1 Proving one event to someone outside the case
+
+A seal (compaction) gives the case a fingerprint: graphene's snapshot root. An
+**event proof** lets someone who kept that fingerprint check one event against it
+without the case or rohy. The drawer's _Save proof…_ writes the file and
+`rohyctl verify-proof --root <hex> <file>` checks it.
+
+The chain the verifier walks:
+
+```
+root you kept ─ graphene proof ─ leaf ─ SHA256(0x07 ‖ stored record) ─ hash_raw ─ raw record
+```
+
+graphene's proof stops at a **hash** of the stored record (its v3 leaf), so on its
+own it proves only that some node of that id was sealed. The file therefore also
+carries the stored record (the exact `json.Marshal(Event)` bytes the node holds)
+and the raw record from the payload store. Their hashes close the chain.
+
+| Piece | Where | Note |
+|---|---|---|
+| `backend/eventproof` | `Assemble`, `Verify` | Storeless. Mirrors graphene's leaf layout in `leaf.go`, pinned by a test against a real sealed store |
+| `graphene.Store.ProveEvent` | builds the document | Returns a **state** when the event cannot be proven yet (`not_sealed`, `written_since_seal`, `changed_since_seal`, `image_outdated`, `raw_mismatch`, `unavailable`) |
+| `MaintenanceAPI.ExportEventProof` | binding | Adds `fingerprint_exported` for the seal the proof was built against |
+| `rohyctl verify-proof` | recipient | Takes the root only from `--root`, never from the file |
+
+An event whose stored record changed after the seal is `changed_since_seal`. A
+re-ingest moves its occurrence count, and a backfill rewrites its correlation
+fields. The remedy is to seal again, and that moves the fingerprint: a copy kept
+from an earlier seal will not check a proof built from a later one.
 
 ---
 

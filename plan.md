@@ -35,10 +35,10 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          ███░░░░░░░░░░░░░░░░░  14%  1/7    #37 ½, #43 ½ (detectors 16/17 missing); #38–#42 ⬜
+P8 Forensic          ██████░░░░░░░░░░░░░░  29%  2/7    #38 ✅ (2026-11-04, §15.4); #37 ½, #43 ½ (detectors 16/17 missing); #39–#42 ⬜
 ───────────────────────────────────────────────────────
-Overall              ████████████████░░░░  80%  37½/47
-Definition of done   █████████████░░░░░░░  64%  7/11   the "integration path" ✅ was not true
+Overall              ████████████████░░░░  82%  38½/47
+Definition of done   ███████████████░░░░░  73%  8/11   the "integration path" ✅ was not true; proof gate ✅ via #38
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
@@ -52,9 +52,10 @@ graphene v0.4.0 (`disk.ProveNode`, `ExportNodeProof`, package-level `VerifyExpor
 `CustodyFor*`, `RedactNodeProperties`, `PublishCheckpoint`, `Anchor`, `signing.*`). #40 is
 blocked only by rohy's own payload tombstone.
 
-**Next:** #38 inclusion proofs — keyless, upstream-ready, and the first definition-of-done gate.
-It carries one decision first: `rohyctl verify-proof` breaks the CLI's rules/consts/version
-import invariant; a separate `cmd/rohyproof` keeps it.
+**#38 landed 2026-11-04** (§15.4): event proofs, exported from the drawer and checked with
+`rohyctl verify-proof`. **Next:** finish #37 (per-version root history, `VerifyChain`, Observe on
+seal, the `case:sealed` listener, the MaintenanceAPI forensic tests) or #39 custody report — both
+keyless and upstream-ready.
 
 ---
 
@@ -2419,8 +2420,10 @@ the event that was ingested.
 
       `establishes` / `does_not_establish` travel **inside** the exported document, because the
       document is what gets forwarded and may be read by somebody who never saw the screen.
-38. **Inclusion proofs** (§14.3) — keyless. `ProveNode` / `ExportNodeProof`, export from the
-    event detail, `rohyctl verify-proof`.
+38. ✅ **Inclusion proofs** (§14.3) — keyless. `ProveNode` / `ExportNodeProof`, export from the
+    event detail, `rohyctl verify-proof`. Landed as **event proofs** (§15.4): the file carries
+    the stored record and raw record beside graphene's proof, because a v3 leaf commits only to
+    a hash of the record.
 39. **Custody report** (§14.4) — `CustodyFor`, reported as gaps rather than a verdict.
 40. **Attributed redaction** (§14.5) — 🔴 blocked on the payload-store tombstone (§14.5.1),
     which is a real finding: rohy's cold store would otherwise defeat graphene's redaction.
@@ -2480,8 +2483,10 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
 - ⚠️ CI gates schema drift and rule formatting — **not the integration path**: there is no
   `backend/integration` suite yet (#34), and CI stays minimal for now (2026-11-03 audit).
 - ✅ Nothing auto-deletes, nothing auto-runs at startup, nothing silently truncates.
-- ⬜ **A third party holding only an exported proof and an externally retained root can check
+- ✅ **A third party holding only an exported proof and an externally retained root can check
   that a named event was in the case — without access to `rohy-data/` and without rohy** (§14).
+  `rohyctl verify-proof` needs neither; and the check covers the event's content, not only its
+  presence (§15.4). Shipping `rohyctl` to recipients is the deferred release item (#35c).
 - ⬜ **Every integrity posture rohy is not in is stated.** Unsigned commits, an unverified
   image, a case never compacted, a root never exported, a ledger that cannot be verified — all
   reported, none of them silent (§14.8).
@@ -2642,6 +2647,12 @@ never look like one that found nothing.
 leaf, the sibling hashes and the component roots — **never the image and never any other
 event**. That is what makes handing a proof over safe where handing over the case would not be.
 
+> **Correction (2026-11-04, §15.4).** "The leaf" is not the event. graphene v0.4.0 writes v3
+> leaves, which commit to `SHA256(0x07 ‖ properties)` rather than to the properties, so a bare
+> `.gprf` proves only that node N with *some* content was sealed. What rohy hands over is an
+> **event proof**: the `.gprf` plus the event's exact stored record plus its raw record, whose
+> hash the stored record carries. The verifier checks the whole chain, root to raw record.
+
 - Export lives on the **event detail** view, beside the raw record: the question "can you prove
   this specific event was in the case" is asked about one event in front of you.
 - ⚠️ An event written since the last compaction **has no proof yet**, and the UI says that
@@ -2658,6 +2669,11 @@ event**. That is what makes handing a proof over safe where handing over the cas
   `graphene/disk` for `UnmarshalProof` / `VerifyExportedProof`. Restate the invariant as *"the
   CLI never opens a case"* and pin it with a test, or keep the letter and ship the verifier as
   a separate `cmd/rohyproof`. **Decide explicitly; do not let the import drift in.**
+
+  ✅ **Decided 2026-11-04 (owner): restate and pin.** The letter was already broken:
+  `consts` imports `graphene/store`, so rohyctl reached graphene before this item.
+  `TestRohyctlNeverOpensACase` now enforces the purpose: no rohy package that opens a case,
+  not graphene's root package, and no `Open*` call on a graphene package.
 
 ### 14.4 Custody report (item 39)
 
@@ -2818,11 +2834,12 @@ analyst created. §12.4's rule holds: an all-clear is a claim, and it gets quali
 
 ```
 backend/graphene/graphene_forensics.go   Forensics() accessor, roots, proofs, redaction,
-                                          custody, checkpoints — rohy-shaped types      ⚠️ roots + VerifyImage built (#37); proofs, redaction, custody, checkpoints ❌
+                                          custody, checkpoints — rohy-shaped types      ⚠️ roots + VerifyImage (#37) and ProveEvent (#38) built; redaction, custody, checkpoints ❌
 backend/custody                          policy + report assembly over narrow interfaces ⚠️ fingerprint history built (#37); custody report ❌
 backend/payload/payload_redact.go        same-length in-place tombstone (§14.5.1) 🔴      ❌
 backend/api/api_custody.go               binding; hangs off MaintenanceAPI               — not created: the #37 methods live in api_integrity.go
-cmd/rohyctl verify-proof                 storeless, keyless — see §14.3's open question   ❌
+backend/eventproof                       proof document: assemble + verify, storeless    ✅ (#38, §15.4)
+cmd/rohyctl verify-proof                 storeless, keyless — §14.3's question decided    ✅ (#38, §15.4)
 ```
 
 ```
@@ -2913,3 +2930,84 @@ D2 narrows any user rule written as `sequence` + `match_scope: "global"`; RELEAS
   `consts.IndexedNodeKeys` dead with no index-key golden, `complete.test.js` uses a hand-written
   schema, explainer examples still say `format_version: 2`, missing benchmarks (Backfill,
   ComputeLayout, RelationHeatmap).
+
+### 15.4 #38 event proofs (2026-11-04)
+
+**What a bare `.gprf` proves, measured against what was assumed.** §14.3 said the leaf travels,
+and read that as the event travelling. It does not: graphene v0.4.0's v3 node leaf is
+`0x05 ‖ id ‖ labels ‖ SHA256(0x07 ‖ properties)`, so a verified `.gprf` says "node N with some
+content was in snapshot R". rohy already had the rest of the chain — a node's properties are
+`json.Marshal(Event)`, which carries `hash_raw = SHA256(RawXML)` — so the export carries it:
+
+```
+root you kept ─ graphene proof ─ leaf ─ SHA256(0x07 ‖ stored record) ─ hash_raw ─ raw record
+```
+
+**Decisions (owner):**
+
+| Question | Decision |
+|---|---|
+| Where the verifier lives | `rohyctl verify-proof`; the CLI invariant restated as "never opens a case" and pinned by `TestRohyctlNeverOpensACase` (deps + an AST check for graphene `Open*` calls) |
+| What the export writes | one JSON document, `event-<id>-proof.json`: the `.gprf`, the exact stored record and the raw record (base64, byte-exact), with establishes / does-not-establish lists |
+| graphene's leaf layout | mirrored in `backend/eventproof/leaf.go`, pinned by `TestLeafLayoutMatchesGraphene` against a real sealed store; an exported upstream helper is a follow-up |
+
+**As built:**
+
+- `backend/eventproof` — `Assemble` (refuses to hand out a document that would not verify, and
+  verifies its own bytes before returning them) and `Verify(root, data)`. Storeless; imports only
+  graphene's codec/verifier, `consts`, `utils`, `version`.
+- 🔒 The root is always the caller's. `built_against` names the seal for pairing and is never
+  used to verify.
+- 🔒 The parser is stricter than `encoding/json`: exact key names, each once, nothing after the
+  document. A repeated or case-variant key would let a person reading the file and the verifier
+  see different raw records.
+- 🔒 The verifier prints its own establishes / does-not lists; the file's copies are not covered
+  by the proof.
+- `graphene.Store.ProveEvent` returns states, not errors: `unavailable`, `not_sealed`,
+  `written_since_seal`, `changed_since_seal` (a dedup count or backfill moved the stored record),
+  `image_outdated`, `raw_mismatch` (damage — reported, not exported).
+- `MaintenanceAPI.ExportEventProof` adds `fingerprint_exported`: whether a copy of the seal the
+  proof was built against ever left the app. A later seal moves the root, so an earlier copy does
+  not check a later proof.
+- Tests: every event of the Security fixture proves through the real ingest → seal path and
+  verifies against the exported fingerprint; tamper, wrong-root, forged-case, strict-parse and
+  leaf-shape cases; `FuzzVerify` asserts that anything verifying carries exactly the sealed
+  record and raw record.
+
+**Upstream finding.** graphene v0.4.0 binds snapshot body versions 2 and 3 identically and checks
+only that a v3 leaf claims "≥ 3", so a proof's version byte can be rewritten to any value 3–255
+and still verify. No content claim changes, but graphene's own FORENSICS.md says one altered byte
+"either fails to parse or fails to verify". rohy pins the version to exactly 3; upstream should
+reject unknown body versions. Found by `TestAnyByteOfTheProofMatters`.
+
+**Found while measuring, fixed with a test first:**
+
+- **Raw record without `hash_raw`.** An event that has a raw record but an empty `hash_raw` made
+  `ProveEvent` fail outright; `seedDiskStore`'s events are like this. The seal never bound such a
+  raw record, so it is now left out of the file. The proof covers the stored fields and says so.
+- 🔒 **Terminal injection in `verify-proof`.** The subject lines print values from the logs, and
+  log content is attacker-influenced. C0/C1 controls and Unicode format characters (escape
+  sequences, `\r`, bidi overrides) are now printed as escapes, so a record cannot repaint the
+  recipient's screen or forge a `VERIFIED` line.
+
+**From an independent review (all 🟡, all fixed, tests first where behavioural):**
+
+- **Too large.** A raw record over ~12 MiB made `Assemble` fail its own size-capped self-check,
+  and that surfaced as a generic error. It is now the `too_large` state, so the verifier's "no
+  event proof is larger" holds because nothing larger is ever built.
+- 🔒 **The disclosure was overstated.** "Nothing about any other event" is false for a Merkle
+  proof. It reveals the record count, the event's position, and sibling hashes, and someone
+  holding another event's exact record can use those hashes to confirm that event is in the
+  case. The drawer copy, the release notes and `EventProofNotOthers` now say what is revealed.
+- The drawer showed a stale maintenance error when sealing was refused because another task
+  was running. It now checks busy first.
+- `maintenance.compact()` returned failure when the seal succeeded but the report refresh after
+  it failed. A caller would seal again and move the fingerprint twice. A successful seal now
+  returns true, and a refresh failure is reported separately.
+
+**Measured** (PERFORMANCE.md §18): `ProveEvent` takes 11.7 ms at 10k events and 94 ms at 100k.
+It is linear, and the cost is graphene's leaf recomputation. It runs on a click, so nothing is
+optimised.
+
+**Still open:** shipping `rohyctl` to recipients is the deferred release item (#35c); an upstream
+`disk` helper that binds a leaf to a property blob would retire the mirrored layout.

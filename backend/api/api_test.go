@@ -63,6 +63,19 @@ func (c *captureEmitter) count(channel string) int {
 	return len(c.events[channel])
 }
 
+// snapshot copies everything emitted so far, under the lock. A test must read through this (or
+// count/last) and never range over events directly: the ingest goroutine can still be emitting
+// after the state a test waited for — its deferred cleanup reports idle after IsIngesting is false.
+func (c *captureEmitter) snapshot() map[string][]interface{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string][]interface{}, len(c.events))
+	for ch, v := range c.events {
+		out[ch] = append([]interface{}(nil), v...)
+	}
+	return out
+}
+
 func (c *captureEmitter) last(channel string) (interface{}, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

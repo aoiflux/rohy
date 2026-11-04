@@ -566,6 +566,21 @@ export function exportCaseFingerprint() {
   return call(MAINTENANCE, 'ExportCaseFingerprint');
 }
 
+/**
+ * Builds the proof document for one event (plan §14.3), or says why it cannot be built yet.
+ *
+ * `document` is the exact text to save: Go verified those bytes against `snapshot` before returning
+ * them, so the caller writes it out untouched. `snapshot` is the fingerprint a recipient needs — of
+ * THIS seal, kept outside the case. `fingerprint_exported` says whether a copy of it ever left.
+ *
+ * @param {number} id
+ * @returns {Promise<{state:string, event:number, snapshot?:string, file_name?:string,
+ *   document?:string, fingerprint_exported:boolean}>}
+ */
+export function exportEventProof(id) {
+  return call(MAINTENANCE, 'ExportEventProof', id);
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

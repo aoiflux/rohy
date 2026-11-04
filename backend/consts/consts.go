@@ -1230,6 +1230,95 @@ const (
 	FingerprintNotPrevention = "It prevents nothing. It makes a change detectable to someone holding this copy; it cannot stop one."
 )
 
+// --- Event proofs (plan §14.3, item 38) ---
+//
+// An event proof is the file an analyst hands over to show that ONE event was in a sealed case.
+// It carries graphene's inclusion proof, the event's exact stored record and its raw record, and
+// nothing about any other event.
+//
+// 🔒 graphene's proof alone is not enough. Its leaf commits to a HASH of the stored record, so a
+// bare proof says "node 1234 with some content was in the snapshot" and nothing about what that
+// content was. The stored record and the raw record are what turn it into a statement about an
+// event, which is why they travel in the same file.
+const (
+	EventProofFormat        = "rohy-event-proof"
+	EventProofFormatVersion = 1
+	// EventProofMaxBytes bounds what the verifier will read. A proof is a few kilobytes and a raw
+	// record is at most an EVTX chunk; the bound exists because the file comes from someone the
+	// verifier has no reason to trust.
+	EventProofMaxBytes = 16 << 20
+	// EventProofFileSuffix names an exported proof: event-<id>-proof.json.
+	EventProofFileSuffix = "-proof.json"
+)
+
+// Why an event cannot be proven right now. 🔒 Each is a STATE rather than an error, for the reason
+// ErrNoSnapshotRoots is translated elsewhere: a caller forced to string-match an error to learn that
+// an event is merely newer than the last seal will eventually report a healthy case as broken.
+const (
+	EventProofOK = "ok"
+	// EventProofUnavailable: the backend keeps no image (in-memory), so there is nothing to prove.
+	EventProofUnavailable = "unavailable"
+	// EventProofNotSealed: the case has never been sealed.
+	EventProofNotSealed = "not_sealed"
+	// EventProofWrittenSinceSeal: the event arrived after the last seal. Live, not absent.
+	EventProofWrittenSinceSeal = "written_since_seal"
+	// EventProofChangedSinceSeal: the event's stored record changed after the last seal (a dedup
+	// count moved, a backfill rewrote it). The sealed copy is provable only by sealing again.
+	EventProofChangedSinceSeal = "changed_since_seal"
+	// EventProofImageOutdated: the sealed image predates leaves that hash the stored record, so
+	// nothing could bind the proof to the record. Sealing again rewrites it.
+	EventProofImageOutdated = "image_outdated"
+	// EventProofRawMismatch: the raw record in the payload store does not hash to the value the
+	// stored record holds. That is damage — or a record that could not be stored byte for byte —
+	// and it is a finding, not a reason to export something that will fail to verify.
+	EventProofRawMismatch = "raw_mismatch"
+	// EventProofTooLarge: the document would exceed EventProofMaxBytes, so no verifier would read
+	// it. Refused here rather than handed out to fail later.
+	EventProofTooLarge = "too_large"
+)
+
+// What a verified event proof does and does not establish. These travel inside the file for a
+// reader without the verifier; 🔒 the verifier prints its OWN copy, because the lists in a file are
+// not covered by the proof and anyone can edit them.
+const (
+	EventProofEstablishesIncluded = "This event's stored record was in the sealed case whose fingerprint was supplied to the verifier."
+	EventProofEstablishesRaw      = "The raw record in this file is the one rohy read when it ingested the event: its hash is part of the stored record."
+
+	EventProofNotRoot   = "It is only as good as the fingerprint it is checked against. A fingerprint taken from the case itself, rather than a copy kept where the case's holder cannot rewrite it, proves nothing."
+	EventProofNotWho    = "It does not establish who sealed the case or who wrote the event into it: nothing in the case is signed."
+	EventProofNotTrue   = "It does not establish that the event is TRUE or was interpreted correctly — only that this is what the case recorded."
+	EventProofNotParsed = "The parsed fields rohy displays are derived from the raw record and are not separately proven. Derive them again from the raw record."
+	EventProofNotOthers = "It establishes nothing about any other event, including whether related events exist or were removed."
+	EventProofNoRaw     = "This file carries no raw record, so only the stored fields are proven, not the original record they were read from."
+)
+
+// Event proof verification failures. Two kinds, following graphene's own split: a file that is not
+// a readable proof, and one that reads cleanly and does not verify. They want different responses.
+const (
+	MsgEventProofMalformed   = "not a readable event proof"
+	MsgEventProofNotVerified = "event proof does not verify"
+	MsgEventProofTooLarge    = "the file is larger than %d bytes, which no event proof is"
+	// MsgEventProofBuildTooLarge is the builder's side of the same bound: what makes the verifier's
+	// "no event proof is" true is that nothing larger is ever built.
+	MsgEventProofBuildTooLarge = "this event's proof would be larger than %d bytes, more than a verifier reads"
+	MsgEventProofFormat        = "format is %q, want %q"
+	MsgEventProofVersion       = "format version %d, this build understands %d"
+	MsgEventProofTrailing      = "unexpected data after the proof document"
+	MsgEventProofNotObject     = "the document is not a JSON object"
+	MsgEventProofUnknownKey    = "unknown field %q"
+	MsgEventProofDuplicate     = "field %q appears more than once, so a reader and the verifier could see different values"
+	MsgEventProofKind          = "the proof is a %s proof, not an inclusion proof"
+	MsgEventProofEventLabel    = "the proof's event field names node %d but the proof is about node %d"
+	MsgEventProofLeafOld       = "the case image predates leaves that hash the stored record, so nothing binds this proof to an event; seal the case again to upgrade it"
+	MsgEventProofLeafShape     = "the proof's leaf is not a node leaf this build can read"
+	MsgEventProofBodyVersion   = "the proof does not state snapshot body version 3, the only one whose leaves this build reads"
+	MsgEventProofNotEvent      = "the proven node is not an event"
+	MsgEventProofRecord        = "the stored record in this file is not the one the proof commits to"
+	MsgEventProofRecordShape   = "the stored record is not an event record: %v"
+	MsgEventProofRaw           = "the raw record in this file does not match the hash in the stored record"
+	MsgEventProofNoHashRaw     = "the stored record carries no raw-record hash to check the raw record against"
+)
+
 // --- Annotation layers (v0.2.0) ---
 //
 // An annotation is the analyst's own mark ON a graph: a note pinned to an event, a region drawn

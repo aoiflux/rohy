@@ -56,6 +56,7 @@ the machine.
 | **Timeline**    | Backend density histogram (cheap at any size), zoom/pan/scrub, range selection that filters, lanes by provider, channel, user, computer or graph, shared selection with the canvas       |
 | **Findings**    | Per-event flag, tags and note in a plain-JSON sidecar; tag suggestions, finding filters on the event list, and an audit that reports orphaned findings rather than deleting them         |
 | **Correlation** | Four algorithms — sequence, field, temporal and lineage — scoped per computer, non-overlapping, capped; one prepared dataset per build rather than one per rule; idempotent rebuilds (re-running replaces, never duplicates) |
+| **Evidence**    | Each ingest seals the case with a fingerprint (a Merkle snapshot root) you can save and keep elsewhere; on-demand image verification; per-event proofs that anyone holding the fingerprint can check with `rohyctl verify-proof`, without the case or rohy |
 | **Maintenance** | Opt-in, resumable correlation-key backfill for cases ingested by an older build, with a status readout that explains why a field or lineage rule found nothing |
 
 ## Install

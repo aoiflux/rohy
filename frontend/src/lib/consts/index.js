@@ -1270,6 +1270,54 @@ export const UI = Object.freeze({
   DETAIL_RAW: 'Raw payload (JSON)',
   DETAIL_NONE: 'No parsed fields.',
 
+  // Event proofs (plan §14.3, item 38). The same discipline as the fingerprint copy: say what the
+  // file proves and what it does not, and never let "saved" read as "proven".
+  DETAIL_PROOF_TITLE: 'Proof',
+  // 🔒 The disclosure is stated as it is, not rounded down. The file carries no other event's
+  // content, but a Merkle proof is not silent about its neighbours: it reveals the record count,
+  // this event's position, and sibling hashes that confirm a record someone already holds.
+  DETAIL_PROOF_HINT:
+    'Saves a file that lets someone without this case, or rohy, check that this event was in it — ' +
+    'with rohyctl verify-proof and the case fingerprint. The file holds this event’s full record, ' +
+    'including the path it was read from. It holds no other event’s content, but it does reveal how ' +
+    'many records the case has, this event’s position among them, and hashes that let someone who ' +
+    'already has another event’s exact record confirm it is in the case.',
+  DETAIL_PROOF_SAVE: 'Save proof…',
+  DETAIL_PROOF_WORKING: 'Building the proof…',
+  DETAIL_PROOF_SEALING: 'Sealing the case…',
+  DETAIL_PROOF_SEAL: 'Seal case and save proof',
+  DETAIL_PROOF_SAVED: 'Saved. Whoever checks it needs this case fingerprint, from a copy kept outside the case:',
+  // 🔒 A proof checkable only against a value inside the case proves nothing, so this is said every
+  // time it applies rather than once.
+  DETAIL_PROOF_NO_FINGERPRINT:
+    'No copy of this fingerprint has been saved from the Maintenance page yet. Save one and keep it ' +
+    'outside the case: without it, this proof proves nothing.',
+  DETAIL_PROOF_RESEAL_NOTE:
+    'Sealing writes a new fingerprint. A copy saved from an earlier seal will not check this proof.',
+  DETAIL_PROOF_FAILED: 'The proof could not be built:',
+  DETAIL_PROOF_BUSY: 'Another maintenance task is running. Try again when it finishes.',
+  DETAIL_PROOF_UNKNOWN: 'This event cannot be proven right now (%s).',
+  DETAIL_PROOF_STATE: Object.freeze({
+    unavailable: 'This case is held in memory only, so there is no sealed file to prove anything against.',
+    not_sealed: 'This case has not been sealed yet, so nothing in it can be proven.',
+    written_since_seal:
+      'This event arrived after the case was last sealed. It is recorded, but no fingerprint covers it yet.',
+    changed_since_seal:
+      'This event changed after the case was last sealed — a re-ingest moved its occurrence count, or a ' +
+      'backfill rewrote its correlation fields — so the sealed copy is not the one shown here.',
+    image_outdated:
+      'The case was sealed by an older storage format, whose fingerprint does not cover a record’s ' +
+      'contents separately. Sealing again upgrades it.',
+    // 🔒 No seal button. The payload store is outside the sealed image, so sealing would not repair
+    // anything — and the analyst needs to learn about the damage, not route around it.
+    raw_mismatch:
+      'The raw record stored for this event no longer matches the hash taken when it was read: damage, ' +
+      'or a record that could not be stored byte for byte. Run the integrity check on the Maintenance ' +
+      'page. A proof would fail, so none was saved.',
+    too_large:
+      'This event’s raw record is too large for a proof file any verifier would read, so none was saved.',
+  }),
+
   RESULT_COUNT: 'events',
   EVENTS_OF: 'of', // "showing X of N events" (P1)
   LOADING_MORE: 'Loading more…',

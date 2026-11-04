@@ -4,6 +4,9 @@
   // action. Slides in from the right over a scrim.
   import { UI, SOURCE_TYPE_LABEL, RELATION_LABEL } from '../../lib/consts/index.js';
   import * as api from '../../lib/api/index.js';
+  import { download } from '../../lib/export.js';
+  import { proofOutcome, proofFailure } from '../../lib/maintenance/proof.js';
+  import { maintenance } from '../../stores/maintenance.js';
   import Button from '../material/Button.svelte';
   import Skeleton from '../material/Skeleton.svelte';
   import FindingEditor from './FindingEditor.svelte';
@@ -82,6 +85,59 @@
       : [],
   );
 
+  // Event proof (plan §14.3). The outcome belongs to the event it was asked about: moving to another
+  // event clears it, and a response arriving after the analyst moved on is dropped — a "saved"
+  // shown beside the wrong event would be a false statement about evidence.
+  let proof = $state(/** @type {import('../../lib/maintenance/proof.js').ProofOutcome|null} */ (null));
+  let proofBusy = $state('');
+  let proofFor = $state(/** @type {number|null} */ (null));
+  $effect(() => {
+    const id = event ? event.id : null;
+    if (proofFor === id) return;
+    proofFor = id;
+    proof = null;
+    proofBusy = '';
+  });
+
+  async function saveProof() {
+    const id = event.id;
+    proofBusy = UI.DETAIL_PROOF_WORKING;
+    try {
+      const r = await api.exportEventProof(id);
+      if (proofFor !== id) return;
+      const outcome = proofOutcome(r);
+      // The document is written exactly as Go returned it: those are the bytes it verified.
+      if (outcome.saved) download(r.file_name, 'application/json', r.document);
+      proof = outcome;
+    } catch (e) {
+      if (proofFor === id) proof = proofFailure(e);
+    } finally {
+      if (proofFor === id) proofBusy = '';
+    }
+  }
+
+  // Sealing goes through the maintenance store, so the Maintenance page's posture is re-read and
+  // a second pass cannot start beside one already running.
+  async function sealAndSaveProof() {
+    const id = event.id;
+    // Busy is checked here, not inferred afterwards: compact() refuses without clearing the store's
+    // error, so reading that error after a refusal would show whatever an earlier task left there.
+    if (maintenance.current().running !== '') {
+      proof = proofFailure(UI.DETAIL_PROOF_BUSY);
+      return;
+    }
+    proofBusy = UI.DETAIL_PROOF_SEALING;
+    const sealed = await maintenance.compact();
+    if (proofFor !== id) return;
+    if (!sealed) {
+      // compact() cleared the error when it started, so this one is its own.
+      proof = proofFailure(maintenance.current().error || UI.DETAIL_PROOF_BUSY);
+      proofBusy = '';
+      return;
+    }
+    await saveProof();
+  }
+
   function prettyRaw(raw) {
     if (!raw) return '';
     try {
@@ -135,6 +191,28 @@
           <dt>{UI.DETAIL_HASH_NORM}</dt>
           <dd class="mono">{event.hash_normalized}</dd>
         </dl>
+      </section>
+
+      <section class="proof">
+        <h3>{UI.DETAIL_PROOF_TITLE}</h3>
+        <p class="muted">{UI.DETAIL_PROOF_HINT}</p>
+        <div class="proofactions">
+          <Button variant="outlined" disabled={proofBusy !== ''} onclick={saveProof}>{UI.DETAIL_PROOF_SAVE}</Button>
+          {#if proof && proof.sealable}
+            <Button variant="tonal" disabled={proofBusy !== ''} onclick={sealAndSaveProof}>{UI.DETAIL_PROOF_SEAL}</Button>
+          {/if}
+        </div>
+        {#if proofBusy}
+          <p class="muted" role="status">{proofBusy}</p>
+        {:else if proof}
+          <p class={proof.damage ? 'proofmsg damage' : 'proofmsg'} role="status">{proof.message}</p>
+          {#if proof.saved}
+            <p class="mono fingerprint">{proof.snapshot}</p>
+          {/if}
+          {#each proof.warnings as w (w)}
+            <p class="proofmsg warn">{w}</p>
+          {/each}
+        {/if}
       </section>
 
       <section>
@@ -309,6 +387,28 @@
     display: flex;
     justify-content: flex-end;
     gap: var(--space-3);
+  }
+  .proofactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+  .proofmsg {
+    margin: var(--space-3) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-on-surface);
+  }
+  .proofmsg.warn {
+    color: var(--color-warning);
+  }
+  .proofmsg.damage {
+    color: var(--color-error);
+  }
+  .fingerprint {
+    margin: var(--space-2) 0 0;
+    word-break: break-all;
+    user-select: all;
   }
   .rlabel {
     margin: var(--space-3) 0 var(--space-2);

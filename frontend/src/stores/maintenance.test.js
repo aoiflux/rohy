@@ -39,6 +39,11 @@ vi.mock('../lib/api/index.js', () => ({
   cancelMaintenance: vi.fn(async () => {
     state.cancels += 1;
   }),
+  compactCase: vi.fn(async () => {
+    state.seals += 1;
+    if (state.failSeal) throw new Error('seal failed');
+  }),
+  forensicStatus: vi.fn(async () => ({ available: true, compacted: true })),
 }));
 
 const { maintenance } = await import('./maintenance.js');
@@ -54,8 +59,30 @@ beforeEach(() => {
     repairs: 0,
     cancels: 0,
     gate: null,
+    seals: 0,
+    failSeal: false,
   });
   maintenance.reset();
+});
+
+describe('compact', () => {
+  it('reports a seal that happened, even when refreshing the report afterwards fails', async () => {
+    // 🔒 The seal moved the fingerprint. Saying it failed would send the analyst to seal again —
+    // moving it a second time — and hide the fingerprint that now needs keeping.
+    state.failCheck = true;
+    expect(await maintenance.compact()).toBe(true);
+    expect(state.seals).toBe(1);
+    expect(get(maintenance).running).toBe('');
+    expect(get(maintenance).lastResult).toBe('compact');
+    expect(get(maintenance).error).toContain('backend unavailable');
+  });
+
+  it('a seal that failed is a failure', async () => {
+    state.failSeal = true;
+    expect(await maintenance.compact()).toBe(false);
+    expect(get(maintenance).error).toContain('seal failed');
+    expect(get(maintenance).running).toBe('');
+  });
 });
 
 describe('initial state', () => {

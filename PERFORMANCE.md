@@ -929,3 +929,26 @@ sealing on an open-ended stream would be unbounded waste at the worst possible r
 - **Proof verification is asymmetric in the useful direction.** Upstream measures building an
   inclusion proof at ~8 ms per 10k nodes against ~5 µs to verify one — about 1500×. A recipient
   checking evidence pays almost nothing.
+
+### Proving one event (v0.3.0)
+
+`ProveEvent` is the drawer's _Save proof…_. It covers graphene's `ExportNodeProof`, which
+recomputes every node leaf because graphene stores no leaf hashes, plus the payload read and
+`eventproof.Assemble`, which verifies its own document before returning it. Ryzen 9 5980HS,
+compacted store, median of three runs of `-benchtime 5x`:
+
+| Events | Time    | Allocated | Allocations |
+| -----: | ------: | --------: | ----------: |
+| 10k    | 11.7 ms |    5.1 MB |      50 k   |
+| 100k   |   94 ms |     50 MB |     500 k   |
+
+Cost is linear, at about 500 bytes and five allocations per event in the case. All of it is
+graphene's leaf recomputation; the proof itself is a few kilobytes.
+
+The proof runs on a click, and the drawer shows a busy state for it, so nothing is optimised. If
+it ever matters, the fix belongs upstream: storing leaf hashes, which graphene's `ProveNode`
+comment prices at about 6% more disk, would make the cost O(log n).
+
+```
+go test ./backend/graphene/ -run XXX -bench ProveEvent -benchtime 5x -count 3
+```

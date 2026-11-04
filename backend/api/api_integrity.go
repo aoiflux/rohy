@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"rohy/backend/caseintegrity"
@@ -225,6 +226,52 @@ func (a *MaintenanceAPI) ExportCaseFingerprint() (CaseFingerprint, error) {
 		if _, err := hist.Observe(rec); err == nil {
 			_ = hist.MarkExported(roots.Snapshot)
 		}
+	}
+	return out, nil
+}
+
+// EventProofExport is the answer to "prove this event": a document to hand over, or the state that
+// says why there is none yet and what to do about it.
+type EventProofExport struct {
+	// State is consts.EventProofOK, or the reason the event cannot be proven right now.
+	State string `json:"state"`
+	Event uint64 `json:"event"`
+	// Snapshot is the fingerprint the proof was built against. A recipient needs THIS value, kept
+	// outside the case, to check it — a fingerprint from an earlier or later seal will not do.
+	Snapshot string `json:"snapshot,omitempty"`
+	// FileName and Document are the file to save. Document is the exact bytes that were verified
+	// against Snapshot before being returned, so the UI writes it out untouched.
+	FileName string `json:"file_name,omitempty"`
+	Document string `json:"document,omitempty"`
+	// FingerprintExported reports whether a copy of Snapshot has ever been exported from the app.
+	// 🔒 When it has not, the recipient has no root to check against, and the UI must say so: a
+	// proof checkable only against a value inside the case proves nothing.
+	FingerprintExported bool `json:"fingerprint_exported"`
+}
+
+// ExportEventProof builds the proof document for one event (plan §14.3).
+//
+// It does not take the maintenance lock: it writes nothing, and a backfill that rewrites the event
+// meanwhile is reported as changed_since_seal rather than raced — the document is built from a
+// record that is compared by hash against what was sealed.
+func (a *MaintenanceAPI) ExportEventProof(id uint64) (EventProofExport, error) {
+	p, err := a.store.ProveEvent(id)
+	if err != nil {
+		return EventProofExport{}, AsError(consts.ErrCodePersistence, err)
+	}
+	out := EventProofExport{State: p.State, Event: id}
+	if p.State != consts.EventProofOK {
+		return out, nil
+	}
+	out.Snapshot = p.Snapshot
+	out.FileName = fmt.Sprintf("event-%d%s", id, consts.EventProofFileSuffix)
+	out.Document = string(p.Document)
+
+	a.mu.Lock()
+	hist := a.integrity.Roots
+	a.mu.Unlock()
+	if hist != nil {
+		out.FingerprintExported = hist.Exported(p.Snapshot)
 	}
 	return out, nil
 }

@@ -31,9 +31,13 @@ import (
 	"encoding/hex"
 	"errors"
 
+	"rohy/backend/consts"
+	"rohy/backend/eventproof"
+
 	"github.com/aoiflux/graphene"
 	"github.com/aoiflux/graphene/disk"
 	"github.com/aoiflux/graphene/merkle"
+	"github.com/aoiflux/graphene/store"
 )
 
 // ErrForensicsUnavailable is returned by every forensic read when the backend has no such
@@ -375,4 +379,102 @@ func hashHex(h merkle.Hash) string {
 		return ""
 	}
 	return hex.EncodeToString(h[:])
+}
+
+// EventProof is one event's proof document, or the state that explains why there is none.
+type EventProof struct {
+	// State is consts.EventProofOK or the reason this event cannot be proven right now.
+	State string
+	// Snapshot is the root the proof was built against — the fingerprint a recipient must hold to
+	// check it. Set only when State is OK.
+	Snapshot string
+	// Document is the exact bytes to hand over. eventproof.Assemble verified these bytes against
+	// Snapshot before they were returned.
+	Document []byte
+}
+
+// ProveEvent builds the proof document for one event (plan §14.3).
+//
+// The document carries graphene's inclusion proof, the event's stored record exactly as the case
+// holds it, and its raw record from the payload store — what a recipient needs to check the event's
+// CONTENT, not merely that some node of that id was sealed.
+//
+// 🔒 Every reason an event cannot be proven is a state, not an error, because each has a different
+// remedy and none of them is damage except raw_mismatch:
+//
+//	unavailable         the in-memory backend keeps no image
+//	not_sealed          the case was never sealed
+//	written_since_seal  the event arrived after the last seal
+//	changed_since_seal  its stored record changed after the last seal (a dedup count, a backfill)
+//	image_outdated      the seal predates leaves that hash the stored record
+//	raw_mismatch        the raw record no longer hashes to the value its stored record holds
+//	too_large           the document would exceed what any verifier reads
+//
+// The live record is read before the proof is built, and Assemble compares the two by hash, so a
+// seal landing in between cannot produce a wrong document: either the record is unchanged and the
+// proof is good against the seal it came from, or it changed and that is the state reported.
+func (s *Store) ProveEvent(id uint64) (EventProof, error) {
+	fs, err := s.forensics()
+	if errors.Is(err, ErrForensicsUnavailable) {
+		return EventProof{State: consts.EventProofUnavailable}, nil
+	}
+	if err != nil {
+		return EventProof{}, err
+	}
+	g, err := s.graph()
+	if err != nil {
+		return EventProof{}, err
+	}
+	n, err := g.GetNode(store.NodeID(id))
+	if err != nil {
+		return EventProof{}, err
+	}
+	e, err := eventFromNode(n)
+	if err != nil {
+		return EventProof{}, err
+	}
+	if err := s.hydrate(e); err != nil {
+		return EventProof{}, err
+	}
+	// The raw record travels only when the stored record carries its hash. Without one the seal
+	// never bound it, so nothing could vouch for it: the proof then covers the stored fields alone,
+	// and says so, rather than carrying a record a recipient might mistake for proven.
+	var raw []byte
+	if e.RawXML != "" && e.HashRaw != "" {
+		raw = []byte(e.RawXML)
+	}
+
+	proof, err := fs.ExportNodeProof(n.ID)
+	switch {
+	case errors.Is(err, disk.ErrNoSnapshotRoots):
+		return EventProof{State: consts.EventProofNotSealed}, nil
+	case errors.Is(err, disk.ErrNotInSnapshot):
+		return EventProof{State: consts.EventProofWrittenSinceSeal}, nil
+	case err != nil:
+		return EventProof{}, err
+	}
+
+	doc, err := eventproof.Assemble(proof, n.Properties, raw)
+	switch {
+	case errors.Is(err, eventproof.ErrRecordMismatch):
+		return EventProof{State: consts.EventProofChangedSinceSeal}, nil
+	case errors.Is(err, eventproof.ErrImageOutdated):
+		return EventProof{State: consts.EventProofImageOutdated}, nil
+	case errors.Is(err, eventproof.ErrRawMismatch):
+		return EventProof{State: consts.EventProofRawMismatch}, nil
+	case errors.Is(err, eventproof.ErrTooLarge):
+		return EventProof{State: consts.EventProofTooLarge}, nil
+	case err != nil:
+		return EventProof{}, err
+	}
+	// Assemble has decoded and verified this proof; decoding it again only reads the root out.
+	exported, err := disk.UnmarshalProof(proof)
+	if err != nil {
+		return EventProof{}, err
+	}
+	return EventProof{
+		State:    consts.EventProofOK,
+		Snapshot: hashHex(exported.Node.Roots.Snapshot),
+		Document: doc,
+	}, nil
 }

@@ -1,6 +1,10 @@
 package graphene
 
-import "testing"
+import (
+	"testing"
+
+	"rohy/backend/consts"
+)
 
 // Forensic verification cost (§14.2) — the 🟡 gate.
 //
@@ -95,3 +99,33 @@ func BenchmarkOpenVerified100k(b *testing.B) { benchmarkOpenVerified(b, 100000) 
 
 func BenchmarkVerifyImage10k(b *testing.B)  { benchmarkVerifyImage(b, 10000) }
 func BenchmarkVerifyImage100k(b *testing.B) { benchmarkVerifyImage(b, 100000) }
+
+// benchmarkProveEvent measures the drawer's "Save proof…" inside the store: graphene's proof, which
+// recomputes every node leaf (one pass over the node records), the payload read, and Assemble's
+// verification of its own document. It runs on a click, not on a hot path; the number says
+// whether that click needs a progress state.
+//
+//	go test ./backend/graphene/ -run XXX -bench ProveEvent -benchtime 5x -count 3
+func benchmarkProveEvent(b *testing.B, n int) {
+	dir := seedDiskStore(b, n, true)
+	s, err := Open(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+	id := uint64(n / 2)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		p, err := s.ProveEvent(id)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if p.State != consts.EventProofOK {
+			b.Fatalf("state = %q: the benchmark would be timing a refusal, not a proof", p.State)
+		}
+	}
+}
+
+func BenchmarkProveEvent10k(b *testing.B)  { benchmarkProveEvent(b, 10000) }
+func BenchmarkProveEvent100k(b *testing.B) { benchmarkProveEvent(b, 100000) }

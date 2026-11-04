@@ -26,6 +26,10 @@ export function ExportCaseFingerprint() {
   return window['go']['api']['MaintenanceAPI']['ExportCaseFingerprint']();
 }
 
+export function ExportEventProof(arg1) {
+  return window['go']['api']['MaintenanceAPI']['ExportEventProof'](arg1);
+}
+
 export function ForensicStatus() {
   return window['go']['api']['MaintenanceAPI']['ForensicStatus']();
 }

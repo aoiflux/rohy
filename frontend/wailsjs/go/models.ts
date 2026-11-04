@@ -357,6 +357,28 @@ export namespace api {
 	        this.slot = source["slot"];
 	    }
 	}
+	export class EventProofExport {
+	    state: string;
+	    event: number;
+	    snapshot?: string;
+	    file_name?: string;
+	    document?: string;
+	    fingerprint_exported: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EventProofExport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.event = source["event"];
+	        this.snapshot = source["snapshot"];
+	        this.file_name = source["file_name"];
+	        this.document = source["document"];
+	        this.fingerprint_exported = source["fingerprint_exported"];
+	    }
+	}
 	
 	export class FindingRequest {
 	    key: string;
@@ -1944,6 +1966,7 @@ export namespace rules {
 	    read_only: boolean;
 	    default?: any;
 	    enum?: string[];
+	    aliases?: Record<string, string>;
 	    min_items?: number;
 	    max_items?: number;
 	    description: string;
@@ -1964,6 +1987,7 @@ export namespace rules {
 	        this.read_only = source["read_only"];
 	        this.default = source["default"];
 	        this.enum = source["enum"];
+	        this.aliases = source["aliases"];
 	        this.min_items = source["min_items"];
 	        this.max_items = source["max_items"];
 	        this.description = source["description"];

@@ -53,8 +53,10 @@ func TestIngestFaultIsReportedSealedAndReleasesTheFile(t *testing.T) {
 	}
 	waitIdle(t, api)
 
+	// Read a locked copy: the deferred cleanup can still be emitting after waitIdle returns.
+	events := em.snapshot()
 	reported := false
-	for _, v := range em.events[consts.EventIngestError] {
+	for _, v := range events[consts.EventIngestError] {
 		if e, ok := v.(ErrorEvent); ok && e.Code == consts.ErrCodeInternal &&
 			strings.Contains(e.Message, "internal fault") {
 			reported = true
@@ -62,11 +64,11 @@ func TestIngestFaultIsReportedSealedAndReleasesTheFile(t *testing.T) {
 	}
 	if !reported {
 		seen := map[string]int{}
-		for ch, v := range em.events {
+		for ch, v := range events {
 			seen[ch] = len(v)
 		}
 		t.Errorf("the fault was not reported as an ingest error; errors = %v, channels = %v",
-			em.events[consts.EventIngestError], seen)
+			events[consts.EventIngestError], seen)
 	}
 
 	// On Windows a file with an open handle cannot be renamed, so this is where a leaked worker

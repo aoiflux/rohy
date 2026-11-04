@@ -17,6 +17,8 @@ export function CorrelationKeyStatus():Promise<graphene.CorrelationKeyStatus>;
 
 export function ExportCaseFingerprint():Promise<api.CaseFingerprint>;
 
+export function ExportEventProof(arg1:number):Promise<api.EventProofExport>;
+
 export function ForensicStatus():Promise<graphene.ForensicStatus>;
 
 export function IsRunningMaintenance():Promise<boolean>;

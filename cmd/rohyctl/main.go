@@ -1,10 +1,16 @@
-// Command rohyctl works with rohy rule files from a terminal: validate them, format them, and
-// explain what they do.
+// Command rohyctl works with rohy's portable files from a terminal: it validates, formats and
+// explains rule files, and verifies event proofs.
 //
-// 🔒 It never opens a case. The import list is `rules`, `consts` and `version` and nothing else —
-// no graphene, no sidecars, no state. That is what lets it run in CI, in a pre-commit hook, and on
-// a machine that has never seen the application, over rule files checked into somebody's own
-// repository.
+// 🔒 It never opens a case. No store, no sidecars, no state: what it reads is the files it is given.
+// That is what lets it run in CI, in a pre-commit hook, and on a machine that has never seen the
+// application — over rule files checked into somebody's own repository, or over a proof handed to
+// somebody who has neither the case nor rohy.
+//
+// The rule used to be stated as an import list (`rules`, `consts`, `version`, no graphene). It
+// outgrew that wording twice: consts reaches graphene's store types, and verify-proof needs
+// graphene's proof codec. Both are storeless. So the invariant is stated by what it protects, and
+// TestRohyctlNeverOpensACase pins it: no rohy package that opens a case, and no graphene call
+// that opens a store, is reachable from here.
 //
 // It exists because a rule is a portable JSON file and portable files get edited by things that
 // are not rohy. Three commands cover what that needs:
@@ -17,6 +23,11 @@
 // drift would surface as a rule that passes in the terminal and is silently missing from the
 // library on the next scan. So `validate` calls rules.ValidateSource — the same function the
 // editor calls, and the same one the loader is built on.
+//
+// The fourth command is for the other portable file, an event proof:
+//
+//	verify-proof  was this event in the case whose fingerprint I kept? — eventproof.Verify, the
+//	              same function the app checks its own exports with
 package main
 
 import (
@@ -34,13 +45,14 @@ import (
 	"rohy/backend/version"
 )
 
-const usage = `rohyctl — work with rohy correlation rules
+const usage = `rohyctl — work with rohy rule files and event proofs
 
 Usage:
-  rohyctl validate <path>...        check whether rule files would load
-  rohyctl format [flags] <path>...  print or rewrite rule files in canonical form
-  rohyctl explain [name|path]...    describe an algorithm, or what a rule establishes
-  rohyctl version                   print the build identity
+  rohyctl validate <path>...                 check whether rule files would load
+  rohyctl format [flags] <path>...           print or rewrite rule files in canonical form
+  rohyctl explain [name|path]...             describe an algorithm, or what a rule establishes
+  rohyctl verify-proof --root <hex> <file>   check an event proof against a fingerprint you kept
+  rohyctl version                            print the build identity
 
 A path may be a file or a directory; directories are searched for .json files.
 With no path, validate and format read from stdin.
@@ -49,9 +61,14 @@ Flags for format:
   -w, --write    rewrite files in place
   -c, --check    exit 1 if any file is not already formatted; write nothing
 
+Flags for verify-proof:
+  --root <hex>   the case fingerprint (snapshot root) you kept outside the case. Required,
+                 and never read from the proof file: a proof checked against a root its
+                 author supplied proves nothing.
+
 Exit codes:
   0  everything checked was fine
-  1  a rule failed to validate, or --check found unformatted files
+  1  a rule failed to validate, --check found unformatted files, or a proof did not verify
   2  the command could not run (bad usage, unreadable path)
 `
 
@@ -80,6 +97,8 @@ func run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return cmdFormat(args[1:], stdout, stderr, stdin)
 	case "explain":
 		return cmdExplain(args[1:], stdout, stderr)
+	case "verify-proof":
+		return cmdVerifyProof(args[1:], stdout, stderr)
 	case "version":
 		v := version.Current(consts.AppName)
 		suffix := ""

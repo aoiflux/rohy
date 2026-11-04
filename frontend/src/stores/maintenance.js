@@ -126,15 +126,22 @@ function create() {
     update((s) => ({ ...s, running: 'compact', error: '', lastResult: '', image: null }));
     try {
       await api.compactCase();
-      update((s) => ({ ...s, running: '', lastResult: 'compact' }));
-      await loadForensics();
-      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
-      update((s) => ({ ...s, report }));
-      return true;
     } catch (e) {
       fail(e);
       return false;
     }
+    update((s) => ({ ...s, running: '', lastResult: 'compact' }));
+    // 🔒 The seal has happened, and it moved the fingerprint. Refreshing what the page shows is a
+    // separate step: its failure is reported, but it must not unsay the seal — a caller told
+    // "failed" would seal again, moving the fingerprint a second time.
+    try {
+      await loadForensics();
+      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
+      update((s) => ({ ...s, report }));
+    } catch (e) {
+      fail(e);
+    }
+    return true;
   }
 
   async function check(deep) {
