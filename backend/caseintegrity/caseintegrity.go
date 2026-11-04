@@ -92,10 +92,42 @@ type ForensicStore interface {
 // RootHistory reports the caveat unconditionally, which is the safe direction — it produces the
 // warning rather than suppressing it.
 //
-// It returns a time rather than a custody.Record so this package needs no dependency on the
-// sidecar at all — the same reason every other interface here is two methods wide.
+// It returns a time and a ChainCheck rather than custody's types so this package needs no
+// dependency on the sidecar at all — the same reason every other interface here is two methods wide.
 type RootHistory interface {
 	ExportedAt(snapshot string) (time.Time, bool)
+	// Chain places the current image (nil when never sealed) against the recorded seals.
+	Chain(current *graphene.SnapshotRoots) ChainCheck
+}
+
+// ChainCheck is where the case's current image sits against its history of seals (plan §15.5),
+// reduced to what the findings say.
+type ChainCheck struct {
+	// State is one of consts.Chain*.
+	State string
+	// Gaps counts recorded seals that do not directly follow the one recorded before them.
+	Gaps int
+	// RolledBackTo and Later describe a rolled-back image: when the seal it matches was recorded,
+	// and how many seals were recorded after it.
+	RolledBackTo time.Time
+	Later        int
+	// Forks counts recorded seals made from an image older than the seal recorded before them — a
+	// rollback that was sealed again. ForkFrom is when that older seal was recorded, ForkSkipped how
+	// many recorded seals the first fork left out.
+	Forks       int
+	ForkFrom    time.Time
+	ForkSkipped int
+	// Kept lists earlier history documents that could not be used and were kept aside.
+	Kept []KeptHistory
+	// Held is why this open left an unusable history in place and is recording nothing; empty when
+	// it is not held.
+	Held string
+}
+
+// KeptHistory is one history document set aside because it could not be used.
+type KeptHistory struct {
+	Reason string
+	Path   string
 }
 
 // EventStore is the slice of the graph store the checks need.
@@ -595,6 +627,11 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) {
 		return
 	}
 
+	// The history's own findings — a reset, a rollback that was sealed again, a gap — do not depend
+	// on the image, so they are reported before the returns below rather than lost behind them.
+	// Without an image the current-image placement simply has nothing to place.
+	checkRootChain(rep, deps, st)
+
 	// An unreadable fingerprint comes before "never compacted" and must not present as it: that
 	// one is normal and offers compaction, which would write a fresh image over whatever made the
 	// read fail. A fault, so an error, and no action — the remedy depends on the cause.
@@ -629,6 +666,74 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) {
 
 	checkRetainedRoot(rep, deps, st)
 	checkImage(rep, deps, opts)
+}
+
+// checkRootChain places the current image against the history of seals (plan §15.5).
+//
+// 🔒 This is the one check that catches an image which is internally perfect but is not the latest
+// one rohy sealed: a database restored from a backup, or copied in from another case. Every other
+// check passes such an image, because nothing about it is broken. What it cannot catch is a careful
+// forger, who can rewrite the history as easily as the image — so none of these findings is phrased
+// as a guarantee, and an intact chain adds no finding at all: the retained-root finding above
+// already says what an internal check is worth.
+//
+// A nil history reports nothing here. The retained-root caveat already stands for it, and
+// inventing chain findings from no history would be reporting a check that never ran.
+func checkRootChain(rep *Report, deps Deps, st graphene.ForensicStatus) {
+	if deps.Roots == nil {
+		return
+	}
+	c := deps.Roots.Chain(st.Roots)
+
+	for _, k := range c.Kept {
+		rep.add(Finding{
+			Code: consts.IntegrityRootsHistoryUnreadable, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityRootsHistoryKept, k.Reason, k.Path),
+		})
+	}
+	if c.Held != "" {
+		rep.add(Finding{
+			Code: consts.IntegrityRootsHistoryUnreadable, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityRootsHistoryHeld, c.Held),
+		})
+	}
+
+	// 🔒 A rollback is reported from the history itself when it was sealed again, so it is the same
+	// error however many seals follow — not a gap it fades into. Review, never Compact: no seal
+	// undoes it, and the action must not suggest one does.
+	if c.Forks > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityRootsRolledBack, Severity: consts.IntegritySevError,
+			Message: fmt.Sprintf(consts.MsgIntegrityRootsForked, c.ForkFrom.Format(time.RFC3339), c.ForkSkipped),
+			Action:  consts.IntegrityActionReview,
+		})
+	}
+
+	switch c.State {
+	case consts.ChainRolledBack:
+		rep.add(Finding{
+			Code: consts.IntegrityRootsRolledBack, Severity: consts.IntegritySevError,
+			Message: fmt.Sprintf(consts.MsgIntegrityRootsRolledBack, c.RolledBackTo.Format(time.RFC3339), c.Later),
+			Action:  consts.IntegrityActionReview,
+		})
+	case consts.ChainDiverged:
+		rep.add(Finding{
+			Code: consts.IntegrityRootsDiverged, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityRootsDiverged, Action: consts.IntegrityActionReview,
+		})
+	case consts.ChainUnrecordedSeal:
+		rep.add(Finding{
+			Code: consts.IntegrityRootsUnrecordedSeal, Severity: consts.IntegritySevInfo,
+			Message: consts.MsgIntegrityRootsUnrecorded,
+		})
+	}
+
+	if c.Gaps > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityRootsChainGap, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityRootsChainGap, c.Gaps),
+		})
+	}
 }
 
 // checkRetainedRoot reports whether a copy of the case fingerprint has been taken out of the app.

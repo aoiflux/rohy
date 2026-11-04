@@ -129,3 +129,28 @@ func benchmarkProveEvent(b *testing.B, n int) {
 
 func BenchmarkProveEvent10k(b *testing.B)  { benchmarkProveEvent(b, 10000) }
 func BenchmarkProveEvent100k(b *testing.B) { benchmarkProveEvent(b, 100000) }
+
+// benchmarkUnsealed is what closing an unchanged case now costs instead of a compaction (plan
+// §15.5): the question "was anything written since the last seal", asked of a sealed case.
+func benchmarkUnsealed(b *testing.B, n int) {
+	dir := seedDiskStore(b, n, true)
+	s, err := Open(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		unsealed, err := s.Unsealed()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if unsealed {
+			b.Fatal("a freshly reopened sealed case reads as unsealed: the benchmark would be timing the wrong branch")
+		}
+	}
+}
+
+func BenchmarkUnsealed10k(b *testing.B)  { benchmarkUnsealed(b, 10000) }
+func BenchmarkUnsealed100k(b *testing.B) { benchmarkUnsealed(b, 100000) }

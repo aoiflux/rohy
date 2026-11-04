@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -175,46 +176,199 @@ func TestHistorySurvivesReopenAndKeepsTheChain(t *testing.T) {
 	}
 }
 
-// 🔒 A corrupt sidecar costs KNOWLEDGE, never evidence: the case still opens, the history is simply
-// empty — and empty reports "not exported", which produces the caveat rather than hiding it.
-func TestCorruptHistoryOpensEmptyRatherThanFailing(t *testing.T) {
+// unreadableOpen writes doc as the history, opens it, and checks the two things every unreadable
+// history must get: the case still opens, and the bytes are kept, byte for byte, where Damage says.
+func unreadableOpen(t *testing.T, doc string) (*Store, string) {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, consts.RootsStateFile), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, consts.RootsStateFile), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	s, err := Open(dir)
 	if err != nil {
-		t.Fatalf("a corrupt history failed the open: %v", err)
+		t.Fatalf("an unreadable history failed the open: %v", err)
 	}
+	d := s.Damage()
+	if d == nil {
+		t.Fatal("an unreadable history was not reported")
+	}
+	if d.Reason == "" || d.KeptAt == "" {
+		t.Fatalf("damage = %+v, want a reason and where the document was kept", d)
+	}
+	kept, err := os.ReadFile(d.KeptAt)
+	if err != nil {
+		t.Fatalf("the unreadable document is not where Damage says: %v", err)
+	}
+	if string(kept) != doc {
+		t.Errorf("the kept document was altered: %q", kept)
+	}
+	return s, dir
+}
+
+// 🔒 An unreadable history is KEPT, never written over. It used to open as empty and then be
+// replaced by the next seal, which silently destroyed the record of which fingerprints had been
+// exported — the one thing in it rohy cannot reconstruct. The case still opens (a damaged sidecar
+// must not stop that), the history starts again, and the integrity check says where the old one is.
+func TestAnUnreadableHistoryIsKeptAndReportedNotOverwritten(t *testing.T) {
+	s, dir := unreadableOpen(t, "{not json")
+
 	if n := len(s.History()); n != 0 {
-		t.Errorf("history holds %d records from a corrupt file", n)
+		t.Errorf("history holds %d records from an unreadable file", n)
 	}
 	if s.Exported("anything") {
-		t.Error("a corrupt history reported an export — it must default to the caveat")
+		t.Error("an unreadable history reported an export — it must default to the caveat")
 	}
-	// And it recovers: a fresh observation writes a valid document.
+
+	// A seal after it writes a fresh document beside the kept one, not over it.
 	if _, err := s.Observe(rec("aaa", "")); err != nil {
 		t.Fatal(err)
 	}
-	if reopened, err := Open(dir); err != nil || len(reopened.History()) != 1 {
-		t.Errorf("the store did not recover after a corrupt read (err = %v)", err)
+	if kept, err := os.ReadFile(s.Damage().KeptAt); err != nil || string(kept) != "{not json" {
+		t.Errorf("the kept document did not survive a seal (err = %v)", err)
+	}
+	reopened, err := Open(dir)
+	if err != nil || len(reopened.History()) != 1 {
+		t.Fatalf("the fresh history did not persist (err = %v)", err)
+	}
+	// The report belongs to the open that found the damage, not to every open after it.
+	if reopened.Damage() != nil {
+		t.Errorf("a healthy history reported damage: %+v", reopened.Damage())
 	}
 }
 
-// A document written by a future version is not read as if it were this one.
-func TestFutureDocumentVersionIsNotRead(t *testing.T) {
-	dir := t.TempDir()
+// A document written by a future build is not read as if it were this one — and, the reason this
+// matters, it is not destroyed either: opening a case in an older build must not erase the history
+// a newer build kept.
+func TestAFutureHistoryIsKeptNotReadOrDestroyed(t *testing.T) {
 	future := `{"roots_version": 99, "records": [{"snapshot": "aaa", "exported": true}]}`
-	if err := os.WriteFile(filepath.Join(dir, consts.RootsStateFile), []byte(future), 0o644); err != nil {
+	s, _ := unreadableOpen(t, future)
+
+	if s.Exported("aaa") {
+		t.Error("a record from an unknown document version was trusted")
+	}
+}
+
+// Two unreadable documents in the same second must not overwrite each other where they are kept.
+func TestKeepingAsideNeverOverwritesAnEarlierKeptDocument(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, consts.RootsStateFile)
+	var kept []string
+	for _, doc := range []string{"{first", "{second"} {
+		if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, s.Damage().KeptAt)
+	}
+	if kept[0] == kept[1] {
+		t.Fatalf("both documents were kept at %s", kept[0])
+	}
+	for i, want := range []string{"{first", "{second"} {
+		if got, err := os.ReadFile(kept[i]); err != nil || string(got) != want {
+			t.Errorf("kept[%d] = %q (err = %v), want %q", i, got, err, want)
+		}
+	}
+}
+
+// 🔒 When an unreadable document could not even be moved aside, the history refuses to write rather
+// than replace it. A rename failure cannot be staged portably, so this sets the state directly.
+func TestAHistoryThatCouldNotBeMovedIsNeverWrittenOver(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, consts.RootsStateFile)
+	if err := os.WriteFile(path, []byte("{held"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	s := &Store{dir: dir, doc: document{Version: consts.RootsDocVersion}, damage: &Damage{Reason: "test"}}
+
+	if _, err := s.Observe(rec("aaa", "")); err == nil {
+		t.Fatal("a seal was recorded over a history that could not be moved aside")
+	}
+	if got, _ := os.ReadFile(path); string(got) != "{held" {
+		t.Errorf("the held document was written over: %q", got)
+	}
+}
+
+// 🔒 A document that could not be READ is left where it is. A read can fail for reasons that pass —
+// another process holding the file, a scanner — and moving a valid history aside on one would
+// lose it as surely as overwriting it. The history holds instead: nothing is written this session.
+func TestAHistoryThatCannotBeReadIsLeftInPlaceAndHeld(t *testing.T) {
+	dir := t.TempDir()
+	// A directory where the document should be: ReadFile fails, and it is not a parse error.
+	if err := os.Mkdir(filepath.Join(dir, consts.RootsStateFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("an unreadable history failed the open: %v", err)
+	}
+	d := s.Damage()
+	if d == nil || d.KeptAt != "" {
+		t.Fatalf("damage = %+v, want held in place (no KeptAt)", d)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, consts.RootsStateFile)); err != nil || !fi.IsDir() {
+		t.Error("the unreadable document was moved")
+	}
+	if _, err := s.Observe(rec("aaa", "")); err == nil {
+		t.Error("a seal was recorded over a history that could not be read")
+	}
+}
+
+// The reset is recorded INSIDE the new history, so the next open still says the history started
+// again — and where the old one is — rather than only the session that found it.
+func TestAResetHistorySaysSoOnEveryOpen(t *testing.T) {
+	_, dir := unreadableOpen(t, "{not json")
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := reopened.Kept()
+	if len(kept) != 1 || kept[0].KeptAt == "" || kept[0].Reason == "" {
+		t.Fatalf("kept = %+v, want the earlier reset with its reason and path", kept)
+	}
+	if reopened.Damage() != nil {
+		t.Errorf("a healthy reopen reported damage of its own: %+v", reopened.Damage())
+	}
+}
+
+// The rename-failure branch itself: a corrupt document that cannot be moved is held in place, and
+// nothing is written over it. On Windows a rename of a file another handle has open fails; on Unix
+// a directory without write permission refuses it.
+func TestACorruptHistoryThatCannotBeMovedIsHeld(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, consts.RootsStateFile)
+	if err := os.WriteFile(path, []byte("{corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+	} else {
+		if os.Geteuid() == 0 {
+			t.Skip("root ignores directory permissions")
+		}
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(dir, 0o755)
 	}
 
 	s, err := Open(dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a history that cannot be moved failed the open: %v", err)
 	}
-	if s.Exported("aaa") {
-		t.Error("a record from an unknown document version was trusted")
+	if d := s.Damage(); d == nil || d.KeptAt != "" {
+		t.Fatalf("damage = %+v, want held in place (no KeptAt)", d)
+	}
+	if _, err := s.Observe(rec("aaa", "")); err == nil {
+		t.Error("a seal was recorded over a history that could not be moved aside")
+	}
+	if got, _ := os.ReadFile(path); string(got) != "{corrupt" {
+		t.Errorf("the held document was written over: %q", got)
 	}
 }

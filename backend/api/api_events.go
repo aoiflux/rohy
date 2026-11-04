@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/custody"
 	"rohy/backend/evtx"
 	"rohy/backend/findings"
 	"rohy/backend/graphene"
@@ -24,11 +25,15 @@ type EventsAPI struct {
 	// findings resolves the analyst-findings filters into content hashes before a query runs
 	// (P25). It may be nil in tests that do not exercise those filters.
 	findings *findings.Store
-	mu       sync.Mutex
-	emitter  Emitter
-	appCtx   context.Context
-	cancel   context.CancelFunc
-	running  bool
+	// sealHistory records the fingerprint each post-ingest seal produces (AttachSealHistory). Nil
+	// in tests that do not look at the history; the seal still runs.
+	sealHistory *custody.Store
+
+	mu      sync.Mutex
+	emitter Emitter
+	appCtx  context.Context
+	cancel  context.CancelFunc
+	running bool
 	// Live-capture session state, mirrored for the capture indicator (P7).
 	liveChannels   []string
 	liveContinuous bool
@@ -402,15 +407,25 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 // 🔒 A failure here does NOT fail the ingest. The events are persisted; sealing is what gives them a
 // fingerprint. Reporting the ingest as failed because the fingerprint step did would be false, and
 // would invite someone to re-run an ingest that had already succeeded.
+//
+// An ingest that wrote nothing (every record a duplicate, or cancelled before the first batch)
+// leaves the case unchanged, and then nothing is compacted: a compaction always moves the
+// fingerprint, so sealing an unchanged case would only make an exported copy stale. case:sealed
+// still fires, carrying "unchanged", so the UI's wait always ends.
 func (a *EventsAPI) sealCase(emitter Emitter) {
 	if a.store == nil {
 		return
 	}
+	a.mu.Lock()
+	hist := a.sealHistory
+	a.mu.Unlock()
+
 	emitter.Emit(consts.EventCaseSealing, nil)
-	if err := a.store.Compact(); err != nil {
+	out, err := sealAndRecord(a.store, hist, false)
+	if err != nil {
 		emitter.Emit(consts.EventIngestError, AsError(consts.ErrCodePersistence, err))
 	}
-	emitter.Emit(consts.EventCaseSealed, nil)
+	emitter.Emit(consts.EventCaseSealed, out)
 }
 
 // filterFor builds the persistence-layer filter for a query, including resolving the

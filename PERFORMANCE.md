@@ -952,3 +952,25 @@ comment prices at about 6% more disk, would make the cost O(log n).
 ```
 go test ./backend/graphene/ -run XXX -bench ProveEvent -benchtime 5x -count 3
 ```
+
+### Closing an unchanged case (v0.3.0)
+
+Every compaction writes a new fingerprint, even over identical content, so rohy no longer seals
+a case with nothing new: after an ingest that wrote nothing, and on close. It asks
+`Store.Unsealed()` first, which checks the delta and delete counts and, when they are zero, walks
+the write-ahead log for any record. A compacted log still holds graphene's 50-byte header, so its
+size cannot answer the question. Same machine, sealed store reopened, median of three runs of
+`-benchtime 2s`:
+
+| Events | `Unsealed()` | Allocated | Allocations | What it replaces (above) |
+| -----: | -----------: | --------: | ----------: | -----------------------: |
+| 10k    |       0.4 ms |    1.6 KB |          15 | a full compaction        |
+| 100k   |       1.1 ms |    1.6 KB |          15 | ~1.3 s, 566 MB           |
+
+Allocation is flat. The time grew from 10k to 100k and varied about twofold between runs (0.63
+to 1.44 ms at 100k); the cause was not profiled. Either way it is about a thousandth of the
+compaction it replaces, paid once per close or ingest, so it is not worth reducing.
+
+```
+go test ./backend/graphene/ -run XXX -bench Unsealed -benchtime 2s -count 3
+```

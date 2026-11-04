@@ -723,6 +723,25 @@ const (
 	EventRulesCancelled = "rules:cancelled"
 )
 
+// What a seal did, carried on case:sealed (plan §15.5).
+//
+// "unchanged" is its own state, not a quiet success: nothing was written since the last seal, so no
+// compaction ran and the fingerprint did not move. A compaction ALWAYS makes a new fingerprint, even
+// over identical content, so sealing an unchanged case would only make an exported copy stale.
+const (
+	SealStateSealed      = "sealed"
+	SealStateUnchanged   = "unchanged"
+	SealStateUnavailable = "unavailable"
+	SealStateFailed      = "failed"
+)
+
+// Seal failures, worded by which half failed. 🔒 A fingerprint that could not be RECORDED is not a
+// seal that failed: the case is sealed, and saying otherwise invites somebody to re-run it.
+const (
+	MsgSealCompactFailed = "sealing the case failed: %w"
+	MsgSealRecordFailed  = "the case was sealed, but its fingerprint could not be recorded in the history: %w"
+)
+
 // --- Rule testbench (v0.2.0) ---
 //
 // A dry run evaluates a rule against the real case and persists nothing. The sample cap bounds
@@ -1148,6 +1167,15 @@ const (
 	IntegrityNoRootRetained  = "no_root_retained"
 	IntegrityRootExported    = "root_exported"
 	IntegrityForensicsAbsent = "forensics_unavailable"
+
+	// The image against the fingerprint history (plan §15.5). Rolled back is the one fault among
+	// them: the image is provably older than one rohy sealed. The rest are states rohy cannot
+	// tell from benign causes, and say so.
+	IntegrityRootsRolledBack        = "roots_rolled_back"
+	IntegrityRootsDiverged          = "roots_diverged"
+	IntegrityRootsChainGap          = "roots_chain_gap"
+	IntegrityRootsUnrecordedSeal    = "roots_unrecorded_seal"
+	IntegrityRootsHistoryUnreadable = "roots_history_unreadable"
 )
 
 // Suggested actions a finding can carry, so the UI offers the fix rather than describing it.
@@ -1208,11 +1236,55 @@ const (
 	// an external copy comes precisely from being outside what this process can observe, so
 	// claiming to have confirmed it would be claiming something worth less.
 	MsgIntegrityRootExported = "a copy of this case's fingerprint was taken on %s. rohy cannot tell whether that copy still exists, or whether it is somewhere beyond the reach of anyone able to change this case — which is what makes it worth having."
+
+	// The image against the fingerprint history (plan §15.5). These are the case checked against
+	// its own record, so they catch an image that is not the latest one rohy sealed — not a
+	// careful forger, who can rewrite the history as easily as the image.
+	MsgIntegrityRootsRolledBack  = "this case's image is an earlier one than the last rohy sealed: it matches the seal recorded on %s, and %d later seal(s) are not in it. Whatever those seals covered is not in this image. A database restored from a backup looks like this."
+	MsgIntegrityRootsDiverged    = "this case's image does not descend from the last seal rohy recorded. A database replaced or restored from elsewhere looks like this, and so does a case sealed more than once by another tool or an older build; rohy cannot tell which from inside the case."
+	MsgIntegrityRootsChainGap    = "the fingerprint history has %d break(s): a recorded seal does not follow from any seal recorded before it. Builds before v0.3.0 recorded only the fingerprints that were exported, so a history they kept has breaks; rohy cannot tell that from an image that was replaced."
+	MsgIntegrityRootsUnrecorded  = "this case's image follows the last seal rohy recorded, but that seal was not itself recorded — the shape an interruption between sealing and recording leaves. Closing the case records it."
+	MsgIntegrityRootsHistoryKept = "the fingerprint history could not be used when the case opened (%s). It was kept at %s, not written over, and a new history was started — seals and exports recorded before then are only in that file."
+	MsgIntegrityRootsHistoryHeld = "the fingerprint history could not be used when the case opened (%s). It was left in place, and rohy is not recording seals this session rather than write over it."
+	MsgIntegrityRootsForked      = "a seal recorded after %s was made from that older image, so the %d seal(s) recorded between them are not in what followed. The case was rolled back and then sealed again — a database restored from a backup and written to looks like this."
 )
 
 // Case fingerprint history (plan §14.2).
 const (
 	MsgCustodyNoRoot = "this case has no fingerprint yet: it has never been sealed"
+
+	// Why a history document could not be used when the case opened.
+	MsgCustodyHistoryCorrupt  = "it is not a readable fingerprint history (%v)"
+	MsgCustodyHistoryNewer    = "it was written by a newer build (history format %d; this build reads %d)"
+	MsgCustodyHistoryReadFail = "it could not be read (%v)"
+	// MsgCustodyHistoryHeld is the write refused when an unusable document was left in place
+	// (unreadable, or could not be moved aside). 🔒 Refusing is the point: writing would destroy
+	// the only copy of what it held.
+	MsgCustodyHistoryHeld = "the fingerprint history could not be used and was left in place, so rohy will not write over it: %s"
+)
+
+// Where the case's current image sits against its fingerprint history (plan §15.5).
+//
+// 🔒 Every one of these is the case checking itself against its own record, and the report says
+// so: whoever can rewrite the case folder can write a consistent history too. What the chain
+// catches is an image that is not the latest one rohy sealed — restored from a backup, copied in
+// from another case, or sealed by something else — not a careful forger.
+const (
+	// ChainNoImage: never sealed; nothing to place. The never-compacted finding covers it.
+	ChainNoImage = "no_image"
+	// ChainEmpty: no seal has been recorded. Normal for a case last sealed before the history
+	// recorded every seal.
+	ChainEmpty = "empty"
+	// ChainIntact: the current image is the last seal recorded.
+	ChainIntact = "intact"
+	// ChainUnrecordedSeal: the current image directly follows the last recorded seal, but that
+	// seal was not recorded — the shape a crash between compacting and recording leaves.
+	ChainUnrecordedSeal = "unrecorded_seal"
+	// ChainRolledBack: the current image is an EARLIER recorded seal. Later seals, and whatever
+	// they covered, are not in this image.
+	ChainRolledBack = "rolled_back"
+	// ChainDiverged: the current image does not descend from the last recorded seal.
+	ChainDiverged = "diverged"
 )
 
 // What an exported case fingerprint does and does not establish.
@@ -1873,6 +1945,12 @@ const (
 	RootsStateFile = "roots.json"
 	// RootsDocVersion guards the document format.
 	RootsDocVersion = 1
+	// RootsKeptInfix names a history document that could not be read, moved aside rather than
+	// written over: roots.json.unreadable-<UTC stamp>. 🔒 Kept, never deleted — it holds the record
+	// of which fingerprints were exported, which nothing else can reconstruct.
+	RootsKeptInfix = ".unreadable-"
+	// RootsKeptStamp is the UTC timestamp layout in a kept document's name.
+	RootsKeptStamp = "20060102T150405Z"
 )
 
 // --- Live event XML element/attribute names (rendered by EvtRender) ---

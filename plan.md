@@ -35,27 +35,24 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          ██████░░░░░░░░░░░░░░  29%  2/7    #38 ✅ (2026-11-04, §15.4); #37 ½, #43 ½ (detectors 16/17 missing); #39–#42 ⬜
+P8 Forensic          ███████░░░░░░░░░░░░░  36%  2½/7   #37 ✅ (§15.5), #38 ✅ (§15.4); #43 ½ (detectors 16/17 missing); #39–#42 ⬜
 ───────────────────────────────────────────────────────
-Overall              ████████████████░░░░  82%  38½/47
+Overall              █████████████████░░░  83%  39/47
 Definition of done   ███████████████░░░░░  73%  8/11   the "integration path" ✅ was not true; proof gate ✅ via #38
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
 disk, (c) diff in the rename dialog; §7.1 completion filtered by algorithm.
 
-**#37, precisely what is missing:** per-version root history (`roots/<store-version>.json` — one
-`roots/roots.json` exists) and `VerifyChain`; `custody.Observe` on seal (only export calls it);
-a UI listener for `case:sealing` / `case:sealed`; Go tests for the four MaintenanceAPI forensic
-methods. **Upstream is not a blocker for anything left:** every API #38–#42 needs exists in
+**#37 landed 2026-11-04** (§15.5): every seal is recorded, the chain is checked, an automatic
+seal over an unchanged case no longer moves the fingerprint, and an unreadable history is kept
+rather than overwritten. **Upstream is not a blocker for anything left:** every API #38–#42 needs exists in
 graphene v0.4.0 (`disk.ProveNode`, `ExportNodeProof`, package-level `VerifyExportedProof`,
 `CustodyFor*`, `RedactNodeProperties`, `PublishCheckpoint`, `Anchor`, `signing.*`). #40 is
 blocked only by rohy's own payload tombstone.
 
 **#38 landed 2026-11-04** (§15.4): event proofs, exported from the drawer and checked with
-`rohyctl verify-proof`. **Next:** finish #37 (per-version root history, `VerifyChain`, Observe on
-seal, the `case:sealed` listener, the MaintenanceAPI forensic tests) or #39 custody report — both
-keyless and upstream-ready.
+`rohyctl verify-proof`. **Next:** #39 custody report — keyless and upstream-ready.
 
 ---
 
@@ -2386,7 +2383,9 @@ For a tool whose entire thesis is that **inferred ≠ asserted**, the gap is the
 left: rohy can say a relation was inferred by a rule, and cannot say the event under it is
 the event that was ingested.
 
-37. ⚠️ **Roots and verification** (§14.2) — keyless. **Mostly built.**
+37. ✅ **Roots and verification** (§14.2) — keyless. Finished 2026-11-04 (§15.5): every seal
+    recorded through one path, `VerifyChain` + `custody.Chain` and five chain findings, no-op
+    automatic seals skipped, the sealing indicator, and Go tests for the four forensic methods.
     - ✅ `graphene_forensics.go`: the `Forensics()` accessor, `ForensicStatus`, `SnapshotRoots`
       (hex, zero-hash-as-empty), `VerifyImage`, `WithVerifyOnOpen`. 9 tests, including the
       load-bearing one — a single flipped bit deep in the record area IS detected.
@@ -2608,8 +2607,8 @@ compact on ingest *completion* only, never per chunk.
 into the one value worth keeping. rohy surfaces it and makes exporting it a first-class action:
 
 ```jsonc
-// rohy-data/roots/<store-version>.json — the history, for chaining
-// AND an export the analyst takes elsewhere
+// rohy-data/roots/roots.json — the history, for chaining (one document, not one file per
+// version: §15.5) — AND an export the analyst takes elsewhere
 {
   "root_version": 1,
   "snapshot": "9f2c…",          // the value to retain externally
@@ -2834,8 +2833,9 @@ analyst created. §12.4's rule holds: an all-clear is a claim, and it gets quali
 
 ```
 backend/graphene/graphene_forensics.go   Forensics() accessor, roots, proofs, redaction,
-                                          custody, checkpoints — rohy-shaped types      ⚠️ roots + VerifyImage (#37) and ProveEvent (#38) built; redaction, custody, checkpoints ❌
-backend/custody                          policy + report assembly over narrow interfaces ⚠️ fingerprint history built (#37); custody report ❌
+                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37) and ProveEvent (#38) built; redaction, custody, checkpoints ❌
+backend/custody                          policy + report assembly over narrow interfaces ⚠️ fingerprint history + Chain (#37, §15.5); custody report ❌
+backend/api/api_seal.go                  every seal through one path, recorded            ✅ (#37, §15.5)
 backend/payload/payload_redact.go        same-length in-place tombstone (§14.5.1) 🔴      ❌
 backend/api/api_custody.go               binding; hangs off MaintenanceAPI               — not created: the #37 methods live in api_integrity.go
 backend/eventproof                       proof document: assemble + verify, storeless    ✅ (#38, §15.4)
@@ -3011,3 +3011,100 @@ optimised.
 
 **Still open:** shipping `rohyctl` to recipients is the deferred release item (#35c); an upstream
 `disk` helper that binds a leaf to a property blob would retire the mirrored layout.
+
+### 15.5 #37 finished — every seal recorded, the chain checked (2026-11-04)
+
+**What was missing** (the 2026-11-03 audit): `custody.Observe` ran only on export, so the
+fingerprint history held the fingerprints somebody happened to export rather than the case's
+sequence of seals; nothing checked the chain; the UI ignored `case:sealing` / `case:sealed`; the
+four MaintenanceAPI forensic methods had no Go tests.
+
+**Found on the way, and it changed the work:**
+
+- 🔒 **Every compaction makes a new fingerprint, even over identical content.** graphene's
+  `Compact` always chains the new image to the old one (`PrevRoot`), and that link is bound into
+  the root. rohy compacted on every close, and twice after an ingest (the ingest seal, then the
+  close), so an exported fingerprint went stale at the next close and every new proof needed a
+  fresh export.
+- 🔒 **The history was destroyed when it could not be read.** A corrupt or newer-format
+  `roots.json` opened as empty and the next seal wrote over it, losing the record of which
+  fingerprints were exported — the one thing in it nothing else can reconstruct. A test pinned
+  that behaviour as correct.
+- **A compacted WAL is not zero bytes.** Truncation rewrites graphene's 50-byte container header,
+  so "the log is empty" has to be asked as "the log holds no record" (`disk.InspectWAL`), not by
+  size. Found by the first `Unsealed` test failing.
+
+**Decisions (owner):**
+
+| Question | Decision |
+|---|---|
+| Automatic seals with nothing new | **Skipped.** After an ingest and on close, rohy compacts only when `Unsealed()` says something was written (a WAL record, a delta or delete, or no image). **Seal case** always compacts: it is the remedy for an image in an older format. |
+| History storage | **One `roots/roots.json`**, not the per-version files §14.2 sketched. An unusable document is moved aside (`roots.json.unreadable-<UTC>`), kept, and reported; if it cannot be moved, the history refuses to write rather than replace it. |
+
+**As built:**
+
+- `graphene.Store.Unsealed()` — errs towards sealing: any WAL record, delta record, delete or
+  torn tail counts; any error other than unavailable comes back as "seal".
+- `api/api_seal.go` — one `sealAndRecord(store, hist, force)` for all three seal points (ingest,
+  **Seal case**, close), so every seal is recorded through one record builder. `case:sealed` now
+  carries `{state, snapshot}`: `sealed`, `unchanged`, `unavailable`, `failed`. A fingerprint that
+  could not be *recorded* after a good compaction is worded as a sealed case with a gap, never as
+  a failed seal.
+- `AttachSealHistory` is a package function, not a method: Wails binds every exported method of a
+  bound struct, and wiring is not something the UI should be able to call. (`WithIntegrity` and
+  `WithCascades` are bound today — a pre-existing leak, noted, not changed here.)
+- `graphene.VerifyChain` (hex over `disk.VerifyChain`) and `custody.Chain(current)`, which places
+  the current image: `intact`, `rolled_back`, `unrecorded_seal`, `diverged`, `empty`,
+  `no_image`, plus gap and fork counts. Read-only: asking never records.
+- caseintegrity: `roots_rolled_back` (error, review: the image is an earlier record, or the
+  history holds a fork), `roots_diverged` (warn), `roots_chain_gap` (warn; names
+  the pre-v0.3.0 export-only histories as the common cause), `roots_unrecorded_seal` (info),
+  `roots_history_unreadable` (warn, with the kept path). An intact chain adds no finding.
+- 🔒 What the chain is worth is stated, not implied: it is the case checked against its own
+  record. It catches an image that is not the latest one rohy sealed — a restored backup, an image
+  copied from another case — which every other check passes because nothing about it is broken.
+  It does not catch a forger, who can rewrite the history as easily as the image.
+- UI: the ingestion bar stays up through the seal ("Sealing case…", indeterminate); the
+  Maintenance store re-reads the posture on `case:sealed` and drops an image verdict about the
+  image the seal replaced.
+- Tests: `Unsealed` across never-compacted / compacted / reopened / the startup migration /
+  update / delete / insert; `VerifyChain` and every chain state against real compactions; the
+  history kept-not-overwritten cases; every seal point recorded and chained; a **restored backup**
+  staged end to end — it verifies as a perfect image and is reported as rolled back, and closing
+  the case does not bury the finding; the four forensic methods, including the busy refusal.
+
+**From an independent review (fixed, tests first):**
+
+- 🔴 **A rollback faded once it was sealed again.** Restore a backup, ingest anything, seal: the
+  history ended at the new image, so "is the image an earlier record" no longer fired and only a
+  gap warning was left. The history now proves it: a record that names an *earlier* record, not
+  the previous one, as its predecessor is a **fork**, reported as `roots_rolled_back` (error)
+  however many seals follow.
+- 🔴 **A foreign image was adopted by closing the case.** The unchanged seal on close recorded
+  whatever image it found, so a replaced database became the newest seal and `roots_diverged`
+  disappeared with no seal having run. An unchanged seal now records only where the history
+  agrees (empty, at its head, or one unrecorded seal past it). A seal that actually *ran* is
+  always recorded; that is what makes the fork provable.
+- 🟡 **Seals could interleave.** The maintenance lock does not exclude an ingest, so a **Seal
+  case** click during the post-ingest seal could leave one image unrecorded. One process-wide
+  `sealMu` now covers every seal from check to record.
+- 🟡 **A read error moved a valid history aside.** A transient failure (another process holding
+  the file) is not corruption. Only a document that was read and is unusable is moved; one that
+  could not be read is held in place and nothing is written this session.
+- 🟡 **The reset notice lasted one session**, and was dropped on a case never sealed or with an
+  unreadable fingerprint. The reset is now recorded *inside* the new history (`kept`), and the
+  history findings are reported before the posture's early returns.
+- 🟡 `Unsealed` returned false on a store that failed to open; it now errs towards sealing as
+  documented. The rename-failure branch is now exercised for real (an open handle on Windows, a
+  read-only directory on Unix).
+
+**Measured** (PERFORMANCE.md §18): `Unsealed()` costs ~0.4 ms at 10k events and ~1.1 ms at 100k,
+1.6 KB and 15 allocations flat — the price a close of an unchanged case now pays in place of a
+~1.3 s / 566 MB compaction.
+
+**Status correction.** This plan's own estimate said P8 would reach 3/7; it is **2½/7**, because
+#43 is still ½ (detectors 16 and 17 need the redaction ledger and anchoring).
+
+**Still open:** nothing in #37. The chain is internal; carrying a chain *out* of the case, so a
+recipient holding an older exported fingerprint can follow it to a newer one, is not built and
+belongs with #42 anchoring.

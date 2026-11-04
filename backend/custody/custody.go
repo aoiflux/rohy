@@ -33,8 +33,11 @@ package custody
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -86,36 +89,116 @@ type Record struct {
 type document struct {
 	Version int      `json:"roots_version"`
 	Records []Record `json:"records"`
+	// Kept lists earlier history documents this one replaced because they could not be used, and
+	// where each was kept. Inside the document so every later open still says the history
+	// started again, not only the open that found it. Older builds ignore the field.
+	Kept []Damage `json:"kept,omitempty"`
 }
 
 // Store is the fingerprint-history sidecar.
 type Store struct {
-	dir string
-	mu  sync.Mutex
-	doc document
+	dir    string
+	mu     sync.Mutex
+	doc    document
+	damage *Damage
+}
+
+// Damage describes a history document that could not be used when the case opened.
+type Damage struct {
+	// Reason says what was wrong with it.
+	Reason string `json:"reason"`
+	// KeptAt is where the document now is. Empty when it was left in place — it could not be read,
+	// or could not be moved — and then the history refuses every write this session rather than
+	// replace it.
+	KeptAt string `json:"kept_at,omitempty"`
 }
 
 // Open loads (or initializes) the history rooted at dir.
 //
-// A missing or corrupt document is treated as an empty history rather than a failure. That is the
-// right trade here for the same reason it is in the capture store — a damaged sidecar must not stop
-// a case from opening — but the consequence is worth naming: a lost history means chaining starts
-// again from the current image, and any record of what was exported is gone. It costs knowledge,
-// never evidence.
+// A document that cannot be used — corrupt, unreadable, or written by a newer build — does not stop
+// the case from opening, for the same reason a damaged capture store does not. The history starts
+// again from the next seal.
+//
+// 🔒 But the document is KEPT. It is moved aside under a name that says why, and Damage reports
+// where. It used to be treated as empty and then replaced by the next seal, which destroyed the
+// record of which fingerprints had been exported — the one thing in it rohy cannot reconstruct, and
+// a newer build's history erased by opening the case in an older one. If it cannot even be moved,
+// the history holds it in place and refuses to write rather than write over it.
+//
+// 🔒 A document that could not be READ is never moved, only held. A read can fail for reasons that
+// pass — another process holding the file, a scanner — and moving a valid history aside on one
+// would lose it as surely as overwriting it. Only a document that was read and is not usable
+// (corrupt, or a newer format) is moved.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	s := &Store{dir: dir, doc: document{Version: consts.RootsDocVersion}}
 	data, err := os.ReadFile(s.file())
+	if errors.Is(err, fs.ErrNotExist) {
+		return s, nil
+	}
 	if err != nil {
+		s.damage = &Damage{Reason: fmt.Sprintf(consts.MsgCustodyHistoryReadFail, err)}
 		return s, nil
 	}
 	var d document
-	if json.Unmarshal(data, &d) == nil && d.Version == consts.RootsDocVersion {
-		s.doc = d
+	if err := json.Unmarshal(data, &d); err != nil {
+		s.keepAside(fmt.Sprintf(consts.MsgCustodyHistoryCorrupt, err))
+		return s, nil
 	}
+	if d.Version != consts.RootsDocVersion {
+		s.keepAside(fmt.Sprintf(consts.MsgCustodyHistoryNewer, d.Version, consts.RootsDocVersion))
+		return s, nil
+	}
+	s.doc = d
 	return s, nil
+}
+
+// Damage reports the history document this open could not use, or nil. It describes this open
+// only: once a fresh history has been written, the next open finds nothing wrong.
+func (s *Store) Damage() *Damage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.damage == nil {
+		return nil
+	}
+	d := *s.damage
+	return &d
+}
+
+// Kept lists the earlier history documents this history replaced, and where each was kept.
+func (s *Store) Kept() []Damage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.doc.Kept)
+}
+
+// keepAside moves the unusable document to a name no earlier kept document holds, and starts the
+// new history with a note of it. Called from Open only, before the store is shared.
+func (s *Store) keepAside(reason string) {
+	s.damage = &Damage{Reason: reason}
+	base := s.file() + consts.RootsKeptInfix + time.Now().UTC().Format(consts.RootsKeptStamp)
+	for i := range 1000 {
+		kept := base
+		if i > 0 {
+			kept = fmt.Sprintf("%s-%d", base, i)
+		}
+		// 🔒 Never onto an existing name: Go's os.Rename replaces its target on every platform
+		// (on Windows too), which would destroy an earlier kept document to save this one.
+		if _, err := os.Lstat(kept); !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if os.Rename(s.file(), kept) != nil {
+			return
+		}
+		s.damage.KeptAt = kept
+		s.doc.Kept = append(s.doc.Kept, *s.damage)
+		// Written now, not at the next seal, so the note survives a session that seals nothing.
+		// If it fails the note is still held here and the next write carries it.
+		_ = s.persist()
+		return
+	}
 }
 
 func (s *Store) file() string {
@@ -125,7 +208,7 @@ func (s *Store) file() string {
 // Observe records a fingerprint if it is new, and returns the record for it.
 //
 // Idempotent by snapshot value: seeing the same fingerprint again changes nothing, which matters
-// because this is called whenever the posture is read and the posture is read on view mount.
+// because it is called at every seal and every export, and both can meet a fingerprint already held.
 //
 // 🔒 An existing record is never overwritten. Re-observing must not clear the `exported` flag, or
 // simply opening the Maintenance page would silently retract the fact that a copy was taken.
@@ -225,6 +308,9 @@ func (s *Store) indexOf(snapshot string) int {
 // persist atomically writes the document (temp file + rename), so an interrupted write cannot leave
 // a truncated history behind. Callers hold s.mu.
 func (s *Store) persist() error {
+	if s.damage != nil && s.damage.KeptAt == "" {
+		return fmt.Errorf(consts.MsgCustodyHistoryHeld, s.damage.Reason)
+	}
 	s.doc.Version = consts.RootsDocVersion
 	data, err := json.MarshalIndent(s.doc, "", "  ")
 	if err != nil {

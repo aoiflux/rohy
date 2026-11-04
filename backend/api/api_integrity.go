@@ -81,7 +81,7 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 		out.Rules = d.Rules
 	}
 	if d.Roots != nil {
-		out.Roots = d.Roots
+		out.Roots = rootHistoryAdapter{d.Roots}
 	}
 	if a.store != nil {
 		// Size is what the log holds; PayloadUsed comes from the same inventory scan the other
@@ -95,6 +95,29 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 			out.PayloadSize = a.store.PayloadSize()
 			out.PayloadUsed = inv.PayloadUsed
 		}
+	}
+	return out
+}
+
+// rootHistoryAdapter narrows the fingerprint history to what the checks read, translating its chain
+// report into the checker's own type so caseintegrity stays free of the sidecar.
+type rootHistoryAdapter struct{ hist *custody.Store }
+
+func (r rootHistoryAdapter) ExportedAt(snapshot string) (time.Time, bool) {
+	return r.hist.ExportedAt(snapshot)
+}
+
+func (r rootHistoryAdapter) Chain(current *graphene.SnapshotRoots) caseintegrity.ChainCheck {
+	rep := r.hist.Chain(current)
+	out := caseintegrity.ChainCheck{
+		State: rep.State, Gaps: rep.Gaps, RolledBackTo: rep.RolledBackTo, Later: rep.Later,
+		Forks: rep.Forks, ForkFrom: rep.ForkFrom, ForkSkipped: rep.ForkSkipped,
+	}
+	for _, k := range rep.Kept {
+		out.Kept = append(out.Kept, caseintegrity.KeptHistory{Reason: k.Reason, Path: k.KeptAt})
+	}
+	if rep.Held != nil {
+		out.Held = rep.Held.Reason
 	}
 	return out
 }
@@ -198,7 +221,7 @@ func (a *MaintenanceAPI) ExportCaseFingerprint() (CaseFingerprint, error) {
 		IndexRoot:     roots.IndexRoot,
 		TombstoneRoot: roots.TombstoneRoot,
 		SealedAt:      time.Now().UTC(),
-		AppVersion:    version.Version,
+		AppVersion:    version.Current(consts.AppName).Version,
 		Establishes: []string{
 			consts.FingerprintEstablishesUnchanged,
 			consts.FingerprintEstablishesChain,
@@ -217,13 +240,7 @@ func (a *MaintenanceAPI) ExportCaseFingerprint() (CaseFingerprint, error) {
 	hist := a.integrity.Roots
 	a.mu.Unlock()
 	if hist != nil {
-		rec := custody.Record{
-			Snapshot: roots.Snapshot, Prev: roots.Prev,
-			NodeRoot: roots.NodeRoot, EdgeRoot: roots.EdgeRoot, IndexRoot: roots.IndexRoot,
-			TombstoneRoot: roots.TombstoneRoot, BodyVersion: roots.BodyVersion,
-			StoreVersion: a.store.Version(), Events: out.Events, AppVersion: version.Version,
-		}
-		if _, err := hist.Observe(rec); err == nil {
+		if _, err := hist.Observe(fingerprintRecord(a.store, roots)); err == nil {
 			_ = hist.MarkExported(roots.Snapshot)
 		}
 	}
@@ -306,15 +323,22 @@ func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
 // proven — every event is recorded but unaccounted for.
 //
 // 🔒 It is offered as a button rather than run on a timer for the usual reason: the cost is
-// proportional to the whole store. rohy already compacts on clean shutdown; this is how an
+// proportional to the whole store. rohy already seals after an ingest and on close; this is how an
 // analyst asks for it now, without closing the case.
+//
+// 🔒 FORCED: it compacts even when nothing changed, unlike the automatic seals. It is the remedy
+// the integrity report offers for an image in an older format (no digest, pre-v3 leaves), and an
+// unchanged case is exactly where that image lives. The new fingerprint is recorded either way.
 func (a *MaintenanceAPI) CompactCase() error {
 	if err := a.begin(); err != nil {
 		return AsError(consts.ErrCodeInternal, err)
 	}
 	defer a.finish()
 
-	if err := a.store.Compact(); err != nil {
+	a.mu.Lock()
+	hist := a.integrity.Roots
+	a.mu.Unlock()
+	if _, err := sealAndRecord(a.store, hist, true); err != nil {
 		return AsError(consts.ErrCodePersistence, err)
 	}
 	return nil

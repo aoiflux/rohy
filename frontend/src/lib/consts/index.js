@@ -23,6 +23,20 @@ export const CHANNELS = Object.freeze({
   // Case maintenance: opt-in work proportional to the store, which must show movement.
   MAINTENANCE_PROGRESS: 'maintenance:progress',
   MAINTENANCE_COMPLETE: 'maintenance:complete',
+  // Case sealing (plan §14.2): the compaction after an ingest that gives what it wrote a
+  // fingerprint. Its own channel because it is a distinct step that can take seconds.
+  CASE_SEALING: 'case:sealing',
+  CASE_SEALED: 'case:sealed',
+});
+
+// What a seal did, carried on case:sealed (mirror backend consts.SealState*). UNCHANGED means
+// nothing was written since the last seal, so nothing was compacted and the fingerprint did not
+// move (plan §15.5).
+export const SEAL_STATE = Object.freeze({
+  SEALED: 'sealed',
+  UNCHANGED: 'unchanged',
+  UNAVAILABLE: 'unavailable',
+  FAILED: 'failed',
 });
 
 // Application initialization phases (mirror backend consts.InitPhase*). The window opens
@@ -1157,6 +1171,8 @@ export const UI = Object.freeze({
   STATUS_ERROR: 'Error',
   STATUS_PAUSED: 'Paused',
   STATUS_STOPPING: 'Stopping…',
+  STATUS_SEALING: 'Sealing case…',
+  SEAL_BAR_HINT: 'Computing the case fingerprint over what was just ingested. On a large case this takes a few seconds.',
 
   // Pause/resume (P8)
   ACTION_PAUSE: 'Pause',

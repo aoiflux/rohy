@@ -1605,6 +1605,48 @@ re-ingest moves its occurrence count, and a backfill rewrites its correlation
 fields. The remedy is to seal again, and that moves the fingerprint: a copy kept
 from an earlier seal will not check a proof built from a later one.
 
+### 18.2 Sealing, and the history of fingerprints
+
+A case is sealed in three places: after an ingest request, from **Seal case** on
+the Maintenance page, and on close. All three go through one function,
+`sealAndRecord` in `backend/api/api_seal.go`. It compacts the case, then adds the
+new fingerprint to the history in `rohy-data/roots/roots.json`
+(`backend/custody`).
+
+Every compaction makes a new fingerprint, even when nothing changed, because the
+new image names the old one as its predecessor and that link is part of the root.
+So the two automatic seals (after an ingest, on close) first ask
+`graphene.Store.Unsealed()`. That asks whether the log holds any record, any
+delta or delete, or whether the case has no image yet. If not, nothing is
+compacted, the fingerprint an analyst exported stays current, and `case:sealed`
+carries `unchanged`. **Seal case** always compacts, because it is how an image in
+an older format gets rewritten.
+
+| Piece | What it does |
+|---|---|
+| `graphene.Store.Unsealed` | "Was anything written since the last seal?" Errs towards yes. |
+| `graphene.VerifyChain` | Storeless: does this recorded seal directly follow that one? |
+| `custody.Store.Chain` | Places the current image against the history: `intact`, `rolled_back`, `unrecorded_seal`, `diverged`, `empty`, `no_image`. Also counts gaps, and forks: a recorded seal whose predecessor is an earlier record, which is a rollback that was sealed again. Read-only. |
+| caseintegrity `checkRootChain` | Turns that into findings: `roots_rolled_back` (error), `roots_diverged`, `roots_chain_gap`, `roots_history_unreadable` (warnings), `roots_unrecorded_seal` (info). |
+
+The chain is the case checked against its own record. It catches an image that
+is internally perfect but is not the latest one rohy sealed, such as a database
+restored from a backup. Every other check passes that image. It does not catch
+someone who can rewrite the case folder, because they can rewrite the history
+too; only a fingerprint kept elsewhere does that.
+
+Two rules keep a finding from being buried. A seal that ran is always recorded,
+so a rollback that was sealed again stays provable as a fork. A seal that did not
+run (`unchanged`) records the image only where the history already leads to it,
+so closing the case never adopts a foreign image. One mutex, `sealMu`, covers
+every seal from check to record, so two seals cannot interleave.
+
+A history document that was read but cannot be used (corrupt, or written by a
+newer build) is moved aside as `roots.json.unreadable-<UTC>`, and the new history
+notes it under `kept` so every later open reports it. A document that could not
+be read at all, or could not be moved, is left in place, and rohy records no seals
+that session rather than write over it.
+
 ---
 
 ## 19. Performance decisions ledger

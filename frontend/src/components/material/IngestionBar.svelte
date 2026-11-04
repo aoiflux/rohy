@@ -19,6 +19,9 @@
   import ProgressBar from './ProgressBar.svelte';
 
   const running = $derived($ingestion.state === INGEST_STATE.RUNNING);
+  // The seal follows the last file. The bar stays up through it, so "complete" followed by
+  // seconds of nothing never reads as a hang (plan §14.2).
+  const sealing = $derived($ingestion.sealing && !running);
   const paused = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.PAUSED);
   const stopping = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.STOPPING);
   const fraction = $derived(progressFraction($ingestion.progress));
@@ -33,6 +36,8 @@
   // gets an indeterminate sweep rather than a fake percentage. A paused run holds its bar
   // still, so "paused" never looks like "still working".
   const value = $derived.by(() => {
+    // A seal has no measurable progress: one compaction, sized by the whole case.
+    if (sealing) return null;
     if (multi) return overall;
     if (paused) return fraction;
     return $ingestion.progress.chunks_total ? fraction : null;
@@ -48,23 +53,24 @@
   }
 
   const label = $derived.by(() => {
+    if (sealing) return UI.STATUS_SEALING;
     if (stopping) return UI.STATUS_STOPPING;
     if (paused) return UI.STATUS_PAUSED;
     return UI.STATUS_RUNNING;
   });
 </script>
 
-{#if running}
+{#if running || sealing}
   <button
     class="bar"
     class:paused
     type="button"
     transition:slide={motion(MOTION.FAST)}
     onclick={() => route.go(ROUTES.DASHBOARD)}
-    title={UI.INGEST_BAR_HINT}
+    title={sealing ? UI.SEAL_BAR_HINT : UI.INGEST_BAR_HINT}
   >
     <span class="state">{label}</span>
-    {#if multi}
+    {#if multi && !sealing}
       <span class="pos">
         {UI.INGEST_FILE_LABEL}
         {$ingestion.fileIndex}
@@ -72,11 +78,11 @@
         {$ingestion.fileTotal}
       </span>
     {/if}
-    {#if $ingestion.path}
+    {#if $ingestion.path && !sealing}
       <span class="file" title={$ingestion.path}>{fileName($ingestion.path)}</span>
     {/if}
     <span class="track"><ProgressBar {value} /></span>
-    {#if multi && remaining > 0}
+    {#if multi && remaining > 0 && !sealing}
       <span class="left">{remaining} {UI.INGEST_FILES_LEFT_SUFFIX}</span>
     {/if}
     <span class="counts">

@@ -30,6 +30,8 @@ type App struct {
 	store       *graphene.Store
 	layoutStore *layout.Store
 	registry    *graphreg.Store
+	// roots is the fingerprint history, kept so the seal on close is recorded like every other.
+	roots *custody.Store
 
 	Events   *api.EventsAPI
 	Graph    *api.GraphAPI
@@ -116,7 +118,8 @@ func NewApp() (*App, error) {
 		store:       store,
 		layoutStore: layoutStore,
 		registry:    registry,
-		Events:      api.NewEventsAPI(store, positions, findingStore),
+		roots:       rootStore,
+		Events:      api.AttachSealHistory(api.NewEventsAPI(store, positions, findingStore), rootStore),
 		Graph:       api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
 		Rules:       api.NewRulesAPI(ruleReg),
 		Build:       api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
@@ -172,15 +175,20 @@ func (a *App) initialize() {
 }
 
 // shutdown stops any in-flight ingestion (letting it flush and persist its capture
-// position first), then compacts and closes the store so the WAL is truncated on a clean
+// position first), then seals and closes the store so the WAL is truncated on a clean
 // exit. Draining before closing is what keeps a live capture's bookmark honest across an
 // app close — otherwise the next session would re-read from a stale position.
+//
+// The seal is skipped when nothing was written since the last one (plan §15.5). A compaction
+// always makes a new fingerprint, so compacting an unchanged case on every close made the
+// fingerprint an analyst had just exported stale by the next launch. There is no window left
+// to report a failure in, so it is not reported; the next open replays the log either way.
 func (a *App) shutdown(ctx context.Context) {
 	if a.Events != nil {
 		a.Events.Shutdown()
 	}
 	if a.store != nil {
-		_ = a.store.Compact()
+		_ = api.SealOnClose(a.store, a.roots)
 		_ = a.store.Close()
 	}
 }

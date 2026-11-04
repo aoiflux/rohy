@@ -43,8 +43,19 @@ vi.mock('../lib/api/index.js', () => ({
     state.seals += 1;
     if (state.failSeal) throw new Error('seal failed');
   }),
-  forensicStatus: vi.fn(async () => ({ available: true, compacted: true })),
+  forensicStatus: vi.fn(async () => {
+    state.postureReads += 1;
+    return { available: true, compacted: true, roots: { snapshot: state.snapshot } };
+  }),
+  verifyImage: vi.fn(async () => ({ digest: 'match', roots_checked: true })),
+  // Captures the listeners the store attaches, so a backend event can be delivered by hand.
+  on: vi.fn((channel, handler) => {
+    handlers[channel] = handler;
+    return () => {};
+  }),
 }));
+
+const handlers = {};
 
 const { maintenance } = await import('./maintenance.js');
 
@@ -61,6 +72,8 @@ beforeEach(() => {
     gate: null,
     seals: 0,
     failSeal: false,
+    postureReads: 0,
+    snapshot: 'aa',
   });
   maintenance.reset();
 });
@@ -195,5 +208,37 @@ describe('failure handling', () => {
     await maintenance.backfill();
     maintenance.clearError();
     expect(get(maintenance).error).toBe('');
+  });
+});
+
+describe('the seal after an ingest', () => {
+  // The seal happens in the ingest pipeline, outside this store, and changes what the store shows.
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('re-reads the posture and drops the image verdict when the case was sealed', async () => {
+    await maintenance.loadForensics();
+    await maintenance.verify();
+    expect(get(maintenance).image).not.toBeNull();
+
+    state.snapshot = 'bb';
+    handlers['case:sealed']({ state: 'sealed', snapshot: 'bb' });
+    await flush();
+
+    const s = get(maintenance);
+    expect(s.forensics.roots.snapshot).toBe('bb');
+    // 🔒 A verdict about the image the seal replaced must not read as current.
+    expect(s.image).toBeNull();
+  });
+
+  it('does nothing when the seal changed nothing', async () => {
+    await maintenance.loadForensics();
+    await maintenance.verify();
+    const reads = state.postureReads;
+
+    handlers['case:sealed']({ state: 'unchanged', snapshot: 'aa' });
+    await flush();
+
+    expect(state.postureReads).toBe(reads);
+    expect(get(maintenance).image).not.toBeNull();
   });
 });

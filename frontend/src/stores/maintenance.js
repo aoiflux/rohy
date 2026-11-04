@@ -12,6 +12,7 @@
 // refuses to keep.
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
+import { CHANNELS, SEAL_STATE } from '../lib/consts/index.js';
 
 const empty = () => ({
   /** @type {{total:number,current:number,stale:number}|null} */
@@ -68,9 +69,28 @@ function create() {
     }
   }
 
+  // The seal after an ingest happens outside this store and changes what it shows: a new
+  // fingerprint, and an image the last verification was not about. Listened for from the first
+  // posture read. Only the cheap posture read follows (configuration plus the roots the seal just
+  // computed); the integrity report is left for the analyst to re-run, as everything expensive is.
+  let wired = false;
+  function wire() {
+    if (wired) return;
+    wired = true;
+    api.on(CHANNELS.CASE_SEALED, (outcome) => {
+      // "unchanged" moved nothing, so there is nothing to refresh.
+      if (!outcome || outcome.state !== SEAL_STATE.SEALED) return;
+      // 🔒 Dropped, not kept: a verdict about the image the seal replaced looks current, and
+      // "verified" is exactly the word somebody acts on.
+      update((s) => ({ ...s, image: null }));
+      loadForensics();
+    });
+  }
+
   /** loadForensics reads the posture. Cheap, and worth knowing before anything else on the page is
    *  read: it decides what the rest of the numbers can be taken to mean. */
   async function loadForensics() {
+    wire();
     try {
       const forensics = await api.forensicStatus();
       update((s) => ({ ...s, forensics }));

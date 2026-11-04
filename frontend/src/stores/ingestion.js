@@ -61,6 +61,12 @@ function initialState() {
     startedAt: 0,
     finishedAt: 0,
     lastError: null,
+    // The seal after the request (plan §14.2): true from case:sealing to case:sealed. The ingest
+    // is over by then, but the run is not, and on a large case this takes seconds — a silent gap
+    // after "complete" reads as a hang.
+    sealing: false,
+    // lastSeal is what the last seal did ({ state, snapshot }, SEAL_STATE), or null.
+    lastSeal: null,
   };
 }
 
@@ -136,6 +142,12 @@ function create() {
     );
     api.on(CHANNELS.INGEST_STATE, (s) =>
       update((prev) => ({ ...prev, lifecycle: s || INGEST_LIFECYCLE.IDLE })),
+    );
+    api.on(CHANNELS.CASE_SEALING, () => update((s) => ({ ...s, sealing: true })));
+    // case:sealed fires on every request, including a failed or skipped seal, so the wait always
+    // ends here. A failure also arrives on ingest:error, which is where it is shown.
+    api.on(CHANNELS.CASE_SEALED, (outcome) =>
+      update((s) => ({ ...s, sealing: false, lastSeal: outcome || null })),
     );
     api.on(CHANNELS.INGEST_ERROR, (e) => {
       const msg = (e && e.message) || 'ingestion error';

@@ -17,11 +17,24 @@ import (
 // whether one is held anywhere, and the interface is named for what is observable.
 type fakeRoots struct {
 	exported map[string]time.Time
+	// chain is what Chain answers; the zero value is "intact" with nothing to report.
+	chain ChainCheck
+	// asked records the image Chain was asked to place.
+	asked *graphene.SnapshotRoots
 }
 
 func (f *fakeRoots) ExportedAt(snapshot string) (time.Time, bool) {
 	at, ok := f.exported[snapshot]
 	return at, ok
+}
+
+func (f *fakeRoots) Chain(current *graphene.SnapshotRoots) ChainCheck {
+	f.asked = current
+	c := f.chain
+	if c.State == "" {
+		c.State = consts.ChainIntact
+	}
+	return c
 }
 
 // withRoots returns a posture carrying a fingerprint, so the retained-root check has something to
@@ -392,5 +405,130 @@ func TestNoFingerprintStillProducesTheCaveat(t *testing.T) {
 	}
 	if has(rep, consts.IntegrityRootExported) != nil {
 		t.Error("an empty fingerprint matched an export record keyed on the empty string")
+	}
+}
+
+// --- the image against the fingerprint history (plan §15.5) ---
+
+func chainRun(c ChainCheck) (Report, *fakeRoots) {
+	roots := &fakeRoots{chain: c}
+	return Run(context.Background(), Deps{Forensics: withRoots("abc123"), Roots: roots}, Options{}), roots
+}
+
+// The check is asked about the image the case actually holds, not about anything it was handed.
+func TestTheChainIsAskedAboutTheCurrentImage(t *testing.T) {
+	_, roots := chainRun(ChainCheck{})
+	if roots.asked == nil || roots.asked.Snapshot != "abc123" {
+		t.Errorf("Chain was asked about %+v, want the current fingerprint abc123", roots.asked)
+	}
+}
+
+// 🔒 An intact chain adds NO finding. It is the case agreeing with its own record, and the
+// retained-root finding already says what that is worth; a tick here would read as more.
+func TestAnIntactChainClaimsNothing(t *testing.T) {
+	rep, _ := chainRun(ChainCheck{State: consts.ChainIntact})
+	for _, code := range []string{
+		consts.IntegrityRootsRolledBack, consts.IntegrityRootsDiverged, consts.IntegrityRootsChainGap,
+		consts.IntegrityRootsUnrecordedSeal, consts.IntegrityRootsHistoryUnreadable,
+	} {
+		if has(rep, code) != nil {
+			t.Errorf("an intact chain reported %s", code)
+		}
+	}
+}
+
+// 🔒 A rolled-back image is the one fault here — the image is provably older than one rohy sealed —
+// and its remedy is review, never compaction: sealing now would record the older image as the
+// newest and bury the finding.
+func TestARolledBackImageIsAnErrorThatSaysHowFarBack(t *testing.T) {
+	at := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	rep, _ := chainRun(ChainCheck{State: consts.ChainRolledBack, RolledBackTo: at, Later: 3})
+	got := has(rep, consts.IntegrityRootsRolledBack)
+	if got == nil {
+		t.Fatalf("a rolled-back image was not reported; codes = %v", codes(rep))
+	}
+	if got.Severity != consts.IntegritySevError {
+		t.Errorf("severity = %q, want error", got.Severity)
+	}
+	if got.Action != consts.IntegrityActionReview {
+		t.Errorf("action = %q, want review — compacting would bury this", got.Action)
+	}
+	if !strings.Contains(got.Message, "2026-08-01") || !strings.Contains(got.Message, "3 later") {
+		t.Errorf("message %q does not say which seal it matches and how many are missing", got.Message)
+	}
+}
+
+// Diverged, a gap and an unrecorded seal each have benign causes rohy cannot rule out, so none of
+// them is an error, and the gap message names the most common one.
+func TestTheOtherChainStatesAreReportedAtTheirWeight(t *testing.T) {
+	rep, _ := chainRun(ChainCheck{State: consts.ChainDiverged, Gaps: 2})
+	if f := has(rep, consts.IntegrityRootsDiverged); f == nil || f.Severity != consts.IntegritySevWarn {
+		t.Errorf("diverged = %+v, want a warning", f)
+	}
+	gap := has(rep, consts.IntegrityRootsChainGap)
+	if gap == nil || gap.Severity != consts.IntegritySevWarn || !strings.Contains(gap.Message, "2 break") {
+		t.Errorf("gap = %+v, want a warning counting 2 breaks", gap)
+	}
+	if !strings.Contains(gap.Message, "v0.3.0") {
+		t.Errorf("gap message %q does not name the older-build cause", gap.Message)
+	}
+
+	rep, _ = chainRun(ChainCheck{State: consts.ChainUnrecordedSeal})
+	if f := has(rep, consts.IntegrityRootsUnrecordedSeal); f == nil || f.Severity != consts.IntegritySevInfo {
+		t.Errorf("unrecorded seal = %+v, want info", f)
+	}
+}
+
+// 🔒 A history that started again says where the old one is — and, when it could not be moved,
+// that rohy stopped recording rather than write over it.
+func TestAnUnreadableHistoryIsReportedWithWhereItWasKept(t *testing.T) {
+	rep, _ := chainRun(ChainCheck{Kept: []KeptHistory{{Reason: "not json", Path: `C:\case\roots\roots.json.unreadable-x`}}})
+	f := has(rep, consts.IntegrityRootsHistoryUnreadable)
+	if f == nil || !strings.Contains(f.Message, "roots.json.unreadable-x") || !strings.Contains(f.Message, "not json") {
+		t.Fatalf("finding = %+v, want the reason and the kept path", f)
+	}
+
+	rep, _ = chainRun(ChainCheck{Held: "denied"})
+	f = has(rep, consts.IntegrityRootsHistoryUnreadable)
+	if f == nil || !strings.Contains(f.Message, "not recording") {
+		t.Errorf("finding = %+v, want it to say recording stopped", f)
+	}
+}
+
+// 🔒 A rollback that was sealed again is still a rollback, reported at the same weight: the history
+// proves it however many seals follow, so it must not fade into a gap.
+func TestARollbackSealedAgainIsStillAnError(t *testing.T) {
+	from := time.Date(2026, 8, 1, 9, 30, 0, 0, time.UTC)
+	rep, _ := chainRun(ChainCheck{State: consts.ChainIntact, Forks: 1, ForkFrom: from, ForkSkipped: 2})
+	f := has(rep, consts.IntegrityRootsRolledBack)
+	if f == nil {
+		t.Fatalf("a fork in the history was not reported; codes = %v", codes(rep))
+	}
+	if f.Severity != consts.IntegritySevError || f.Action != consts.IntegrityActionReview {
+		t.Errorf("fork = %+v, want an error with review", f)
+	}
+	if !strings.Contains(f.Message, "2026-08-01") || !strings.Contains(f.Message, "2 seal") {
+		t.Errorf("message %q does not say where the fork starts and what it skipped", f.Message)
+	}
+	if has(rep, consts.IntegrityRootsChainGap) != nil {
+		t.Error("a fork was also reported as a gap")
+	}
+}
+
+// The history's own findings do not depend on the image. A case that was never sealed, or whose
+// fingerprint cannot be read, still says its history was reset or rolled back.
+func TestHistoryFindingsSurviveAPostureWithNoImage(t *testing.T) {
+	roots := &fakeRoots{chain: ChainCheck{
+		State: consts.ChainNoImage, Forks: 1, ForkFrom: time.Now(), ForkSkipped: 1,
+		Kept: []KeptHistory{{Reason: "not json", Path: "kept"}},
+	}}
+	for name, st := range map[string]graphene.ForensicStatus{
+		"never compacted":  {Available: true},
+		"roots unreadable": {Available: true, RootsError: "boom"},
+	} {
+		rep := Run(context.Background(), Deps{Forensics: &fakeForensics{status: st}, Roots: roots}, Options{})
+		if has(rep, consts.IntegrityRootsHistoryUnreadable) == nil || has(rep, consts.IntegrityRootsRolledBack) == nil {
+			t.Errorf("%s: history findings were dropped; codes = %v", name, codes(rep))
+		}
 	}
 }

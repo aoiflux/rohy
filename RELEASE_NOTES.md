@@ -44,6 +44,21 @@ whole answer.
 - **`rohyctl verify-proof`.** rohyctl's rule is now worded as "it never opens a case", and a
   test enforces it. It already reached graphene's store types through `consts`, so "no graphene"
   was no longer accurate.
+- **The case fingerprint stays the same until the case changes.** Every seal makes a new
+  fingerprint, even over identical content, and rohy used to seal on every close. So a
+  fingerprint you exported went stale the next time you closed the app. The seals after an
+  ingest and on close are now skipped when nothing was written since the last one. **Seal case**
+  on the Maintenance page still always seals.
+- **Every seal is recorded**, not only the ones whose fingerprint was exported. The integrity
+  check uses that history to report a case whose database is **older than the last one rohy
+  sealed**, such as a restored backup. That image passes every other check, because nothing about
+  it is broken. The report stays after the restored database is written to and sealed again. It
+  also reports an image that does not descend from the last recorded seal, and breaks in the
+  history. A history kept by an earlier build recorded only exported fingerprints,
+  so it will show breaks. These are the case checked against its own record: they do not replace
+  a fingerprint kept outside the case.
+- **"Sealing case…"** now shows in the ingestion bar after an ingest, instead of a silent pause
+  after "complete".
 
 ### Fixed
 
@@ -66,6 +81,11 @@ whole answer.
 
 ### Changed
 
+- **An unreadable fingerprint history is kept, not overwritten.** It used to be treated as empty
+  and replaced at the next seal, losing the record of which fingerprints were exported. It is now
+  moved aside as `roots.json.unreadable-<time>`, and the integrity check says where on every
+  later open. A history that could not be read at all is left in place, and no seals are recorded
+  until it can be.
 - **Three network correlation fields:** `dst_ip`, `dst_port` and `protocol`, plus `src_ip` as a
   second name for `ip_address`. Addresses are normalized to one spelling (RFC 5952, v4-mapped
   unmapped, zone dropped), and the unspecified address is absent rather than a value shared by

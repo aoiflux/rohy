@@ -30,6 +30,8 @@ package graphene
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"math"
 
 	"rohy/backend/consts"
 	"rohy/backend/eventproof"
@@ -49,6 +51,8 @@ const (
 	msgForensicsUnavailable = "this case has no forensic machinery: the in-memory backend keeps " +
 		"no image, so there is nothing to hash, sign, or prove"
 	msgNeverCompacted = "this case has never been compacted, so nothing in it can be proven yet"
+	msgBadRootHex     = "not a fingerprint: %q is not one hash in hex"
+	msgBadBodyVersion = "not a fingerprint: body version %d is out of range"
 )
 
 // DigestState is the outcome of checking the compacted image against its own stored digest.
@@ -280,6 +284,53 @@ func (s *Store) SnapshotRoots() (*SnapshotRoots, error) {
 	}, nil
 }
 
+// Unsealed reports whether this case holds anything a seal would cover: no image yet, or any write
+// since the last compaction.
+//
+// It exists because a compaction ALWAYS produces a new fingerprint. The new image names the old
+// one as its predecessor and that link is bound into the root, so even a compaction that changed
+// nothing moves the value an analyst exported. The automatic seals (after an ingest, on close) ask
+// this first so a fingerprint stays put until the case actually changes (plan §15.5).
+//
+// 🔒 It errs towards sealing. Any record in the write-ahead log, or any record held in the delta
+// layer, counts as a change — including writes that turn out to be no-ops — because the cost of a
+// needless seal is a stale export, and the cost of a missed one is evidence no fingerprint covers.
+// For the same reason, an error other than ErrForensicsUnavailable comes back with true: a caller
+// that cannot tell should seal.
+//
+// The log's size alone cannot answer it. A compaction leaves the log holding its container header
+// and nothing else, so an "empty" log is not zero bytes; asking whether it holds any RECORD is the
+// question, and InspectWAL answers it without depending on how big that header is.
+func (s *Store) Unsealed() (bool, error) {
+	fs, err := s.forensics()
+	if errors.Is(err, ErrForensicsUnavailable) {
+		return false, err
+	}
+	if err != nil {
+		return true, err
+	}
+	roots, err := fs.SnapshotRoots()
+	if errors.Is(err, disk.ErrNoSnapshotRoots) || (err == nil && roots.Zero()) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	st := fs.StorageStats()
+	if st.DeltaNodes+st.DeltaEdges+st.DeletedNodes+st.DeletedEdges > 0 {
+		return true, nil
+	}
+	if st.WALBytes == 0 {
+		return false, nil
+	}
+	wal, err := disk.InspectWAL(s.dir)
+	if err != nil {
+		return true, err
+	}
+	// A torn tail is not nothing: it is the shape a crash leaves, and sealing is what retires it.
+	return len(wal.Records) > 0 || wal.Truncated, nil
+}
+
 // VerifyImage re-derives the compacted image's digest and Merkle roots.
 //
 // This is the expensive, honest check, and it is proportional to the file. It opens no store and
@@ -379,6 +430,69 @@ func hashHex(h merkle.Hash) string {
 		return ""
 	}
 	return hex.EncodeToString(h[:])
+}
+
+// parseHashHex is hashHex's inverse: the empty string is the zero hash, anything else must be
+// exactly one hash in hex.
+func parseHashHex(s string) (merkle.Hash, error) {
+	var h merkle.Hash
+	if s == "" {
+		return h, nil
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != len(h) {
+		return h, fmt.Errorf(msgBadRootHex, s)
+	}
+	copy(h[:], b)
+	return h, nil
+}
+
+// diskRoots converts the rohy-shaped roots back into the engine's, rejecting anything that does
+// not decode rather than letting it become a zero hash.
+func diskRoots(r SnapshotRoots) (disk.SnapshotRoots, error) {
+	var out disk.SnapshotRoots
+	if r.BodyVersion < 0 || r.BodyVersion > math.MaxUint8 {
+		return out, fmt.Errorf(msgBadBodyVersion, r.BodyVersion)
+	}
+	out.BodyVersion = uint8(r.BodyVersion)
+	for _, f := range []struct {
+		dst *merkle.Hash
+		src string
+	}{
+		{&out.Snapshot, r.Snapshot}, {&out.PrevRoot, r.Prev},
+		{&out.NodeRoot, r.NodeRoot}, {&out.EdgeRoot, r.EdgeRoot},
+		{&out.IndexRoot, r.IndexRoot}, {&out.TombstoneRoot, r.TombstoneRoot},
+	} {
+		h, err := parseHashHex(f.src)
+		if err != nil {
+			return out, err
+		}
+		*f.dst = h
+	}
+	return out, nil
+}
+
+// VerifyChain checks that later directly follows earlier: that later names earlier as the image it
+// replaced, and that later's components bind to later's fingerprint (disk.VerifyChain).
+//
+// Pure and storeless — it checks two recorded values against each other, which is what lets the
+// fingerprint history be checked without the images it describes, all but one of which are gone.
+//
+// 🔒 What a link establishes is narrow, and the history's report says so: that these two records
+// are consistent with one seal following the other. Whoever can rewrite the case folder can write
+// a consistent history too, so a chain checked here is the case vouching for itself — the same
+// limit as every internal check. It detects a substituted or rolled-back image; it does not
+// replace a fingerprint kept elsewhere.
+func VerifyChain(earlier, later SnapshotRoots) error {
+	e, err := diskRoots(earlier)
+	if err != nil {
+		return err
+	}
+	l, err := diskRoots(later)
+	if err != nil {
+		return err
+	}
+	return disk.VerifyChain(e, l)
 }
 
 // EventProof is one event's proof document, or the state that explains why there is none.
