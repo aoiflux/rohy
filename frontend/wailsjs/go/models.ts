@@ -985,6 +985,83 @@ export namespace caseintegrity {
 
 }
 
+export namespace custody {
+	
+	export class Layer {
+	    layer: string;
+	    state: string;
+	    message: string;
+	    notes?: string[];
+	    remedy?: string;
+	    cause?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Layer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.layer = source["layer"];
+	        this.state = source["state"];
+	        this.message = source["message"];
+	        this.notes = source["notes"];
+	        this.remedy = source["remedy"];
+	        this.cause = source["cause"];
+	    }
+	}
+	export class Report {
+	    event: number;
+	    presence: string;
+	    presence_message: string;
+	    form: string;
+	    snapshot?: string;
+	    layers: Layer[];
+	    case_records: Layer[];
+	    broken: number;
+	    not_established: number;
+	    establishes: string[];
+	    does_not_establish: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.event = source["event"];
+	        this.presence = source["presence"];
+	        this.presence_message = source["presence_message"];
+	        this.form = source["form"];
+	        this.snapshot = source["snapshot"];
+	        this.layers = this.convertValues(source["layers"], Layer);
+	        this.case_records = this.convertValues(source["case_records"], Layer);
+	        this.broken = source["broken"];
+	        this.not_established = source["not_established"];
+	        this.establishes = source["establishes"];
+	        this.does_not_establish = source["does_not_establish"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace evtx {
 	
 	export class AccessDecision {

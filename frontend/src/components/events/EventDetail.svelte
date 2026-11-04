@@ -6,9 +6,12 @@
   import * as api from '../../lib/api/index.js';
   import { download } from '../../lib/export.js';
   import { proofOutcome, proofFailure } from '../../lib/maintenance/proof.js';
+  import { custodyView, custodyFailure, caseMark } from '../../lib/maintenance/custody.js';
   import { maintenance } from '../../stores/maintenance.js';
+  import { ingestion } from '../../stores/ingestion.js';
   import Button from '../material/Button.svelte';
   import Skeleton from '../material/Skeleton.svelte';
+  import TextField from '../material/TextField.svelte';
   import FindingEditor from './FindingEditor.svelte';
 
   let {
@@ -138,6 +141,52 @@
     await saveProof();
   }
 
+  // Custody report (plan §14.4). It belongs to the event AND the image it was made against: moving
+  // to another event drops it, and so does any seal, because the seal replaced that image. A
+  // response that arrives after either is dropped too — the generation says which request is
+  // still the current one.
+  let custody = $state(/** @type {import('../../lib/maintenance/custody.js').CustodyView|null} */ (null));
+  let custodyBusy = $state(false);
+  let custodyFor = $state(/** @type {number|null} */ (null));
+  let custodyGen = 0;
+  // 🔒 Never prefilled from the case. Whatever is here, the analyst typed or pasted: a check
+  // against the case's own copy of its fingerprint proves nothing.
+  let keptInput = $state('');
+  const dropCustody = () => {
+    custodyGen++;
+    custody = null;
+    custodyBusy = false;
+  };
+  $effect(() => {
+    const id = event ? event.id : null;
+    if (custodyFor === id) return;
+    custodyFor = id;
+    dropCustody();
+  });
+  // Dropped only when the case changes under the report (caseMark), not on every store update.
+  let custodyMark = '';
+  $effect(() => {
+    const mark = caseMark($ingestion, $maintenance);
+    if (mark === custodyMark) return;
+    custodyMark = mark;
+    dropCustody();
+  });
+
+  async function runCustody(kept) {
+    const id = event.id;
+    const gen = ++custodyGen;
+    custodyBusy = true;
+    custody = null;
+    try {
+      const r = await api.eventCustody(id, kept);
+      if (gen === custodyGen) custody = custodyView(r);
+    } catch (e) {
+      if (gen === custodyGen) custody = custodyFailure(e);
+    } finally {
+      if (gen === custodyGen) custodyBusy = false;
+    }
+  }
+
   function prettyRaw(raw) {
     if (!raw) return '';
     try {
@@ -212,6 +261,66 @@
           {#each proof.warnings as w (w)}
             <p class="proofmsg warn">{w}</p>
           {/each}
+        {/if}
+      </section>
+
+      {#snippet lines(/** @type {import('../../lib/maintenance/custody.js').CustodyLine[]} */ ls)}
+        <ul class="layers">
+          {#each ls as l, i (l.key + i)}
+            <li class={'layer ' + l.tone}>
+              <span class="lname">{l.label}</span>
+              <span class="lstate">{l.stateLabel}</span>
+              <p class="lmsg">{l.message}</p>
+              {#each l.notes as n (n)}
+                <p class="lmsg warn">{n}</p>
+              {/each}
+              {#if l.remedy}
+                <p class="lmsg">{l.remedy}</p>
+              {/if}
+              {#if l.cause}
+                <p class="lmsg mono">{UI.CUSTODY_CAUSE} {l.cause}</p>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/snippet}
+
+      <section class="custody">
+        <h3>{UI.CUSTODY_TITLE}</h3>
+        <p class="muted">{UI.CUSTODY_HINT}</p>
+        <div class="proofactions">
+          <Button variant="outlined" disabled={custodyBusy} onclick={() => runCustody('')}>{UI.CUSTODY_RUN}</Button>
+        </div>
+        <div class="kept">
+          <TextField label={UI.CUSTODY_KEPT_LABEL} placeholder={UI.CUSTODY_KEPT_PLACEHOLDER} bind:value={keptInput} />
+          <Button variant="tonal" disabled={custodyBusy || keptInput.trim() === ''} onclick={() => runCustody(keptInput)}
+            >{UI.CUSTODY_CHECK}</Button
+          >
+        </div>
+        {#if custodyBusy}
+          <p class="muted" role="status">{UI.CUSTODY_WORKING}</p>
+        {:else if custody && !custody.ok}
+          <p class="proofmsg damage" role="status">{custody.error}</p>
+        {:else if custody}
+          <p class="proofmsg" role="status">{custody.presence}</p>
+          <p class="muted">{custody.form} {custody.counts}</p>
+          {@render lines(custody.layers)}
+          <details class="records">
+            <summary>{UI.CUSTODY_RECORDS_TITLE}</summary>
+            {@render lines(custody.records)}
+          </details>
+          <p class="rlabel">{UI.CUSTODY_ESTABLISHES}</p>
+          {#if custody.establishes.length}
+            <ul class="claims">
+              {#each custody.establishes as c (c)}<li>{c}</li>{/each}
+            </ul>
+          {:else}
+            <p class="lmsg">{UI.CUSTODY_ESTABLISHES_NONE}</p>
+          {/if}
+          <p class="rlabel">{UI.CUSTODY_NOT_ESTABLISHES}</p>
+          <ul class="claims">
+            {#each custody.doesNot as c (c)}<li>{c}</li>{/each}
+          </ul>
         {/if}
       </section>
 
@@ -404,6 +513,63 @@
   }
   .proofmsg.damage {
     color: var(--color-error);
+  }
+  .kept {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+  .layers {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .layer {
+    border-left: 3px solid var(--color-outline);
+    padding-left: var(--space-3);
+  }
+  .layer.established {
+    border-left-color: var(--color-primary);
+  }
+  .layer.not_established {
+    border-left-color: var(--color-warning);
+  }
+  .layer.broken {
+    border-left-color: var(--color-error);
+  }
+  .lname {
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+  .lstate {
+    margin-left: var(--space-2);
+    font-size: 0.78rem;
+    color: var(--color-on-surface-muted);
+  }
+  .layer.broken .lstate {
+    color: var(--color-error);
+  }
+  .lmsg {
+    margin: var(--space-1) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-on-surface);
+  }
+  .lmsg.warn {
+    color: var(--color-warning);
+  }
+  .records {
+    margin-top: var(--space-3);
+    font-size: 0.85rem;
+  }
+  .claims {
+    margin: 0;
+    padding-left: var(--space-5);
+    font-size: 0.85rem;
   }
   .fingerprint {
     margin: var(--space-2) 0 0;

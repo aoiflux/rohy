@@ -35,9 +35,9 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          ███████░░░░░░░░░░░░░  36%  2½/7   #37 ✅ (§15.5), #38 ✅ (§15.4); #43 ½ (detectors 16/17 missing); #39–#42 ⬜
+P8 Forensic          ██████████░░░░░░░░░░  50%  3½/7   #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6); #43 ½ (detectors 16/17 missing); #40–#42 ⬜
 ───────────────────────────────────────────────────────
-Overall              █████████████████░░░  83%  39/47
+Overall              █████████████████░░░  85%  40/47
 Definition of done   ███████████████░░░░░  73%  8/11   the "integration path" ✅ was not true; proof gate ✅ via #38
 ```
 
@@ -52,7 +52,12 @@ graphene v0.4.0 (`disk.ProveNode`, `ExportNodeProof`, package-level `VerifyExpor
 blocked only by rohy's own payload tombstone.
 
 **#38 landed 2026-11-04** (§15.4): event proofs, exported from the drawer and checked with
-`rohyctl verify-proof`. **Next:** #39 custody report — keyless and upstream-ready.
+`rohyctl verify-proof`.
+
+**#39 landed 2026-11-04** (§15.6): a custody report per event in the drawer — gaps, never a
+verdict — that compares a fingerprint the analyst kept against the current image whatever the
+event's state. **Next:** #40 attributed redaction, starting with the payload tombstone (§14.5.1)
+that blocks it.
 
 ---
 
@@ -2423,7 +2428,9 @@ the event that was ingested.
     event detail, `rohyctl verify-proof`. Landed as **event proofs** (§15.4): the file carries
     the stored record and raw record beside graphene's proof, because a v3 leaf commits only to
     a hash of the record.
-39. **Custody report** (§14.4) — `CustodyFor`, reported as gaps rather than a verdict.
+39. ✅ **Custody report** (§14.4) — `CustodyFor`, reported as gaps rather than a verdict. Landed
+    2026-11-04 (§15.6): composed with the record, raw and history layers the engine cannot see, and
+    a kept fingerprint compared against the image whatever the event's state.
 40. **Attributed redaction** (§14.5) — 🔴 blocked on the payload-store tombstone (§14.5.1),
     which is a real finding: rohy's cold store would otherwise defeat graphene's redaction.
 41. **Signing and attribution** (§14.6) — key custody OUTSIDE the case folder,
@@ -2687,8 +2694,9 @@ matter and rohy must not flatten them:
 | State | Means |
 |---|---|
 | `Live && !InSnapshot` | written since the last compaction — unaccounted for, **not** absent |
+| `!Live && InSnapshot` | deleted since the last seal — the seal still holds it, the next one drops it (added §15.6) |
 | `!Live && Redacted != nil` | a documented removal |
-| `!Live && Redacted == nil` | the store has never heard of it |
+| `!Live && Redacted == nil` | the case holds no such event **and keeps no record of removing one** (corrected §15.6: without a removal ledger it cannot tell removed-and-sealed-over from never-existed) |
 
 🔒 `CustodyFor` **can never be `Complete()`** — it always reports that every check compared the
 store against itself. Supplying a retained root (`CustodyForAnchored`) or an anchor
@@ -2833,11 +2841,11 @@ analyst created. §12.4's rule holds: an all-clear is a claim, and it gets quali
 
 ```
 backend/graphene/graphene_forensics.go   Forensics() accessor, roots, proofs, redaction,
-                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37) and ProveEvent (#38) built; redaction, custody, checkpoints ❌
-backend/custody                          policy + report assembly over narrow interfaces ⚠️ fingerprint history + Chain (#37, §15.5); custody report ❌
+                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37), ProveEvent (#38) and EventCustody (#39, graphene_custody.go) built; redaction, checkpoints ❌
+backend/custody                          policy + report assembly over narrow interfaces ✅ fingerprint history + Chain (#37, §15.5); custody report + DescendsFrom (#39, §15.6)
 backend/api/api_seal.go                  every seal through one path, recorded            ✅ (#37, §15.5)
 backend/payload/payload_redact.go        same-length in-place tombstone (§14.5.1) 🔴      ❌
-backend/api/api_custody.go               binding; hangs off MaintenanceAPI               — not created: the #37 methods live in api_integrity.go
+backend/api/api_custody.go               binding; hangs off MaintenanceAPI               — not created: the #37 methods and EventCustody (#39) live in api_integrity.go
 backend/eventproof                       proof document: assemble + verify, storeless    ✅ (#38, §15.4)
 cmd/rohyctl verify-proof                 storeless, keyless — §14.3's question decided    ✅ (#38, §15.4)
 ```
@@ -3108,3 +3116,96 @@ four MaintenanceAPI forensic methods had no Go tests.
 **Still open:** nothing in #37. The chain is internal; carrying a chain *out* of the case, so a
 recipient holding an older exported fingerprint can follow it to a newer one, is not built and
 belongs with #42 anchoring.
+
+### 15.6 #39 custody report (2026-11-04)
+
+**What `CustodyFor` alone misses, measured against what §14.4 assumed.** graphene's report is
+synthesis over the store's own histories, and for rohy most of those are empty: no audit log,
+retention, roles or signer (`forensicOptions`), so attestation, segments, audit and roles are "not
+recorded" for every event. What makes an *event* accountable sits outside the engine, so the report
+composes it:
+
+- the stored record against the sealed one (`ProveEvent`'s `changed_since_seal`, which
+  `CustodyFor` never compares);
+- the raw record in the payload cold store (`hash_raw`, `raw_mismatch`, and the new
+  `raw_unreadable`);
+- the fingerprint history from #37 (`custody.Chain`);
+- the fingerprint the analyst kept.
+
+**Found on the way, and it changed the work** (an independent review of the design, every claim
+checked against the code):
+
+- 🔒 **graphene's anchored form skips the comparison when the entity is absent**
+  (`CustodyForAnchored`, `custody.go:458`). Keep S3, which holds event E; roll the image back to
+  S2. E is simply missing, and the one value able to show the rollback is never compared. rohy
+  compares the kept fingerprint against the case's **current image** itself, whatever the event's
+  state, and does not call the anchored form. Worth raising upstream.
+- 🔒 **"Is it in the history" is the wrong test for an older fingerprint.** Keep S2, roll back to S1:
+  S2 is in the history and the image does not descend from it. `custody.DescendsFrom` walks back
+  from the current image through recorded, verifying links instead.
+- **A fourth presence state.** `DeleteEvent` is reachable from the graph UI, and a deleted event is
+  `!Live && InSnapshot`: the last seal holds it, the next one drops it. §14.4's table is corrected.
+- **"Never heard of it" overclaimed.** With no removal ledger and no audit log, the case cannot tell
+  an event removed and sealed over from one that never existed; the copy now says exactly that.
+- **`ProveEvent` checked no label** (`eventFromNode` decodes any JSON), and an unreadable payload
+  failed the whole call. Both fixed, tests first; the second is the `raw_unreadable` state, which
+  the drawer's proof section shows as damage with no seal button. `payload.ErrClosed` keeps a case
+  shutting down apart from damage.
+
+**Decisions (owner):**
+
+| Question | Decision |
+|---|---|
+| A kept fingerprint that is not the current seal | **Split by history.** If the image descends from it through recorded seals: *not established*, an earlier seal, and the link is the case's own word. Otherwise *broken*: another case, a rollback, a replaced image, or a reset history. Never reads as checked. |
+| Export the report? | **Drawer only.** The event proof stays the one thing handed over; a saved report is the case speaking for itself. |
+
+**As built:**
+
+- `graphene.Store.EventCustody(id)` — `CustodyFor(id, nil)` in rohy's shape, every field the report
+  decides on structured (counts, attestation, redaction scope), plus `ProveEvent`'s state and
+  `RawBound`. A delete landing between the two reads reports an absence. A pin test fails if the
+  engine's gap layers for rohy's posture change.
+- `custody.EventReport` — pure, tested against literals. Presence is decided absence-first, so an
+  id the case never held is never described by the state of the seal. Event layers: seal, record,
+  raw, removal (when one is recorded), history (caseintegrity's weights: a rollback or fork is
+  broken and never offered a seal), kept fingerprint. The engine's store-wide layers are grouped as
+  case records, read from its structured fields; its text appears only as a cause. Unknown layers
+  and states fail closed.
+- 🔒 Invariants, each a test: a case-only report never establishes the kept-fingerprint layer; a
+  rolled-back or forked history is broken in every combination; every report lists what it does
+  not establish (who, truth, parsed fields, the source file, the history's own word); no frontend
+  copy says "accounted for".
+- `MaintenanceAPI.EventCustody(id, kept)` — the kept value normalized (trimmed, lowercase, 64 hex,
+  not all-zero; `FuzzNormalizeFingerprint`), assembled under `sealMu` so no seal lands inside one.
+- Drawer: **Account for this event**, and a **Fingerprint you kept** field that is never prefilled.
+  The report is dropped on another event, on any seal (`case:sealed`, the maintenance store's
+  `seals` counter), and a late response is discarded by generation.
+
+**From an independent review of the implementation (all fixed, tests first):**
+
+- 🔴 **A damaged image failed the report for every live event.** The record in a damaged image
+  may not even decode, and `ProveEvent`'s self-check refuses what does, so the broken seal line —
+  built for exactly this — could not appear. A sweep that flips each byte of a sealed image found
+  more failing offsets than the review did. When the engine reports a fatal snapshot gap the proof
+  is no longer asked for, and the new `image_damaged` state covers the self-check for the proof
+  export too (damage, no seal button).
+- 🔴 **The drawer dropped the report on every store update.** Both stores replace their whole
+  state on each progress tick, so no report could be had during an ingest or a backfill. It now
+  drops on `caseMark`: a seal, an ingest starting or ending, a maintenance pass. A **Seal case**
+  that compacted but failed to record now counts as a seal too.
+- 🟡 **A held history softened a mismatched kept fingerprint** to not established — against the
+  decision above, and a downgrade path for anyone able to make `roots.json` unreadable. It is
+  broken; only descent is unknown. *(This reverses a default in the approved #39 plan.)*
+- 🟡 Kept-fingerprint copy claimed a rollback where the history only had gaps; a seal was still
+  suggested beside a broken history (remedies are now a separate field, cleared when the history
+  is broken); an in-memory case with a pasted value said the value was checked (form `none`); a
+  redacted event still in the seal was told no seal held it; a hash with no raw record read as no
+  hash (`RawHashed`); an I/O error that may pass was called damage (only `OutOfRangeError` and
+  decode errors are); the race test accepted states it could not reach, and the
+  delete-between-reads branch now has a deterministic test.
+
+**Measured** (PERFORMANCE.md §18): `EventCustody` is ~20 ms at 10k events and ~190 ms at 100k —
+two proofs, so twice `ProveEvent`, linear. It runs on a click.
+
+**Still open:** the third form, a published anchor (`CustodyForAnchor`), arrives with #42; the
+store-wide layers stay "not recorded" until #41 turns on audit, retention, roles and signing.

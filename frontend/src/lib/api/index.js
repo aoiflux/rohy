@@ -581,6 +581,16 @@ export function exportEventProof(id) {
   return call(MAINTENANCE, 'ExportEventProof', id);
 }
 
+/**
+ * The custody report for one event (plan §14.4): gaps, never a verdict. kept is a fingerprint the
+ * analyst kept outside the case, or '' — never one read from the case.
+ * @param {number} id
+ * @param {string} kept
+ */
+export function eventCustody(id, kept) {
+  return call(MAINTENANCE, 'EventCustody', id, kept);
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

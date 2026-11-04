@@ -1332,7 +1332,63 @@ export const UI = Object.freeze({
       'page. A proof would fail, so none was saved.',
     too_large:
       'This event’s raw record is too large for a proof file any verifier would read, so none was saved.',
+    raw_unreadable:
+      'The raw record stored for this event cannot be read from the case’s payload store: damage. Run the ' +
+      'integrity check on the Maintenance page. A proof would be incomplete, so none was saved.',
+    // 🔒 No seal button: a seal would build a new image on top of the damaged one.
+    image_damaged:
+      'The sealed case does not check out: a proof built from it does not resolve to its own fingerprint. ' +
+      'This is damage to the case. Run Verify image on the Maintenance page. No proof was saved.',
   }),
+
+  // Custody report (plan §14.4, item 39). The layer messages come from Go; these are the frame.
+  // 🔒 Nothing here says custody is accounted for. The report is a list of gaps, and the counts
+  // line says what was not established rather than what was.
+  CUSTODY_TITLE: 'Custody',
+  CUSTODY_HINT:
+    'What this case can account for about this event, layer by layer, and what it cannot. It is a ' +
+    'list of gaps, not a verdict. Without a fingerprint you kept outside the case, every check compares ' +
+    'the case against itself.',
+  CUSTODY_RUN: 'Account for this event',
+  CUSTODY_KEPT_LABEL: 'Fingerprint you kept (optional)',
+  CUSTODY_KEPT_PLACEHOLDER: 'Paste it from your own copy, not from this case',
+  CUSTODY_CHECK: 'Check against it',
+  CUSTODY_WORKING: 'Accounting for this event…',
+  CUSTODY_FAILED: 'The custody report could not be built:',
+  CUSTODY_EMPTY: 'the backend returned no report',
+  CUSTODY_FORM_LABEL: Object.freeze({
+    case_only: 'Checked against the case only.',
+    kept_fingerprint: 'Checked against the fingerprint you supplied.',
+    none: 'Nothing was checked.',
+  }),
+  CUSTODY_FORM_UNKNOWN: 'Checked in a way this build does not recognise (%s).',
+  CUSTODY_PRESENCE_UNKNOWN: 'This build does not recognise where the event is (%s), so read the layers below with care.',
+  CUSTODY_COUNTS: '%b broken · %n not established',
+  CUSTODY_COUNTS_NONE: 'No gaps in the layers listed. This is not a verdict: read what it does not establish.',
+  CUSTODY_STATE_LABEL: Object.freeze({
+    established: 'Established',
+    not_established: 'Not established',
+    broken: 'Broken',
+  }),
+  CUSTODY_STATE_UNKNOWN: 'Unknown (%s)',
+  CUSTODY_LAYER_LABEL: Object.freeze({
+    seal: 'Seal',
+    record: 'Stored record',
+    raw: 'Raw record',
+    redaction: 'Removal',
+    history: 'History of seals',
+    kept_fingerprint: 'Fingerprint you kept',
+    attestation: 'Signature',
+    segments: 'Commit history',
+    audit: 'Audit log',
+    roles: 'Role grants',
+    removals: 'Removal ledger',
+  }),
+  CUSTODY_RECORDS_TITLE: 'Case records (the same for every event)',
+  CUSTODY_CAUSE: 'Cause:',
+  CUSTODY_ESTABLISHES: 'What this establishes',
+  CUSTODY_ESTABLISHES_NONE: 'Nothing yet.',
+  CUSTODY_NOT_ESTABLISHES: 'What this does not establish',
 
   RESULT_COUNT: 'events',
   EVENTS_OF: 'of', // "showing X of N events" (P1)

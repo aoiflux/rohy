@@ -45,6 +45,24 @@ import (
 	"rohy/backend/consts"
 )
 
+// ErrClosed is returned by every read and append after Close. A distinct error because a closed
+// store is the case shutting down, not damage, and a caller deciding which it is must not have to
+// compare message text.
+var ErrClosed = errors.New(consts.MsgPayloadClosed)
+
+// OutOfRangeError is a reference that points past the end of the log: the log is shorter than the
+// event that references it says. Typed so a caller can tell this damage from an I/O error that may
+// pass, which is not damage.
+type OutOfRangeError struct {
+	Offset uint64
+	Length uint32
+	End    uint64
+}
+
+func (e *OutOfRangeError) Error() string {
+	return fmt.Sprintf(consts.MsgPayloadOutOfRange, e.Offset, e.Length, e.End)
+}
+
 // Ref locates one payload in the log. It is stored inside the event record, so it is kept
 // deliberately small: two integers rather than the kilobytes they stand for.
 //
@@ -123,7 +141,7 @@ func (s *Store) AppendBatch(blobs [][]byte) ([]Ref, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil, errors.New(consts.MsgPayloadClosed)
+		return nil, ErrClosed
 	}
 
 	at := s.size
@@ -167,11 +185,11 @@ func (s *Store) Read(r Ref) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
-		return nil, errors.New(consts.MsgPayloadClosed)
+		return nil, ErrClosed
 	}
 	end := r.Offset + uint64(r.Length)
 	if end > s.size {
-		return nil, fmt.Errorf(consts.MsgPayloadOutOfRange, r.Offset, r.Length, s.size)
+		return nil, &OutOfRangeError{Offset: r.Offset, Length: r.Length, End: s.size}
 	}
 	if s.inMem {
 		out := make([]byte, r.Length)

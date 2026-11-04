@@ -41,6 +41,10 @@ const empty = () => ({
   progress: null,
   /** The last thing that finished, so the view can confirm rather than just stop showing a spinner. */
   lastResult: '',
+  /** How many seals this store has asked for. A view holding anything built against the image
+   *  before — a custody report — drops it when this moves. Counted on failure too: a seal whose
+   *  fingerprint could not be RECORDED still compacted, so the image moved either way. */
+  seals: 0,
   error: '',
 });
 
@@ -147,10 +151,11 @@ function create() {
     try {
       await api.compactCase();
     } catch (e) {
+      update((s) => ({ ...s, seals: s.seals + 1 }));
       fail(e);
       return false;
     }
-    update((s) => ({ ...s, running: '', lastResult: 'compact' }));
+    update((s) => ({ ...s, running: '', lastResult: 'compact', seals: s.seals + 1 }));
     // 🔒 The seal has happened, and it moved the fingerprint. Refreshing what the page shows is a
     // separate step: its failure is reported, but it must not unsay the seal — a caller told
     // "failed" would seal again, moving the fingerprint a second time.

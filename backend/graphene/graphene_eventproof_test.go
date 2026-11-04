@@ -2,14 +2,18 @@ package graphene
 
 import (
 	"encoding/hex"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"rohy/backend/consts"
 	"rohy/backend/eventproof"
+	"rohy/backend/payload"
 	"rohy/backend/utils"
 
 	"github.com/aoiflux/graphene/merkle"
+	"github.com/aoiflux/graphene/store"
 )
 
 // provable is an event whose hash_raw really is the hash of its raw record, as every normalizer
@@ -211,5 +215,120 @@ func TestProvingAnEventThatDoesNotExistIsAnError(t *testing.T) {
 	}
 	if _, err := s.ProveEvent(999_999); err == nil {
 		t.Fatal("proving a node the case never held returned no error")
+	}
+}
+
+// notAnEvent is a node that decodes as an event and is labelled as something else.
+func notAnEvent() []*store.Node {
+	return []*store.Node{{
+		Labels:     []store.NodeType{consts.NodeEvent + 1},
+		Properties: []byte(`{"event_id":"4624","provider":"Microsoft-Windows-Security-Auditing"}`),
+	}}
+}
+
+// rohy writes only events, but the id is the caller's. A proof built over some other node would
+// carry a record that is not an event's, labelled as one — eventFromNode decodes any JSON it is
+// given, so the label is what has to be checked.
+func TestProvingANodeThatIsNotAnEventIsAnError(t *testing.T) {
+	s, _ := provableCase(t)
+	g, err := s.graph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := g.AddNodes(notAnEvent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := s.ProveEvent(uint64(other[0])); err == nil {
+		t.Fatalf("a node that is not an event was proven as one: state %q", p.State)
+	}
+}
+
+// unreadablePayloads swaps the case's payload store for an empty one, so every raw record the
+// events point at lies beyond its end — what a truncated or damaged payloads.log reads as.
+func unreadablePayloads(t *testing.T, s *Store) *payload.Store {
+	t.Helper()
+	orig := s.payloads
+	empty := payload.OpenInMemory()
+	s.payloads = empty
+	t.Cleanup(func() {
+		_ = empty.Close()
+		s.payloads = orig
+	})
+	return empty
+}
+
+// A raw record that cannot be read is damage, the same as one that reads and does not match its
+// hash. It used to fail the whole call, which the drawer showed as a generic error and the
+// custody report could not place at all.
+func TestARawRecordThatCannotBeReadIsReportedNotFailed(t *testing.T) {
+	s, ids := provableCase(t)
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	unreadablePayloads(t, s)
+	p := mustProve(t, s, ids[0])
+	if p.State != consts.EventProofRawUnreadable {
+		t.Fatalf("state = %q, want raw_unreadable", p.State)
+	}
+	if len(p.Document) != 0 || p.Snapshot != "" || p.RawBound {
+		t.Errorf("damage handed out a document: %+v", p)
+	}
+}
+
+// A closed payload store is the case shutting down, not damage, and must not be reported as such.
+func TestAClosedPayloadStoreIsAnErrorNotDamage(t *testing.T) {
+	s, ids := provableCase(t)
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	_ = unreadablePayloads(t, s).Close()
+	if _, err := s.ProveEvent(ids[0]); !errors.Is(err, payload.ErrClosed) {
+		t.Fatalf("err = %v, want payload.ErrClosed", err)
+	}
+}
+
+// RawBound says whether the seal covers the raw record — what the custody report's raw layer
+// reads. It is true only when the record carried a raw-record hash AND the proof got far enough to
+// bind it; too_large is refused after both bindings succeed, so it counts.
+func TestRawBoundSaysWhetherTheSealCoversTheRawRecord(t *testing.T) {
+	base := time.Date(2026, 8, 9, 10, 0, 0, 0, time.UTC)
+	unhashed := provable("4624", "u1", base)
+	unhashed.HashRaw = ""
+	huge := provable("4688", "h1", base.Add(time.Minute))
+	huge.RawXML = `{"Event":{"Data":"` + strings.Repeat("x", 13<<20) + `"}}`
+	huge.HashRaw = utils.HashString(huge.RawXML)
+	bound := provable("4634", "b1", base.Add(2*time.Minute))
+
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	ids, err := s.InsertEvents([]*Event{unhashed, huge, bound})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := mustProve(t, s, ids[2]); p.RawBound {
+		t.Errorf("before any seal: RawBound with state %q", p.State)
+	}
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []struct {
+		state string
+		bound bool
+	}{
+		{consts.EventProofOK, false},
+		{consts.EventProofTooLarge, true},
+		{consts.EventProofOK, true},
+	} {
+		p := mustProve(t, s, ids[i])
+		if p.State != want.state || p.RawBound != want.bound {
+			t.Errorf("event %d: state %q bound %v, want %q bound %v", i, p.State, p.RawBound, want.state, want.bound)
+		}
 	}
 }

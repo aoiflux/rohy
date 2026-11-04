@@ -1347,7 +1347,19 @@ const (
 	// EventProofTooLarge: the document would exceed EventProofMaxBytes, so no verifier would read
 	// it. Refused here rather than handed out to fail later.
 	EventProofTooLarge = "too_large"
+	// EventProofRawUnreadable: the raw record could not be read from the payload store at all — the
+	// log is shorter than the reference, or the record does not decode. Damage, like raw_mismatch,
+	// and reported the same way rather than failing the call.
+	EventProofRawUnreadable = "raw_unreadable"
+	// EventProofImageDamaged: the sealed image does not check out — the proof built from it does
+	// not resolve to its own root. Damage to the image; no proof is handed out, and sealing again is
+	// not offered, because a seal would build a new image on top of the damaged one.
+	EventProofImageDamaged = "image_damaged"
 )
+
+// MsgNotAnEvent is the error for an id that names a node other than an event. rohy writes only
+// events, but the id comes from the caller.
+const MsgNotAnEvent = "node %d is not an event"
 
 // What a verified event proof does and does not establish. These travel inside the file for a
 // reader without the verifier; 🔒 the verifier prints its OWN copy, because the lists in a file are
@@ -1389,6 +1401,156 @@ const (
 	MsgEventProofRecordShape   = "the stored record is not an event record: %v"
 	MsgEventProofRaw           = "the raw record in this file does not match the hash in the stored record"
 	MsgEventProofNoHashRaw     = "the stored record carries no raw-record hash to check the raw record against"
+)
+
+// The engine's custody layers (graphene disk.Layer*), named here so rohy can match a gap to its own
+// words without parsing the engine's text. TestRohyNamesTheEngineLayersAsTheEngineDoes pins them.
+const (
+	CustodyLayerSnapshot    = "snapshot"
+	CustodyLayerAttestation = "attestation"
+	CustodyLayerSegments    = "segments"
+	CustodyLayerAudit       = "audit"
+	CustodyLayerRedaction   = "redaction"
+	CustodyLayerRoles       = "roles"
+	CustodyLayerExternal    = "external"
+)
+
+// Redaction scopes as the custody report names them (graphene disk.Scope*).
+const (
+	RedactionScopeNode       = "node"
+	RedactionScopeProperties = "properties"
+	RedactionScopeEdge       = "edge"
+	RedactionScopeUnknown    = "unknown"
+)
+
+// --- Custody report (#39, plan §14.4) ---
+//
+// 🔒 Gaps, never a verdict. No constant here says an event's custody is accounted for: every check
+// rohy can run compares the case against itself, and the report names what each layer did and did
+// not establish rather than adding them up.
+
+// Where the event is, kept apart because each needs a different reading (§14.4, corrected in §15.6).
+const (
+	CustodyPresenceUnavailable      = "unavailable"
+	CustodyPresenceInSeal           = "in_seal"
+	CustodyPresenceWrittenSinceSeal = "written_since_seal"
+	CustodyPresenceNoFingerprint    = "no_fingerprint"
+	CustodyPresenceRemovedSinceSeal = "removed_since_seal"
+	CustodyPresenceRedacted         = "redacted"
+	CustodyPresenceNotInCase        = "not_in_case"
+)
+
+// Which form the report took: checked against the case alone, or against a fingerprint the analyst
+// supplied. The UI says which.
+const (
+	CustodyFormCaseOnly = "case_only"
+	CustodyFormKept     = "kept_fingerprint"
+	// CustodyFormNone: nothing was compared at all (the case keeps no image).
+	CustodyFormNone = "none"
+)
+
+// The layers about this event. Engine layers that describe the whole case go in the case-records
+// group under their own names (CustodyLayer*), with CustodyRecordRemovals for the removal ledger.
+const (
+	CustodyEventLayerSeal      = "seal"
+	CustodyEventLayerRecord    = "record"
+	CustodyEventLayerRaw       = "raw"
+	CustodyEventLayerRedaction = "redaction"
+	CustodyEventLayerHistory   = "history"
+	CustodyEventLayerKept      = "kept_fingerprint"
+	CustodyRecordRemovals      = "removals"
+)
+
+// A layer's state, following graphene's split: broken is a chain that failed; not established is
+// one that was never made, or could not be checked. Neither is a shade of the other.
+const (
+	CustodyEstablished    = "established"
+	CustodyNotEstablished = "not_established"
+	CustodyBroken         = "broken"
+)
+
+const (
+	MsgCustodyKeptMalformed = "not a fingerprint: paste the 64-character fingerprint you kept"
+
+	MsgCustodyPresenceUnavailable      = "This case keeps no sealed image (in-memory), so nothing about its custody can be checked."
+	MsgCustodyPresenceInSeal           = "The event is in the case's current seal."
+	MsgCustodyPresenceWrittenSinceSeal = "The event was written after the last seal. It is recorded, but nothing accounts for it yet."
+	MsgCustodyPresenceNoFingerprint    = "The case has no fingerprint yet: it was never sealed, or was sealed by a build before fingerprints. Nothing in it can be accounted for."
+	MsgCustodyPresenceRemovedSinceSeal = "The event was deleted after the last seal. The seal still holds it; the case no longer does, and nothing records who removed it. The next seal drops it."
+	MsgCustodyPresenceRedacted         = "The event was removed on purpose at %s: %q. Its content is gone; the fact, time and reason are recorded."
+	MsgCustodyPresenceNotInCase        = "This case holds no such event, and keeps no record of removing one. It cannot tell an event that was removed and sealed over from one that never existed."
+
+	MsgCustodySealIn            = "The event is in the current seal, and its place there checks out."
+	MsgCustodySealWritten       = "Not in any seal yet."
+	MsgCustodySealNone          = "The case has no seal to place it in."
+	MsgCustodySealRemoved       = "The current seal holds the event, but the case no longer does."
+	MsgCustodySealAbsent        = "No seal holds the event."
+	MsgCustodySealBroken        = "The event's place in the seal does not check out."
+	MsgCustodyRecordSealed      = "The event's stored record is the one the seal holds."
+	MsgCustodyRecordChanged     = "The stored record changed after the seal: a duplicate was merged into it, or a backfill rewrote it."
+	MsgCustodyRecordOutdated    = "The seal predates fingerprints that cover a record's content: it holds this event's id, not what it said."
+	MsgCustodyRecordDamaged     = "Not checked: the seal itself does not check out, so nothing in it can be compared."
+	MsgCustodyRemedySeal        = "Seal the case to bring the event under a seal."
+	MsgCustodyRemedyReseal      = "Seal again to cover the current record."
+	MsgCustodyNoSealAdvice      = "No seal is suggested: a seal now would build on an image that is not the one rohy last sealed. Review the case first."
+	MsgCustodyRecordNotSealed   = "Nothing to compare against: the event is not in a seal."
+	MsgCustodyRecordNotChecked  = "Not checked: the raw record could not be read, so the check stopped before comparing."
+	MsgCustodyRawBound          = "The raw record is the one rohy read at ingest: its hash is part of the sealed record."
+	MsgCustodyRawNoHash         = "The stored record carries no hash of a raw record, so the seal does not cover one."
+	MsgCustodyRawMissing        = "The stored record carries a raw-record hash, but there is no raw record to check against it."
+	MsgCustodyRawNotChecked     = "Not checked: the stored record itself is not covered by the seal."
+	MsgCustodyRawMismatch       = "The raw record no longer matches the hash in the stored record. This is damage, or a record that could not be stored byte for byte."
+	MsgCustodyRawUnreadable     = "The raw record cannot be read from the case's payload store. This is damage."
+	MsgCustodyUnknownState      = "This build does not know the state %q, so it cannot say what was established."
+	MsgCustodyRedactedProps     = "The event's properties were removed on purpose at %s: %q. What is shown is not what was ingested."
+	MsgCustodyRedactedNode      = "The event was removed on purpose at %s: %q."
+	MsgCustodyRedactedOther     = "A removal of scope %q is recorded for this event at %s: %q."
+	MsgCustodyRedactionUnbound  = "The removal is in the ledger but not yet bound into the seal, so someone given only the sealed image cannot tell it from an event that never existed."
+	MsgCustodyHistoryIntact     = "The case's image is the last seal rohy recorded."
+	MsgCustodyHistoryUnrecorded = "The case's image follows the last recorded seal by one seal that was not recorded, for example after a crash between sealing and recording."
+	MsgCustodyHistoryRolledBack = "The case's image is an earlier seal: %d later seals rohy recorded are missing. A backup may have been restored over the case."
+	MsgCustodyHistoryForked     = "The history shows the case was put back to an earlier seal and sealed again, leaving out %d recorded seals."
+	MsgCustodyHistoryDiverged   = "The case's image does not follow from the last seal rohy recorded: the database was replaced, restored, or sealed by another tool."
+	MsgCustodyHistoryEmpty      = "No seals are recorded for this case yet."
+	MsgCustodyHistoryNoImage    = "The case has no fingerprint to place in its history."
+	MsgCustodyHistoryNone       = "The case's history of seals was not available to this check."
+	MsgCustodyHistoryGaps       = "%d recorded seals do not follow the seal recorded before them. Histories from builds before v0.3.0 recorded only exported fingerprints, which leaves gaps like these."
+	MsgCustodyHistoryReset      = "The history started again (%s), so seals before then cannot be traced. The earlier history was kept at %s."
+	MsgCustodyChainHeld         = "The history could not be read, so this check could not consult it: %s"
+	MsgCustodyKeptNone          = "No fingerprint was supplied, so every check above compares the case against itself."
+	MsgCustodyKeptNoneExported  = "A copy of the current fingerprint has been exported. Paste it here to check the case against it."
+	MsgCustodyKeptNoneNever     = "No copy of the current fingerprint has been exported. Export it from the Maintenance page and keep it outside the case."
+	MsgCustodyKeptMatch         = "The case's image is the one whose fingerprint you kept."
+	MsgCustodyKeptMatchNotOut   = "rohy has no record of this fingerprint being exported. If it was copied from this case's own screens rather than from a copy kept elsewhere, the match proves nothing."
+	MsgCustodyKeptEventOutside  = "The event itself is not in that seal, so the fingerprint vouches for the image, not for this event."
+	MsgCustodyKeptAncestor      = "The fingerprint you kept is an earlier seal of this case: the current image descends from it through the recorded seals. That link is the case's own record, so it does not show the image is untouched since. Keep the current fingerprint to check this event."
+	MsgCustodyKeptRecordedOff   = "The fingerprint you kept is a seal this case recorded, but the current image does not descend from it: the case was rolled back, or put back and sealed again."
+	MsgCustodyKeptRecordedGaps  = "The fingerprint you kept is a seal this case recorded, but the current image cannot be traced back to it through the recorded seals: the history has gaps, or the case was rolled back."
+	MsgCustodyKeptUnknown       = "The case's image does not descend from the fingerprint you kept, and the case has no record of it. It may belong to another case, or this case's image and history were replaced."
+	MsgCustodyKeptNoImage       = "The case has no fingerprint at all, so its image cannot be the one you kept: the image was replaced, or the fingerprint belongs to another case."
+	MsgCustodyKeptHeld          = "The case's image is not the one whose fingerprint you kept, and the history could not be consulted to say whether it descends from it: %s"
+
+	MsgCustodyAttestationNone     = "Seals are not signed, so nothing records who produced them."
+	MsgCustodyAttestationUnkeyed  = "The seal is signed, but rohy holds no key to check the signature."
+	MsgCustodyAttestationVerified = "The seal's signature checks out."
+	MsgCustodySegmentsNone        = "The commit history before each seal is discarded when the case is sealed."
+	MsgCustodySegmentsKept        = "%d earlier commit logs are kept, and they chain."
+	MsgCustodyAuditNone           = "No audit log: what was done to the case is not recorded."
+	MsgCustodyAuditKept           = "%d audit entries are recorded, and they chain."
+	MsgCustodyRolesNone           = "No role grants: nothing records who was permitted to write to, remove from or seal the case."
+	MsgCustodyRolesUnkeyed        = "%d role grants are recorded; their signatures were not checked, because rohy holds no key."
+	MsgCustodyRemovalsNone        = "No removals are recorded. rohy does not yet keep a removal ledger, so a deleted event leaves no trace."
+	MsgCustodyRemovalsUnkeyed     = "%d removals are recorded; their signatures were not checked, because rohy holds no key."
+	MsgCustodyRecordBroken        = "This record does not hold together."
+	MsgCustodyEngineUnknown       = "The engine reported a gap in its %q record that this build has no words for."
+
+	CustodyEstablishesRecord = "This event's stored record is in the case's current seal."
+	CustodyEstablishesRaw    = "Its raw record is the one rohy read when it ingested the event."
+	CustodyEstablishesKept   = "The case's image is the one whose fingerprint was supplied."
+
+	CustodyNotKept       = "Every check compared the case against itself. Whoever can rewrite the case can make all of them pass; a fingerprint kept outside the case is what closes that."
+	CustodyNotHistory    = "The history of seals is the case's own record: whoever can rewrite the case can rewrite it too."
+	CustodyNotSourceFile = "It does not establish that the record is what the source file held: rohy recorded no hash of the source file when it was ingested."
 )
 
 // --- Annotation layers (v0.2.0) ---

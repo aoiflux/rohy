@@ -67,6 +67,9 @@ function initialState() {
     sealing: false,
     // lastSeal is what the last seal did ({ state, snapshot }, SEAL_STATE), or null.
     lastSeal: null,
+    // seals counts case:sealed events, so a view can tell "a seal happened" from any other update
+    // of this store — every progress tick replaces the whole state object.
+    seals: 0,
   };
 }
 
@@ -147,7 +150,7 @@ function create() {
     // case:sealed fires on every request, including a failed or skipped seal, so the wait always
     // ends here. A failure also arrives on ingest:error, which is where it is shown.
     api.on(CHANNELS.CASE_SEALED, (outcome) =>
-      update((s) => ({ ...s, sealing: false, lastSeal: outcome || null })),
+      update((s) => ({ ...s, sealing: false, lastSeal: outcome || null, seals: s.seals + 1 })),
     );
     api.on(CHANNELS.INGEST_ERROR, (e) => {
       const msg = (e && e.message) || 'ingestion error';

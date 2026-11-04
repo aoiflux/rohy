@@ -154,3 +154,32 @@ func benchmarkUnsealed(b *testing.B, n int) {
 
 func BenchmarkUnsealed10k(b *testing.B)  { benchmarkUnsealed(b, 10000) }
 func BenchmarkUnsealed100k(b *testing.B) { benchmarkUnsealed(b, 100000) }
+
+// benchmarkEventCustody measures the drawer's "Account for this event" inside the store: graphene's
+// custody walk (one proof, plus the ledgers rohy does not keep), then ProveEvent for the record and
+// raw layers. Two proofs, so roughly twice ProveEvent; it runs on a click.
+//
+//	go test ./backend/graphene/ -run XXX -bench EventCustody -benchtime 5x -count 3
+func benchmarkEventCustody(b *testing.B, n int) {
+	dir := seedDiskStore(b, n, true)
+	s, err := Open(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+	id := uint64(n / 2)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		c, err := s.EventCustody(id)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !c.InSnapshot || c.ProofState != consts.EventProofOK {
+			b.Fatalf("in snapshot %v, proof %q: the benchmark would be timing a short path", c.InSnapshot, c.ProofState)
+		}
+	}
+}
+
+func BenchmarkEventCustody10k(b *testing.B)  { benchmarkEventCustody(b, 10000) }
+func BenchmarkEventCustody100k(b *testing.B) { benchmarkEventCustody(b, 100000) }

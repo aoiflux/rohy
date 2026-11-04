@@ -1647,6 +1647,41 @@ notes it under `kept` so every later open reports it. A document that could not
 be read at all, or could not be moved, is left in place, and rohy records no seals
 that session rather than write over it.
 
+### 18.3 Accounting for one event: the custody report
+
+**Account for this event** in the drawer asks what the case can account for about one event,
+layer by layer, and what it cannot. It is a list of gaps, never a verdict: no state of the report
+says custody is accounted for.
+
+| Piece | What it does |
+|---|---|
+| `graphene.Store.EventCustody` | graphene's `CustodyFor(id, nil)` in rohy's shape, plus `ProveEvent`'s state for the record and raw layers. Every field the report decides on is structured; the engine's text is carried only as a cause. |
+| `custody.EventReport` | Pure. Decides presence, words each layer, and lists what the report establishes and does not. |
+| `custody.Store.DescendsFrom` | Does the current image descend from a kept fingerprint through recorded, verifying links? Read-only. |
+| `MaintenanceAPI.EventCustody` | Normalizes the kept fingerprint, then gathers everything under `sealMu`, so no seal lands inside one report. |
+
+Presence is decided absence-first: `not_in_case`, `removed_since_seal` (deleted, still in the last
+seal), `redacted`, then `in_seal`, `written_since_seal`, `no_fingerprint`. An id the case does not
+hold is never described by the state of the seal.
+
+The event's layers are the seal, its stored record against the sealed one, its raw record, a
+removal when one is recorded, the history of seals (#37), and the fingerprint the analyst kept.
+graphene's store-wide layers (signature, commit history, audit log, role grants, removal ledger)
+read the same for every event, so they are grouped as case records. In this build they are all
+"not recorded": rohy opens cases without them (§14.6).
+
+The kept fingerprint is compared against the case's image **now**, whatever the event's state.
+graphene's `CustodyForAnchored` compares only when the entity is in the snapshot, which misses the
+rollback that removed it, so rohy does not call it. A fingerprint the image descends from is an
+earlier seal (not established); anything else is broken, including when the history cannot be
+consulted. The drawer never fills the field from the case. It drops the report on another event
+and when `caseMark` moves (a seal, an ingest starting or ending, a maintenance pass), never on a
+mere store update: both stores replace their state on every progress tick.
+
+A damaged image is reported, not failed: when the engine finds the seal broken, the event's proof
+is not asked for, and record and raw read "not checked". A layer's `remedy` (seal, or seal again)
+is cleared whenever the history is broken.
+
 ---
 
 ## 19. Performance decisions ledger

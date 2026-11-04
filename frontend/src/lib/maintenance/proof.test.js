@@ -71,11 +71,14 @@ describe('lib/maintenance / proof outcome', () => {
 
   // 🔒 Damage is reported, not routed around: the payload store is outside the sealed image, so a
   // seal would repair nothing and hide the finding.
-  it('a raw record that no longer matches is damage, with no seal button', () => {
-    const o = proofOutcome({ state: PROOF_STATE.RAW_MISMATCH });
-    expect(o.damage).toBe(true);
-    expect(o.sealable).toBe(false);
-    expect(o.saved).toBe(false);
+  it('a raw record that no longer matches, or cannot be read, is damage, with no seal button', () => {
+    for (const state of [PROOF_STATE.RAW_MISMATCH, PROOF_STATE.RAW_UNREADABLE, PROOF_STATE.IMAGE_DAMAGED]) {
+      const o = proofOutcome({ state });
+      expect(o.damage).toBe(true);
+      expect(o.sealable).toBe(false);
+      expect(o.saved).toBe(false);
+      expect(o.message).toBe(UI.DETAIL_PROOF_STATE[state]);
+    }
   });
 
   it('a state this build does not know reads as unprovable, never as saved', () => {

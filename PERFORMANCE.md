@@ -974,3 +974,24 @@ compaction it replaces, paid once per close or ingest, so it is not worth reduci
 ```
 go test ./backend/graphene/ -run XXX -bench Unsealed -benchtime 2s -count 3
 ```
+
+### Accounting for one event (v0.3.0)
+
+`EventCustody` is the drawer's _Account for this event_ inside the store: graphene's `CustodyFor`
+(one inclusion proof, and the ledgers rohy does not keep), then `ProveEvent` for the record and raw
+layers. Same machine, compacted store, median of three runs of `-benchtime 5x`, with `ProveEvent`
+from the same run beside it:
+
+| Events | `EventCustody` | Allocated | Allocations | `ProveEvent` |
+| -----: | -------------: | --------: | ----------: | -----------: |
+| 10k    |        20.6 ms |   10.2 MB |       100 k |       9.8 ms |
+| 100k   |         184 ms |    101 MB |       1.0 M |        87 ms |
+
+Two proofs, so twice `ProveEvent`, and linear for the same reason. The rest of the report (the
+history walk, the wording) is not measurable beside it. It runs on a click with a busy state, so
+nothing is optimised; reusing `CustodyFor`'s inclusion proof for the record check would halve it,
+at the cost of a second path that could disagree with the proof export.
+
+```
+go test ./backend/graphene/ -run XXX -bench EventCustody -benchtime 5x -count 3
+```

@@ -108,3 +108,43 @@ func rootsOf(r Record) graphene.SnapshotRoots {
 		TombstoneRoot: r.TombstoneRoot, BodyVersion: r.BodyVersion,
 	}
 }
+
+// DescendsFrom reports whether current descends from kept through recorded seals: walking back from
+// current's predecessor, every step lands on a recorded seal and every link verifies, until kept is
+// reached. The image being kept itself is not descent; the caller compares that first.
+//
+// 🔒 It asks the right question for an older kept fingerprint. "Is it in the history" is not it: keep
+// seal S2, then roll the image back to S1, and S2 is in the history while the image does not descend
+// from it. And what a yes is worth is narrow — the links are the case's own record, so a forger can
+// write them as easily as the image; a yes says only that the case claims the kept seal as an
+// ancestor. A step over a seal the history does not hold is a no: nothing recorded vouches for it.
+func (s *Store) DescendsFrom(current *graphene.SnapshotRoots, kept string) bool {
+	if current == nil || kept == "" {
+		return false
+	}
+	s.mu.Lock()
+	recs := slices.Clone(s.doc.Records)
+	s.mu.Unlock()
+
+	at := make(map[string]int, len(recs))
+	for i, r := range recs {
+		at[r.Snapshot] = i
+	}
+	cur, seen := *current, make(map[string]bool, len(recs))
+	for range len(recs) {
+		i, ok := at[cur.Prev]
+		if cur.Prev == "" || !ok || seen[cur.Prev] {
+			return false
+		}
+		prev := rootsOf(recs[i])
+		if graphene.VerifyChain(prev, cur) != nil {
+			return false
+		}
+		if prev.Snapshot == kept {
+			return true
+		}
+		seen[prev.Snapshot] = true
+		cur = prev
+	}
+	return false
+}

@@ -20,10 +20,15 @@ export const PROOF_STATE = Object.freeze({
   IMAGE_OUTDATED: 'image_outdated',
   RAW_MISMATCH: 'raw_mismatch',
   TOO_LARGE: 'too_large',
+  RAW_UNREADABLE: 'raw_unreadable',
+  IMAGE_DAMAGED: 'image_damaged',
 });
 
-/** The states a seal fixes. raw_mismatch is deliberately absent: it is damage, and sealing hides
- *  nothing and repairs nothing. */
+/** The states a seal fixes. raw_mismatch, raw_unreadable and image_damaged are deliberately
+ *  absent: they are damage, and sealing repairs nothing — over a damaged image it would build a
+ *  new one on top of it. */
+const DAMAGE = new Set([PROOF_STATE.RAW_MISMATCH, PROOF_STATE.RAW_UNREADABLE, PROOF_STATE.IMAGE_DAMAGED]);
+
 const SEALABLE = new Set([
   PROOF_STATE.NOT_SEALED,
   PROOF_STATE.WRITTEN_SINCE_SEAL,
@@ -63,7 +68,7 @@ export function proofOutcome(result) {
     snapshot: '',
     warnings: sealable ? [UI.DETAIL_PROOF_RESEAL_NOTE] : [],
     sealable,
-    damage: state === PROOF_STATE.RAW_MISMATCH,
+    damage: DAMAGE.has(state),
   };
 }
 

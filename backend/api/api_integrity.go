@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -291,6 +292,53 @@ func (a *MaintenanceAPI) ExportEventProof(id uint64) (EventProofExport, error) {
 		out.FingerprintExported = hist.Exported(p.Snapshot)
 	}
 	return out, nil
+}
+
+// EventCustody is the custody report for one event (plan §14.4, §15.6): gaps, never a verdict.
+//
+// kept is a fingerprint the analyst kept outside the case, or empty. 🔒 It is the caller's, always:
+// the UI never fills it from the case, because a check against the case's own copy proves nothing.
+//
+// It takes no maintenance lock: it writes nothing. It takes sealMu, so no seal lands between the
+// engine's account, the event's proof, the current roots and the history — the four would otherwise
+// describe different images. Writes still interleave; a delete that lands inside one is reported
+// as an absence.
+func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, error) {
+	k, err := custody.NormalizeFingerprint(kept)
+	if err != nil {
+		return custody.Report{}, AsError(consts.ErrCodeParse, err)
+	}
+	a.mu.Lock()
+	hist := a.integrity.Roots
+	a.mu.Unlock()
+
+	sealMu.Lock()
+	defer sealMu.Unlock()
+
+	in := custody.ReportInput{Event: id, Kept: k, NoHistory: hist == nil}
+	eng, err := a.store.EventCustody(id)
+	if errors.Is(err, graphene.ErrForensicsUnavailable) {
+		in.Unavailable = true
+		return custody.EventReport(in), nil
+	}
+	if err != nil {
+		return custody.Report{}, AsError(consts.ErrCodePersistence, err)
+	}
+	in.Engine = eng
+	if in.Current, err = a.store.SnapshotRoots(); err != nil {
+		return custody.Report{}, AsError(consts.ErrCodePersistence, err)
+	}
+	if hist != nil {
+		in.Chain = hist.Chain(in.Current)
+		if in.Current != nil {
+			in.Exported = hist.Exported(in.Current.Snapshot)
+		}
+		if k != "" {
+			_, in.KeptKnown = hist.Get(k)
+			in.KeptAncestor = hist.DescendsFrom(in.Current, k)
+		}
+	}
+	return custody.EventReport(in), nil
 }
 
 // VerifyImage re-derives the case image's digest and Merkle roots.

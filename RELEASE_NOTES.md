@@ -59,6 +59,17 @@ whole answer.
   a fingerprint kept outside the case.
 - **"Sealing case…"** now shows in the ingestion bar after an ingest, instead of a silent pause
   after "complete".
+- **A custody report for each event.** *Account for this event* in the drawer says, layer by
+  layer, what the case can account for about the event and what it cannot: whether it is in the
+  current seal, whether its stored and raw records are the sealed ones, where the case's image sits
+  in its history of seals, and what the case does not record at all (who sealed it, what was done
+  to it). It is a list of gaps, not a verdict.
+  - **Paste a fingerprint you kept** to check the case against it. It is compared against the
+    case's image whatever the event's state, so a restored backup that no longer holds the event
+    is still caught. An earlier fingerprint of the same case is reported as an earlier seal, not as
+    a check: keep the current one. The field is never filled in from the case.
+  - It does not establish who did anything, that the event is true, the parsed fields, or that the
+    record is what the source file held: rohy records no hash of the source file at ingest.
 
 ### Fixed
 
@@ -81,6 +92,9 @@ whole answer.
 
 ### Changed
 
+- **A raw record that cannot be read, or a damaged sealed image, is reported as damage.** *Save
+  proof…* used to fail with a generic error in both cases. It now says which, the same way as a
+  raw record that no longer matches its hash, and offers no seal: sealing repairs neither.
 - **An unreadable fingerprint history is kept, not overwritten.** It used to be treated as empty
   and replaced at the next seal, losing the record of which fingerprints were exported. It is now
   moved aside as `roots.json.unreadable-<time>`, and the integrity check says where on every

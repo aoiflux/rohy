@@ -22,6 +22,10 @@ export function CorrelationKeyStatus() {
   return window['go']['api']['MaintenanceAPI']['CorrelationKeyStatus']();
 }
 
+export function EventCustody(arg1, arg2) {
+  return window['go']['api']['MaintenanceAPI']['EventCustody'](arg1, arg2);
+}
+
 export function ExportCaseFingerprint() {
   return window['go']['api']['MaintenanceAPI']['ExportCaseFingerprint']();
 }

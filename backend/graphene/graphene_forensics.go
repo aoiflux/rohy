@@ -29,12 +29,15 @@ package graphene
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"rohy/backend/consts"
 	"rohy/backend/eventproof"
+	"rohy/backend/payload"
 
 	"github.com/aoiflux/graphene"
 	"github.com/aoiflux/graphene/disk"
@@ -505,6 +508,13 @@ type EventProof struct {
 	// Document is the exact bytes to hand over. eventproof.Assemble verified these bytes against
 	// Snapshot before they were returned.
 	Document []byte
+	// RawBound reports whether the seal covers the raw record: the stored record carries its hash,
+	// and the proof got far enough to bind it. Set on ok, and on too_large, which is refused only
+	// after both bindings succeeded. The custody report's raw layer reads this.
+	RawBound bool
+	// RawHashed reports whether the stored record carries a raw-record hash at all, so a record
+	// with a hash and no raw record is not described as one with no hash. Set with RawBound.
+	RawHashed bool
 }
 
 // ProveEvent builds the proof document for one event (plan §14.3).
@@ -514,7 +524,7 @@ type EventProof struct {
 // CONTENT, not merely that some node of that id was sealed.
 //
 // 🔒 Every reason an event cannot be proven is a state, not an error, because each has a different
-// remedy and none of them is damage except raw_mismatch:
+// remedy and none of them is damage except raw_mismatch, raw_unreadable and image_damaged:
 //
 //	unavailable         the in-memory backend keeps no image
 //	not_sealed          the case was never sealed
@@ -522,6 +532,8 @@ type EventProof struct {
 //	changed_since_seal  its stored record changed after the last seal (a dedup count, a backfill)
 //	image_outdated      the seal predates leaves that hash the stored record
 //	raw_mismatch        the raw record no longer hashes to the value its stored record holds
+//	raw_unreadable      the raw record cannot be read from the payload store at all
+//	image_damaged       the sealed image does not check out: the proof does not resolve to its root
 //	too_large           the document would exceed what any verifier reads
 //
 // The live record is read before the proof is built, and Assemble compares the two by hash, so a
@@ -543,13 +555,24 @@ func (s *Store) ProveEvent(id uint64) (EventProof, error) {
 	if err != nil {
 		return EventProof{}, err
 	}
+	// 🔒 By label: eventFromNode decodes any JSON it is given, so a proof built over some other node
+	// would carry its record labelled as an event's.
+	if !slices.Contains(n.Labels, consts.NodeEvent) {
+		return EventProof{}, fmt.Errorf(consts.MsgNotAnEvent, id)
+	}
 	e, err := eventFromNode(n)
 	if err != nil {
 		return EventProof{}, err
 	}
-	if err := s.hydrate(e); err != nil {
+	// A raw record that is not there to read is damage, reported as a state. Anything else — the
+	// case shutting down, an I/O error that may pass — stays an error, because calling it damage
+	// would send the analyst looking for a fault that is not in the case.
+	if err := s.hydrate(e); rawUnreadable(err) {
+		return EventProof{State: consts.EventProofRawUnreadable}, nil
+	} else if err != nil {
 		return EventProof{}, err
 	}
+	hashed := e.HashRaw != ""
 	// The raw record travels only when the stored record carries its hash. Without one the seal
 	// never bound it, so nothing could vouch for it: the proof then covers the stored fields alone,
 	// and says so, rather than carrying a record a recipient might mistake for proven.
@@ -577,7 +600,10 @@ func (s *Store) ProveEvent(id uint64) (EventProof, error) {
 	case errors.Is(err, eventproof.ErrRawMismatch):
 		return EventProof{State: consts.EventProofRawMismatch}, nil
 	case errors.Is(err, eventproof.ErrTooLarge):
-		return EventProof{State: consts.EventProofTooLarge}, nil
+		return EventProof{State: consts.EventProofTooLarge, RawBound: raw != nil, RawHashed: hashed}, nil
+	// Assemble's self-check: the proof does not resolve to the root of the image it came from.
+	case errors.Is(err, eventproof.ErrNotVerified):
+		return EventProof{State: consts.EventProofImageDamaged}, nil
 	case err != nil:
 		return EventProof{}, err
 	}
@@ -587,8 +613,19 @@ func (s *Store) ProveEvent(id uint64) (EventProof, error) {
 		return EventProof{}, err
 	}
 	return EventProof{
-		State:    consts.EventProofOK,
-		Snapshot: hashHex(exported.Node.Roots.Snapshot),
-		Document: doc,
+		State:     consts.EventProofOK,
+		Snapshot:  hashHex(exported.Node.Roots.Snapshot),
+		Document:  doc,
+		RawBound:  raw != nil,
+		RawHashed: hashed,
 	}, nil
+}
+
+// rawUnreadable reports whether a payload read failed because the raw record is not there to read:
+// the log is shorter than the reference, or the record does not decode.
+func rawUnreadable(err error) bool {
+	var short *payload.OutOfRangeError
+	var syntax *json.SyntaxError
+	var shape *json.UnmarshalTypeError
+	return errors.As(err, &short) || errors.As(err, &syntax) || errors.As(err, &shape)
 }

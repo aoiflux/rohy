@@ -96,6 +96,25 @@ describe('compact', () => {
     expect(get(maintenance).error).toContain('seal failed');
     expect(get(maintenance).running).toBe('');
   });
+
+  // The drawer drops a custody report when this moves: the report described the image the seal
+  // replaced. 🔒 A failed call counts too — a seal whose fingerprint could not be recorded still
+  // compacted, and the image moved.
+  it('counts every seal it asked for, failed ones included', async () => {
+    expect(get(maintenance).seals).toBe(0);
+    await maintenance.compact();
+    expect(get(maintenance).seals).toBe(1);
+    state.failSeal = true;
+    await maintenance.compact();
+    expect(get(maintenance).seals).toBe(2);
+  });
+
+  it('a pass that is refused because another runs asks for no seal', async () => {
+    const first = maintenance.compact();
+    expect(await maintenance.compact()).toBe(false);
+    await first;
+    expect(get(maintenance).seals).toBe(1);
+  });
 });
 
 describe('initial state', () => {
