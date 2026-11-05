@@ -38,6 +38,12 @@ type CustodyRedaction struct {
 	At      time.Time
 	ActorID uint64
 	Reason  string
+	// Seq is the record's place in the ledger. Signed reports a signature on it, and SignatureValid
+	// that it checked out under the verifier the report was assembled with (item 41).
+	Seq            uint64
+	KeyID          uint64
+	Signed         bool
+	SignatureValid bool
 }
 
 // EventCustody is what the engine and the event's own proof say about one event.
@@ -79,16 +85,24 @@ type EventCustody struct {
 // what lets the delete-in-between branch be exercised deterministically.
 var betweenCustodyReads = func() {}
 
-// EventCustody assembles the engine's account for one event.
-//
-// The verifier is nil: rohy holds no key (§14.6), so signature-dependent layers are reported as
-// unestablished rather than failing.
+// EventCustody assembles the engine's account for one event with no verifier: signature-dependent
+// layers are reported as unestablished rather than failing.
 func (s *Store) EventCustody(id uint64) (EventCustody, error) {
+	return s.EventCustodyUnder(id, nil)
+}
+
+// EventCustodyUnder assembles the engine's account for one event, checking signatures under v —
+// the keys the case lists (item 41). v may be nil.
+//
+// 🔒 v is the case's own list of keys, so a signature that checks out under it says the image was
+// signed by a key this case names. Whether that key is the analyst's is for whoever compares its
+// fingerprint with one they kept.
+func (s *Store) EventCustodyUnder(id uint64, v store.Verifier) (EventCustody, error) {
 	fs, err := s.forensics()
 	if err != nil {
 		return EventCustody{}, err
 	}
-	rep, err := fs.CustodyFor(store.NodeID(id), nil)
+	rep, err := fs.CustodyFor(store.NodeID(id), v)
 	if err != nil {
 		return EventCustody{}, err
 	}
@@ -113,6 +127,14 @@ func (s *Store) EventCustody(id uint64) (EventCustody, error) {
 			At:      time.Unix(0, r.UnixNano).UTC(),
 			ActorID: r.ActorID,
 			Reason:  r.Reason,
+			Seq:     r.Seq,
+			KeyID:   r.KeyID,
+			Signed:  len(r.Signature) > 0,
+		}
+		// A ledger record is signed over its hash (disk/redact.go). Checked here one record at a
+		// time; the engine's chain check skips an unsigned record without saying so.
+		if v != nil && out.Redacted.Signed {
+			out.Redacted.SignatureValid = v.Verify(r.KeyID, r.Hash[:], r.Signature) == nil
 		}
 	}
 	for _, g := range rep.Gaps {

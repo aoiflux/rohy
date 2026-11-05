@@ -7,11 +7,23 @@
   import { onMount } from 'svelte';
   import { rules } from '../../stores/rules.js';
   import { route } from '../../stores/router.js';
-  import { UI, ROUTES } from '../../lib/consts/index.js';
+  import { init } from '../../stores/init.js';
+  import { session } from '../../stores/session.js';
+  import { UI, ROUTES, INIT_PHASE } from '../../lib/consts/index.js';
 
   onMount(() => {
     // Cheap and idempotent; the store keeps the registry as the source of truth.
     if ($rules.list.length === 0) rules.load();
+  });
+
+  // A session that cannot write is marked on every page (item 41): nothing will save, and the
+  // reason and the remedy are one click away on the Maintenance page.
+  let asked = false;
+  $effect(() => {
+    if (!asked && $init.phase === INIT_PHASE.READY) {
+      asked = true;
+      session.refresh();
+    }
   });
 
   const enabled = $derived($rules.list.filter((r) => r.enabled));
@@ -36,6 +48,11 @@
     <span class="label">{UI.STATUSBAR_RULES_LABEL}</span>
     <span class="value">{summary}</span>
   </button>
+  {#if $session.readOnly}
+    <button class="readonly" type="button" onclick={() => route.go(ROUTES.MAINTENANCE)} title={$session.readOnly}>
+      {UI.STATUS_READ_ONLY}
+    </button>
+  {/if}
 </footer>
 
 <style>
@@ -91,5 +108,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .readonly {
+    margin-left: auto;
+    height: 18px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--color-error);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-error);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
   }
 </style>

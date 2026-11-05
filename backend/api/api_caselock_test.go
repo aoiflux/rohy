@@ -202,6 +202,55 @@ func holdExclusive(t *testing.T) {
 // Every binding that writes the case, or a copy of an event's content, is refused while a
 // redaction runs.
 func TestEveryCaseWriteIsRefusedDuringARedaction(t *testing.T) {
+	store, events, ev, calls := everyCaseWrite(t)
+	holdExclusive(t)
+	for name, call := range calls {
+		if strings.HasPrefix(name, readOnlyOnly) {
+			continue
+		}
+		err := call()
+		var ae ErrorEvent
+		if !errors.As(err, &ae) || ae.Code != consts.ErrCodeBusy {
+			t.Errorf("%s during a redaction: %v", name, err)
+		}
+	}
+	if ev.IsIngesting() {
+		t.Error("a refused ingest is marked running")
+	}
+	if n, _, _ := store.Stats(); n != uint64(len(events)) {
+		t.Errorf("the case changed under a redaction: %d events", n)
+	}
+}
+
+// 🔒 A session that cannot write refuses every write binding, with the reason (item 41) — and still
+// runs the image check, which writes nothing.
+func TestEveryCaseWriteIsRefusedInAReadOnlySession(t *testing.T) {
+	store, events, ev, calls := everyCaseWrite(t)
+	theCase.setGate(func() error { return errors.New("read-only for this test") })
+	t.Cleanup(func() { theCase.setGate(nil) })
+	for name, call := range calls {
+		err := call()
+		var ae ErrorEvent
+		switch {
+		case name == "VerifyImage":
+			if errors.As(err, &ae) && ae.Code == consts.ErrCodeReadOnly {
+				t.Errorf("the image check was refused in a read-only session: %v", err)
+			}
+		case !errors.As(err, &ae) || ae.Code != consts.ErrCodeReadOnly:
+			t.Errorf("%s in a read-only session: %v", name, err)
+		}
+	}
+	if ev.IsIngesting() {
+		t.Error("a refused ingest is marked running")
+	}
+	if n, _, _ := store.Stats(); n != uint64(len(events)) {
+		t.Errorf("a read-only session changed the case: %d events", n)
+	}
+}
+
+// everyCaseWrite is every binding that writes the case or a copy of its content.
+func everyCaseWrite(t *testing.T) (*graphene.Store, []*graphene.Event, *EventsAPI, map[string]func() error) {
+	t.Helper()
 	store := graphene.OpenInMemory()
 	t.Cleanup(func() { store.Close() })
 	events := seedTwo(t, store)
@@ -212,8 +261,6 @@ func TestEveryCaseWriteIsRefusedDuringARedaction(t *testing.T) {
 	b, _ := newTestBuildAPI(t, store, testRuleBody)
 	snaps, _, _, graphID, _ := snapFixture(t)
 	ann, _, _, _ := annFixture(t)
-
-	holdExclusive(t)
 
 	calls := map[string]func() error{
 		"StartIngest": func() error {
@@ -246,21 +293,20 @@ func TestEveryCaseWriteIsRefusedDuringARedaction(t *testing.T) {
 		"UpdateRelation": func() error { _, err := g.UpdateRelation(RelationUpdate{ID: 1}); return err },
 		"DeleteRelation": func() error { return g.DeleteRelation(1) },
 		"DeleteGraph":    func() error { return g.DeleteGraph(graphID) },
+		// Read-only also refuses writers a redaction need not exclude: they copy no event content,
+		// but they are the analyst's work on the case.
+		readOnlyOnly + "CreateGraph": func() error { _, err := g.CreateGraph(GraphRequest{Name: "g"}); return err },
+		readOnlyOnly + "RenameGraph": func() error {
+			_, err := g.RenameGraph(GraphRequest{ID: graphID, Name: "g"})
+			return err
+		},
+		readOnlyOnly + "ResetCapture": func() error { return ev.ResetCapturePositions("") },
 	}
-	for name, call := range calls {
-		err := call()
-		var ae ErrorEvent
-		if !errors.As(err, &ae) || ae.Code != consts.ErrCodeBusy {
-			t.Errorf("%s during a redaction: %v", name, err)
-		}
-	}
-	if ev.IsIngesting() {
-		t.Error("a refused ingest is marked running")
-	}
-	if n, _, _ := store.Stats(); n != uint64(len(events)) {
-		t.Errorf("the case changed under a redaction: %d events", n)
-	}
+	return store, events, ev, calls
 }
+
+// readOnlyOnly marks a call only a read-only session refuses.
+const readOnlyOnly = "read-only only: "
 
 // 🔒 An ingest holds the lock for the life of the job, not just for the call that starts it: the
 // call returns at once and the job writes for minutes after.

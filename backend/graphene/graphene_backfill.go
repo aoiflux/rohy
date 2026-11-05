@@ -181,7 +181,7 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 		return res, err
 	}
 
-	tx := g.Begin()
+	tx := s.tx(g)
 	pending := 0
 	for _, n := range nodes {
 		res.Examined++

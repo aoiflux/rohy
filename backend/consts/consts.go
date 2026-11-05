@@ -776,6 +776,200 @@ const (
 	MsgPayloadFrameNoStart   = "no record starts there"
 )
 
+// Signing keys (plan §14.6, item 41). A key file holds one Ed25519 key, encrypted under a key derived
+// from the analyst's passphrase. It lives outside the case: a key kept beside the evidence proves
+// nothing, because whoever can rewrite the case can re-sign it with the key sitting next to it.
+const (
+	KeyFileFormat  = "rohy-signing-key"
+	KeyFileVersion = 1
+	// KeyFileMaxSize bounds what Unlock reads. A key file is under a kilobyte.
+	KeyFileMaxSize = 16 << 10
+
+	KeyKDFArgon2id = "argon2id"
+	KeyCipherAEAD  = "aes-256-gcm"
+
+	// The parameters a new key file is written with (RFC 9106 §4, the second recommended option).
+	KeyArgonTime      = 3
+	KeyArgonMemoryKiB = 64 << 10
+	KeyArgonThreads   = 4
+	KeySaltLen        = 16
+	KeyNonceLen       = 12
+
+	// Bounds on parameters READ from a file, which is untrusted: a crafted file must not be able to
+	// make an unlock allocate gigabytes or run for minutes.
+	KeyArgonMinTime      = 1
+	KeyArgonMaxTime      = 10
+	KeyArgonMinMemoryKiB = 8 << 10
+	KeyArgonMaxMemoryKiB = 256 << 10
+	KeyArgonMaxThreads   = 16
+	KeyMinSaltLen        = 16
+	KeyMaxSaltLen        = 64
+
+	// Passphrase bounds, in bytes. No composition rules: length is what resists an offline guess.
+	KeyMinPassphrase = 12
+	KeyMaxPassphrase = 1024
+	// KeyMaxLabel bounds a key's label, in runes.
+	KeyMaxLabel = 128
+)
+
+const (
+	MsgKeyPassphraseShort = "the passphrase must be at least %d bytes long"
+	MsgKeyPassphraseLong  = "the passphrase is %d bytes; at most %d are accepted"
+	MsgKeyPassphraseUTF8  = "the passphrase is not valid text"
+	MsgKeyLabelInvalid    = "the key's label must be 1 to %d characters, with no control or invisible characters"
+	MsgKeyFileExists      = "%s already exists. rohy never replaces a key file: a replaced key can no longer sign for the cases it signed"
+	MsgKeyInsideCase      = "%s is inside the case's working folder %s. A key kept with the case proves nothing, because whoever can change the case could re-sign it with that key. Choose a folder outside it"
+	MsgKeyFileNotKey      = "%s is not a rohy signing key: %s"
+	MsgKeyFileNewer       = "%s was written by a newer rohy (key format %d, this build reads %d)"
+	MsgKeyUnlockFailed    = "the key could not be unlocked: the passphrase is wrong, or the key file is damaged"
+	MsgKeyFileMismatch    = "%s is damaged: the key it holds does not match the public key it names"
+	MsgKeyWriteFailed     = "the key file could not be written: %w"
+)
+
+// Analysts (plan §14.6, item 41).
+//
+// The profile is per user and lives OUTSIDE every case (os.UserConfigDir()/rohy/analyst.json): who
+// the analyst is, where their key is, and the cases they have signed — the one record of a signed
+// case that whoever holds the case folder cannot edit. It never holds the key.
+//
+// The register lives in the case (rohy-data/analysts/register.json): everyone who has worked on it,
+// every public key it has seen, and whether it is signed. 🔒 A register that cannot be read is
+// UNKNOWN, never "unsigned": reading it as unsigned would let anyone downgrade a signed case by
+// damaging one file.
+const (
+	ProfileDirName  = "rohy"
+	ProfileFile     = "analyst.json"
+	ProfileVersion  = 1
+	MaxProfileSize  = 1 << 20
+	AnalystsSubdir  = "analysts"
+	RegisterFile    = "register.json"
+	RegisterVersion = 1
+	MaxRegisterSize = 4 << 20
+	// AnalystMaxName bounds an analyst's name, in runes.
+	AnalystMaxName = 128
+	// MaxSigningReasonLen bounds the reason given for continuing a signed case unsigned or for
+	// accepting a log, in bytes. Like a redaction's, it is kept in plain text, permanently.
+	MaxSigningReasonLen = 2048
+
+	// A case's signing state.
+	SigningUnsigned            = "unsigned"
+	SigningRequested           = "requested"
+	SigningSigned              = "signed"
+	SigningUnsignedAfterSigned = "unsigned_after_signed"
+)
+
+const (
+	MsgAnalystNameInvalid    = "a name must be 1 to %d characters, with no control or invisible characters"
+	MsgProfileUnreadable     = "your analyst profile %s cannot be read: %v"
+	MsgProfileNewer          = "your analyst profile %s was written by a newer rohy (format %d, this build reads %d)"
+	MsgProfileNoIdentity     = "no analyst identity yet: enter your name first"
+	MsgRegisterUnreadable    = "the case's analyst register %s cannot be read: %v. rohy treats the case's signing as unknown until it is restored"
+	MsgRegisterNewer         = "the case's analyst register %s was written by a newer rohy (format %d, this build reads %d)"
+	MsgRegisterBad           = "the case's analyst register is not valid: %s"
+	MsgRegisterWriteFailed   = "the case's analyst register could not be written: %w"
+	MsgRegisterKeyClash      = "key %d is already registered with a different public key"
+	MsgRegisterActorClash    = "two analysts map to actor %d"
+	MsgRegisterNoKey         = "key %d is not registered in this case"
+	MsgRegisterBadTransition = "the case cannot go from %q to %q"
+	MsgSigningReasonEmpty    = "a reason is needed: it is recorded, permanently"
+	MsgSigningReasonLong     = "the reason is %d bytes; at most %d are kept"
+	MsgSigningReasonUTF8     = "the reason is not valid text"
+)
+
+// The session step (item 41): what the case needs from the analyst before it opens, and the choices
+// it offers.
+const (
+	SessionNeedNone     = "none"
+	SessionNeedIdentity = "identity"
+	SessionNeedChoice   = "choice"
+
+	SessionStart            = "start"
+	SessionUnlock           = "unlock"
+	SessionAddKey           = "add_key"
+	SessionReadOnly         = "read_only"
+	SessionRecovery         = "recovery"
+	SessionContinueUnsigned = "continue_unsigned"
+	SessionCancelRequest    = "cancel_request"
+
+	// Why a case is treated as signed. Any one is enough; the register alone is never trusted to
+	// say a case is unsigned, because whoever holds the case folder can rewrite it.
+	EvidenceRegister = "register"
+	EvidenceImage    = "image"
+	EvidenceProfile  = "profile"
+
+	// rohy's own audit entries, offset into the caller's range of graphene's audit kinds.
+	AuditActionSession          = 1
+	AuditActionSigningRequested = 2
+	AuditActionSigningEnabled   = 3
+	AuditActionKeyAdded         = 4
+	AuditActionLogAccepted      = 5
+	AuditActionContinued        = 6
+	AuditActionIdentityRenamed  = 7
+	AuditActionIngest           = 8
+	AuditActionProofExported    = 9
+	AuditActionAuditTailKept    = 10
+	AuditActionKeyUnlocked      = 11
+)
+
+const (
+	MsgSessionNotBegun       = "no session has started"
+	MsgSessionBegun          = "the session has already started"
+	MsgSessionChoiceRefused  = "%q is not one of the choices this case offers now: %v"
+	MsgSessionNoKey          = "no signing key is set up: choose or create one first"
+	MsgSessionKeyNotCase     = "key %s is not one of this case's keys: choose \"Add my key\" to add it"
+	MsgSessionKeyNotRequest  = "this case asked to be signed with key %d, not %d"
+	MsgSessionLogFlagged     = "this case's log holds %d record(s) written after its last seal that this analyst did not leave there (a crash leaves this too)"
+	MsgSessionLogUnknown     = "this case's log holds %d record(s) written after its last seal, and rohy has no record of who left them"
+	MsgSessionAcceptLog      = "accept the log, with a reason, before signing over it — or open the case read-only"
+	MsgSessionDisagrees      = "this case shows it was signed (%v) but its register says %q"
+	MsgSessionRegisterLost   = "this case shows it was signed (%v) but its register cannot be read"
+	MsgSessionAuditDamaged   = "the case's audit log cannot be read: %v"
+	MsgSessionRecoveryReason = "the case's signing could not be established: %s"
+	MsgSessionUnlockFlagged  = "this session's log was not accepted at the start: restart rohy and accept it to sign"
+	MsgSessionUnlockSlot     = "this session signs with key %d; restart rohy to sign with another"
+	MsgSessionAuditGap       = "the action happened, but the audit log could not record it: %v"
+	MsgSessionImageUnread    = "the case image could not be inspected: %v"
+	MsgSecretBindingFailed   = "the request failed inside rohy; nothing it carried was recorded"
+	MsgDialogUnavailable     = "file dialogs are not available yet"
+)
+
+// How a session opens the case (plan §14.6). The mode is fixed when the store opens: graphene takes
+// its signer, verifier and actor as open-time options.
+const (
+	// CaseModeUnsigned: a case that has never been signed. Writes are unsigned, as before #41.
+	CaseModeUnsigned = "unsigned"
+	// CaseModeSigned: commits and seals are signed with the analyst's key. While the key is
+	// locked the case is read-only.
+	CaseModeSigned = "signed"
+	// CaseModeAfterSigned: a signed case the analyst chose to continue unsigned, with a reason.
+	CaseModeAfterSigned = "unsigned_after_signed"
+	// CaseModeRecovery: read-only, the log replayed without checking signatures. For a case whose
+	// signed open failed, or whose signing state cannot be established.
+	CaseModeRecovery = "recovery"
+
+	// AuditFile is graphene's audit log in the database directory. rohy reads it only to check its
+	// framing: the engine appends after whatever is there, so a torn tail would misframe every
+	// entry after it.
+	AuditFile = "graphene.audit"
+	// AuditRecordFixed is the size of an audit entry's fixed fields: seq, time, actor, kind, detail
+	// length, and two hashes.
+	AuditRecordFixed = 8 + 8 + 8 + 2 + 4 + 32 + 32
+)
+
+const (
+	MsgKeyLocked        = "the signing key is locked: unlock it to write to this case"
+	MsgCaseReadOnly     = "this case is open read-only (%s): nothing can be changed in this session"
+	MsgReadOnlyLocked   = "it signs its work and the key is locked; unlock the key on the Maintenance page"
+	MsgReadOnlyRecovery = "it was opened for recovery: %s"
+	MsgReadOnlyPoisoned = "a seal replaced the case image but this session's copy no longer matches it; restart rohy"
+	MsgNoSession        = "the case is not open: no session was started"
+	MsgSessionStarted   = "the case is already open in this session"
+	MsgSlotWrongKey     = "key %d is not the key this session signs with (%d)"
+	MsgRetentionOff     = "kept off: a retained log segment would keep the content a redaction removed"
+	MsgAuditTorn        = "the audit log is %d bytes but its entries end at byte %d: the rest is a torn write"
+	MsgAuditMisframed   = "the audit log cannot be read: %v"
+)
+
 // --- Store read integrity ---
 //
 // MsgNodesMissing reports ids that an index or query produced but that no longer resolve
@@ -839,6 +1033,7 @@ const (
 const (
 	MsgSealCompactFailed = "sealing the case failed: %w"
 	MsgSealRecordFailed  = "the case was sealed, but its fingerprint could not be recorded in the history: %w"
+	MsgSealPoisoned      = "the seal replaced the case image and then failed (%w). This session's copy no longer matches the image on disk, so nothing more will be written until rohy restarts"
 )
 
 // --- Rule testbench (v0.2.0) ---
@@ -863,11 +1058,14 @@ const (
 	InitPhaseInitializing = "initializing"
 	InitPhaseReady        = "ready"
 	InitPhaseFailed       = "failed"
+	// InitPhaseAwaitingSession: the case waits for the analyst at the session step (item 41).
+	InitPhaseAwaitingSession = "awaiting_session"
 )
 
 // Initialization stage labels, shown on the splash while the app warms up.
 const (
 	MsgInitStarting = "Starting…"
+	MsgInitSession  = "Waiting for you to start the session…"
 	MsgInitStore    = "Opening case database…"
 	MsgInitGraphs   = "Preparing graphs…"
 	MsgInitRules    = "Loading correlation rules…"
@@ -907,6 +1105,12 @@ const (
 	// ErrCodeBusy marks a call refused because the case lock is held by something that cannot
 	// run beside it (plan §14.5). Nothing was written; the message names what is running.
 	ErrCodeBusy = "case_busy"
+	// ErrCodeReadOnly marks a write refused because this session cannot write the case (item 41):
+	// its signing key is locked, or it was opened for recovery. The message says which, and how.
+	ErrCodeReadOnly = "case_read_only"
+	// ErrCodeSession marks a session step refused: a choice the case does not offer, a passphrase
+	// that did not unlock the key, a key that is not this case's.
+	ErrCodeSession = "session_error"
 )
 
 // --- Case lock (plan §14.5, item 40) ---
@@ -1395,7 +1599,7 @@ const (
 
 	// Why a history document could not be used when the case opened.
 	MsgCustodyHistoryCorrupt  = "it is not a readable fingerprint history (%v)"
-	MsgCustodyHistoryNewer    = "it was written by a newer build (history format %d; this build reads %d)"
+	MsgCustodyHistoryNewer    = "it is in a history format this build does not read (format %d; this build reads 1 to %d)"
 	MsgCustodyHistoryReadFail = "it could not be read (%v)"
 	// MsgCustodyHistoryHeld is the write refused when an unusable document was left in place
 	// (unreadable, or could not be moved aside). 🔒 Refusing is the point: writing would destroy
@@ -1621,7 +1825,10 @@ const (
 	CustodyEventLayerRedaction = "redaction"
 	CustodyEventLayerHistory   = "history"
 	CustodyEventLayerKept      = "kept_fingerprint"
-	CustodyRecordRemovals      = "removals"
+	// CustodyEventLayerSigning is rohy's own check of the case's signing (item 41): what the
+	// engine does not require — that a case which signs its seals still does, unbroken.
+	CustodyEventLayerSigning = "signing"
+	CustodyRecordRemovals    = "removals"
 )
 
 // A layer's state, following graphene's split: broken is a chain that failed; not established is
@@ -1669,7 +1876,7 @@ const (
 	MsgCustodyRedactedNode     = "The event was removed on purpose at %s: %q."
 	MsgCustodyRedactedOther    = "A removal of scope %q is recorded for this event at %s: %q."
 	MsgCustodyRedactionUnbound = "The removal is in the ledger but not yet bound into the seal, so someone given only the sealed image cannot tell it from an event that never existed."
-	MsgCustodyRedactionNoActor = "Who performed it is not recorded: this case keeps no analyst identity yet."
+	MsgCustodyRedactionNoActor = "Who performed it is not recorded: it was made before rohy recorded analysts."
 	MsgCustodyRedactionUndone  = "The ledger records this event's content as removed, but the event still holds a record: the redaction did not finish, or something wrote the record back. Finish the redaction on the Maintenance page."
 
 	MsgCustodyPresenceRedactedContent = "The event's content was removed on purpose at %s: %q. The event and the relations an analyst drew stay; its record, raw record and parsed fields are gone. The fact, time and reason are recorded."
@@ -1723,6 +1930,21 @@ const (
 	CustodyEstablishesRecord = "This event's stored record is in the case's current seal."
 	CustodyEstablishesRaw    = "Its raw record is the one rohy read when it ingested the event."
 	CustodyEstablishesKept   = "The case's image is the one whose fingerprint was supplied."
+	CustodyEstablishesSigned = "The case's current seal is signed by a key this case lists. Who holds that key is for whoever compares its fingerprint with one they kept."
+
+	// The signing layer (item 41).
+	MsgCustodySigningOff        = "This case does not sign its seals, so nothing records who asserted this image."
+	MsgCustodySigningRequested  = "Signing was asked for; it starts the next time the case is opened with the key."
+	MsgCustodySigningUnknown    = "Whether this case signs its seals cannot be told: its analyst register cannot be read (%s)."
+	MsgCustodySigningVerified   = "The current seal is signed by %s's key %s, which this case lists. Compare that fingerprint with the one you kept."
+	MsgCustodySigningUnnamed    = "The current seal is signed by key %s, which this case lists."
+	MsgCustodySigningMissing    = "This case signs its seals, but the current image carries no signature: it was sealed without the key."
+	MsgCustodySigningBad        = "The current seal's signature does not check out under the keys this case lists: %s"
+	MsgCustodySigningGap        = "The current seal follows a seal this case's signed record does not hold: an image was sealed outside a signed session."
+	MsgCustodySigningUnrecorded = "The current seal is signed, but the case did not record it; the seal before it is the last one it recorded."
+	MsgCustodySigningStopped    = "Signing stopped on %s, by %s: %q. Seals since then are not signed."
+	MsgCustodySigningRedaction  = "This event's removal was recorded while the case signed its work, but its ledger record carries no signature that checks out."
+	MsgCustodySigningRedactOK   = "Its removal's ledger record is signed by a key this case lists."
 
 	CustodyNotKept       = "Every check compared the case against itself. Whoever can rewrite the case can make all of them pass; a fingerprint kept outside the case is what closes that."
 	CustodyNotHistory    = "The history of seals is the case's own record: whoever can rewrite the case can rewrite it too."
@@ -1960,6 +2182,12 @@ const (
 	// whether a .db actually aligns with the expected schema is decided on open.
 	DialogEVTXFilterName = "Event logs (*.evtx, *.db)"
 	DialogEVTXFilterGlob = "*.evtx;*.db"
+	// Signing key dialogs (item 41). The key must be kept outside the case's working folder.
+	DialogKeyCreateTitle = "Save your new signing key — outside the case folder"
+	DialogKeyOpenTitle   = "Choose your signing key"
+	DialogKeyDefaultName = "rohy-signing.key"
+	DialogKeyFilterName  = "rohy signing keys (*.key)"
+	DialogKeyFilterGlob  = "*.key"
 	// Rule import dialogs (P5).
 	DialogRuleFilesTitle  = "Select rule file(s)"
 	DialogRuleFolderTitle = "Select a folder containing rule files"
@@ -2281,8 +2509,10 @@ const (
 	// and the file's own comment says so.
 	RootsSubdir    = "roots"
 	RootsStateFile = "roots.json"
-	// RootsDocVersion guards the document format.
-	RootsDocVersion = 1
+	// RootsDocVersion guards the document format. 2 (item 41) records who sealed and the seal's
+	// signature; this build reads 1 as well, and an older build keeps a 2 aside rather than drop
+	// the new fields by writing it back.
+	RootsDocVersion = 2
 	// RootsKeptInfix names a history document that could not be read, moved aside rather than
 	// written over: roots.json.unreadable-<UTC stamp>. 🔒 Kept, never deleted — it holds the record
 	// of which fingerprints were exported, which nothing else can reconstruct.

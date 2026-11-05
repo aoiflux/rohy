@@ -1,3 +1,50 @@
+export namespace analyst {
+	
+	export class Analyst {
+	    actor_id: number;
+	    analyst_id: string;
+	    name: string;
+	    earlier_names?: string[];
+	    // Go type: time
+	    first_seen: any;
+	    // Go type: time
+	    last_seen: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Analyst(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.actor_id = source["actor_id"];
+	        this.analyst_id = source["analyst_id"];
+	        this.name = source["name"];
+	        this.earlier_names = source["earlier_names"];
+	        this.first_seen = this.convertValues(source["first_seen"], null);
+	        this.last_seen = this.convertValues(source["last_seen"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace annotate {
 	
 	export class Anchor {
@@ -303,6 +350,7 @@ export namespace api {
 	    app_version?: string;
 	    establishes: string[];
 	    does_not_establish: string[];
+	    not_recorded?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CaseFingerprint(source);
@@ -321,6 +369,7 @@ export namespace api {
 	        this.app_version = source["app_version"];
 	        this.establishes = source["establishes"];
 	        this.does_not_establish = source["does_not_establish"];
+	        this.not_recorded = source["not_recorded"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -435,6 +484,7 @@ export namespace api {
 	    file_name?: string;
 	    document?: string;
 	    fingerprint_exported: boolean;
+	    audit_gap?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new EventProofExport(source);
@@ -448,6 +498,7 @@ export namespace api {
 	        this.file_name = source["file_name"];
 	        this.document = source["document"];
 	        this.fingerprint_exported = source["fingerprint_exported"];
+	        this.audit_gap = source["audit_gap"];
 	    }
 	}
 	
@@ -662,6 +713,18 @@ export namespace api {
 		    }
 		    return a;
 		}
+	}
+	export class KeyUnlockRequest {
+	    passphrase: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new KeyUnlockRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.passphrase = source["passphrase"];
+	    }
 	}
 	export class LayerDeletion {
 	    annotations: number;
@@ -986,6 +1049,166 @@ export namespace api {
 		    }
 		    return a;
 		}
+	}
+	export class SessionRequest {
+	    name: string;
+	    choice: string;
+	    passphrase: string;
+	    reason: string;
+	    accept_log: boolean;
+	    keep_profile_aside: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.choice = source["choice"];
+	        this.passphrase = source["passphrase"];
+	        this.reason = source["reason"];
+	        this.accept_log = source["accept_log"];
+	        this.keep_profile_aside = source["keep_profile_aside"];
+	    }
+	}
+	export class SigningKeyView {
+	    key_id: number;
+	    fingerprint: string;
+	    analyst: string;
+	    // Go type: time
+	    added_at: any;
+	    bound: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SigningKeyView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key_id = source["key_id"];
+	        this.fingerprint = source["fingerprint"];
+	        this.analyst = source["analyst"];
+	        this.added_at = this.convertValues(source["added_at"], null);
+	        this.bound = source["bound"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SessionView {
+	    need: string;
+	    choices: string[];
+	    began: boolean;
+	    mode?: string;
+	    read_only?: string;
+	    profile_path: string;
+	    profile_error?: string;
+	    name?: string;
+	    default_name?: string;
+	    actor_id?: number;
+	    key_path?: string;
+	    key?: keyfile.Info;
+	    key_error?: string;
+	    key_in_case: boolean;
+	    state: string;
+	    register_error?: string;
+	    evidence?: string[];
+	    problem?: string;
+	    log_flagged: boolean;
+	    log_records: number;
+	    audit_torn: boolean;
+	    pending_redactions: number;
+	    audit_gaps?: string[];
+	    open_error?: string;
+	    analysts?: analyst.Analyst[];
+	    keys?: SigningKeyView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.need = source["need"];
+	        this.choices = source["choices"];
+	        this.began = source["began"];
+	        this.mode = source["mode"];
+	        this.read_only = source["read_only"];
+	        this.profile_path = source["profile_path"];
+	        this.profile_error = source["profile_error"];
+	        this.name = source["name"];
+	        this.default_name = source["default_name"];
+	        this.actor_id = source["actor_id"];
+	        this.key_path = source["key_path"];
+	        this.key = this.convertValues(source["key"], keyfile.Info);
+	        this.key_error = source["key_error"];
+	        this.key_in_case = source["key_in_case"];
+	        this.state = source["state"];
+	        this.register_error = source["register_error"];
+	        this.evidence = source["evidence"];
+	        this.problem = source["problem"];
+	        this.log_flagged = source["log_flagged"];
+	        this.log_records = source["log_records"];
+	        this.audit_torn = source["audit_torn"];
+	        this.pending_redactions = source["pending_redactions"];
+	        this.audit_gaps = source["audit_gaps"];
+	        this.open_error = source["open_error"];
+	        this.analysts = this.convertValues(source["analysts"], analyst.Analyst);
+	        this.keys = this.convertValues(source["keys"], SigningKeyView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class SigningRequest {
+	    path: string;
+	    create: boolean;
+	    passphrase: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SigningRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.create = source["create"];
+	        this.passphrase = source["passphrase"];
+	        this.label = source["label"];
+	    }
 	}
 	export class SnapshotRequest {
 	    graph_id: number;
@@ -1654,6 +1877,10 @@ export namespace graphene {
 	    audit: boolean;
 	    retention: boolean;
 	    redaction: boolean;
+	    mode: string;
+	    actor?: number;
+	    read_only?: string;
+	    retention_reason?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ForensicStatus(source);
@@ -1672,6 +1899,10 @@ export namespace graphene {
 	        this.audit = source["audit"];
 	        this.retention = source["retention"];
 	        this.redaction = source["redaction"];
+	        this.mode = source["mode"];
+	        this.actor = source["actor"];
+	        this.read_only = source["read_only"];
+	        this.retention_reason = source["retention_reason"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2077,6 +2308,52 @@ export namespace graphreg {
 	        this.description = source["description"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace keyfile {
+	
+	export class Info {
+	    path: string;
+	    key_id: number;
+	    public_key: string;
+	    fingerprint: string;
+	    label: string;
+	    // Go type: time
+	    created: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Info(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.key_id = source["key_id"];
+	        this.public_key = source["public_key"];
+	        this.fingerprint = source["fingerprint"];
+	        this.label = source["label"];
+	        this.created = this.convertValues(source["created"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

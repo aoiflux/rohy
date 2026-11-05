@@ -35,10 +35,10 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          █████████████░░░░░░░  64%  4½/7   #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7); #43 ½ (detectors 16/17 missing); #41–#42 ⬜
+P8 Forensic          ████████████████░░░░  79%  5½/7   #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8); #43 ½ (detectors 16/17 missing); #42 ⬜
 ───────────────────────────────────────────────────────
-Overall              █████████████████░░░  87%  41/47
-Definition of done   ████████████████░░░░  82%  9/11   the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40
+Overall              ██████████████████░░  89%  42/47
+Definition of done   █████████████████░░░  86%  9½/11  the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40; postures ½: signing via #41, detectors #43
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
@@ -61,7 +61,12 @@ event's state.
 **#40 landed 2026-11-05** (§15.7): attributed redaction. The content goes from everywhere rohy
 put it: the record, the payload log in place, sibling copies, rule-made relations, the sidecar
 copies, then a seal. The removal is recorded with its reason, and a journal keeps the content
-from being ingested again. **Next:** #41 signing and attribution (§14.6).
+from being ingested again.
+
+**#41 landed 2026-11-05** (§15.8): signing and attribution. Every write rohy can put in a commit
+names the analyst; each seal is signed with the analyst's key, kept outside the case; a
+hash-chained audit log records seals, redactions and rohy's own actions. A signed case whose key
+is locked opens read-only. **Next:** #43 forensic detectors (§14.8), then #42 anchoring.
 
 ---
 
@@ -2437,8 +2442,9 @@ the event that was ingested.
     a kept fingerprint compared against the image whatever the event's state.
 40. ✅ **Attributed redaction** (§14.5) — landed 2026-11-05 (§15.7), payload tombstone first
     (§14.5.1): the cold store would otherwise have defeated graphene's redaction.
-41. **Signing and attribution** (§14.6) — key custody OUTSIDE the case folder,
-    `RequireSignedCommits`, `Audit`, `Retention`, analyst actor identity.
+41. ✅ **Signing and attribution** (§14.6) — landed 2026-11-05 (§15.8): key custody OUTSIDE the
+    case folder, `RequireSignedCommits`, `Audit`, analyst actor identity. `Retention` stays off:
+    a retained segment keeps what a redaction removed.
 42. **Anchoring** (§14.7) — checkpoint digest out, receipt in. 🔒 rohy ships no anchor.
 43. **Forensic detectors** in `caseintegrity` (§14.8) + the Maintenance page surface.
 
@@ -2473,7 +2479,7 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
 | R8 | Scope creep in the query console | ⚠️ | Structured builder only; an expression language is explicitly deferred past v0.2.0 |
 | R9 | Snapshot restore corrupts a live graph | 🔴 | Hash-keyed endpoints, explicit preview, re-created edges marked `created_by: user` with a basis, unresolvable items reported |
 | R10 | A second edge type sneaks in | 🔴 | Design forbids it (§5.4); `EdgesOf(..., nil)` reasoning re-stated in the LLD sharp-edges list |
-| R11 | **A signing key stored in the case folder manufactures a false guarantee** | 🔴 | rohy REFUSES to write a key inside `rohy-data/` (§14.6). Whoever can rewrite the store can re-sign it, so a key beside the evidence proves nothing — and a green tick that means nothing is worse than no tick |
+| R11 | **A signing key stored in the case folder manufactures a false guarantee** | ✅ | Resolved by #41 (§15.8): `keyfile` refuses a key path inside the case's working folder — compared file by file, so a junction, a symlink or another letter case does not get one in — at creation and at every unlock. rohy REFUSES to write a key inside `rohy-data/` (§14.6). Whoever can rewrite the store can re-sign it, so a key beside the evidence proves nothing — and a green tick that means nothing is worse than no tick |
 | R12 | **Redaction leaves the raw record in the payload cold store** | ✅ | Resolved by #40 (§15.7): the tombstone landed before any redaction UI, and the end-to-end test finds the raw record in no file under the case folder afterwards |
 | R13 | `VerifyOnOpen` makes cold start unacceptable on a large case | 🟡 | Measured at 100k events before it is defaulted on; it lands behind the existing `Warm()` progress stage. Response is a per-case setting, never a silent skip |
 | R14 | The only retained root lives inside the case | 🔴 | Every internal check compares the store against itself. Root export is a first-class action and the UI states plainly what an internal-only root does and does not establish (§14.2) |
@@ -2497,9 +2503,11 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
   that a named event was in the case — without access to `rohy-data/` and without rohy** (§14).
   `rohyctl verify-proof` needs neither; and the check covers the event's content, not only its
   presence (§15.4). Shipping `rohyctl` to recipients is the deferred release item (#35c).
-- ⬜ **Every integrity posture rohy is not in is stated.** Unsigned commits, an unverified
+- ½ **Every integrity posture rohy is not in is stated.** Unsigned commits, an unverified
   image, a case never compacted, a root never exported, a ledger that cannot be verified — all
-  reported, none of them silent (§14.8).
+  reported, none of them silent (§14.8). The signing half landed with #41 (§15.8): the session's
+  mode, signing state, audit and retention are reported, and the custody report's signing layer
+  says what the engine does not check. The detectors themselves are #43.
 - ✅ **A redaction removes the content everywhere rohy put it**, including the payload cold
   store, or it is not offered at all (§14.5.1).
 
@@ -2766,7 +2774,14 @@ not, and a recipient given only the image cannot tell a redacted entity from one
 existed. `CustodyReport.RemovalProvable` reports exactly that window, and rohy surfaces it
 rather than leaving the analyst to infer it.
 
-### 14.6 Signing and attribution (item 41)
+### 14.6 Signing and attribution (item 41) ✅
+
+> **Corrected by the build (§15.8).** Two claims below do not hold against graphene v0.4.0.
+> `RequireSignedCommits` does not close the downgrade: replay applies a record written outside a
+> batch with no check, so anyone holding the files can append to a signed log without the key. And
+> `Retention` cannot be set "together with signing": a retained segment keeps the records a
+> redaction removed, so it stays off. What signing establishes here is the signed **seal**, checked
+> against the keys the case lists; rohy requires what the engine does not (§15.8).
 
 This is the half that needs a key, and the key is the whole problem.
 
@@ -2859,7 +2874,12 @@ backend/graphene/graphene_redact.go      redaction primitives over the ledger   
 backend/redaction                        journal (= suppression list), Prepare, Run        ✅ (#40, §15.7)
 backend/durable                          synced write + durable rename                    ✅ (#40, §15.7)
 backend/api/api_redact.go                Preview/Redact/Pending/Finish on MaintenanceAPI  ✅ (#40, §15.7)
-backend/api/api_caselock.go              the case lock: writes shared, redaction alone    ✅ (#40, §15.7)
+backend/api/api_caselock.go              the case lock: writes shared, redaction alone    ✅ (#40, §15.7); write gate (#41)
+backend/keyfile                          passphrase-sealed Ed25519 key, outside the case  ✅ (#41, §15.8)
+backend/analyst                          profile (per user) + register (per case)          ✅ (#41, §15.8)
+backend/graphene/graphene_signing.go     key slot, posture, audit framing, seal signature ✅ (#41, §15.8)
+backend/custody/signing.go               the signing layer: what the engine does not ask  ✅ (#41, §15.8)
+backend/api/api_session.go               the session step, before the case opens          ✅ (#41, §15.8)
 backend/api/api_custody.go               binding; hangs off MaintenanceAPI               — not created: the #37 methods and EventCustody (#39) live in api_integrity.go
 backend/eventproof                       proof document: assemble + verify, storeless    ✅ (#38, §15.4)
 cmd/rohyctl verify-proof                 storeless, keyless — §14.3's question decided    ✅ (#38, §15.4)
@@ -3320,3 +3340,110 @@ on a click with a working state.
 **Still open:** who redacted is not recorded (`ActorID` is 0) until #41 adds an analyst identity;
 the suppression hashes match only a byte-identical raw record, so a copy whose raw form differs —
 if, say, the live channel renders a record differently from an exported file — is not recognised.
+
+(The `ActorID` gap is closed by #41, §15.8: a redaction now records the session's analyst.)
+
+### 15.8 #41 signing and attribution (2026-11-05)
+
+**What §14.6 assumed, measured against the engine.** Three spikes, kept as pins in
+`graphene_signing_spike_test.go`, changed the item before any code was written:
+
+| Spike | Finding | Consequence |
+|---|---|---|
+| A write made without the key, then a strict reopen | 🔴 Replay applies a record written outside a batch with no check (`disk/wal.go:595`). `RequireSignedCommits` stops a stripped signature, not an appended record — and rohy itself writes index entries and redaction mutations that way | A signed log is not proof nothing was added. rohy watches the log instead (below) |
+| Redact, then seal with retention on | 🔴 The retained segment `graphene.000000.wal` still holds the redacted record | **Retention stays off** (owner): with it, #40's guarantee would be false |
+| An unattested image under a verifier | The engine has no "require attestation" | rohy requires it, inside a signed interval |
+
+Also found: every seal wipes `KeyTimeline` (`compact.go:210`), so a `RotateKey` transition is gone
+at the next seal and rohy never calls it; the audit log is hash-chained but unsigned, with no torn-tail
+repair; a ledger record's signature sits outside its hash; `AddNodesBatch` commits as actor 0; the
+signer and the actor are open-time options, and rohy opened once.
+
+**What signing establishes here, and the copy says no more.** "This seal was signed by a key this
+case lists" — checked, not assumed. Whose key that is, is for whoever compares its fingerprint
+with one they kept. The analyst's name is bound to the key by the key's own signature.
+
+**An independent review of the design (28 findings, all folded in before code)** — the heaviest:
+
+- 🔴 A pre-open check on commit records missed the attack the first spike found. Replaced by a
+  rule that needs no parser: **a signed case whose log is not where this analyst left it** — a
+  crash or an edit, the profile cannot tell which — goes to the session step, and nothing is
+  signed over it until the analyst accepts it with a reason.
+- 🔴 One failed open kept the case closed forever (`sync.Once` kept the error). The open is
+  retryable, and a **recovery** mode opens read-only without checking signatures.
+- 🔴 Deleting or editing `register.json` downgraded a signed case silently. A case is treated as
+  signed when ANY of three records says so: the register, the image's own signature, or the
+  analyst's **profile** — the one record outside the case.
+- 🔴 Closing the window at the session step hung the process (the seal on close waited for a
+  session). Shutdown never waits, and opens nothing.
+- 🟡 Wails logs a failed call's raw message, arguments and all: a passphrase would have reached the
+  log. A logger wrapper withholds the call; the key bindings recover their own panics.
+- 🟡 And: a torn audit tail, unsigned name–key bindings, a JSON AAD that would strand old keys,
+  `durable.WriteFile` replacing a key file, sequential actor ids that a register edit could
+  reassign, writers outside the case lock, an fsync per relation in three loops.
+
+**Decisions (owner, 2026-11-05):**
+
+| Question | Decision |
+|---|---|
+| Key custody | A passphrase-protected key file **outside** the case's working folder; refused inside it |
+| Identity | Entered once, prefilled with the OS name; a per-user profile outside the case keeps it, the key's path, and the cases signed — never the key |
+| Retention | Off |
+| Signed case, key unavailable | Read-only; "continue unsigned" needs a reason and is recorded |
+| Analysts | Several over a case's life, each with their own key |
+
+**As built:**
+
+- `backend/keyfile`: argon2id (t=3, 64 MiB, p=4) and AES-256-GCM over the seed; every public field
+  bound by a fixed binary AAD (golden vector `testdata/v1.json`); untrusted parameters bounded;
+  `InsideFolder` compares files (`os.SameFile` on every ancestor), so a junction, a symlink or a
+  different letter case does not get a key into the case; created with `O_EXCL`, never replaced.
+  `FuzzDecode`, 4M executions.
+- `backend/analyst`: the **profile** and the case's **register** — analysts with actor ids derived
+  from a random analyst id, keys each signed over their analyst, the signing state in intervals
+  that record where the seal chain, the ledger and the audit log stood. Fuzzed.
+- `graphene`: a retryable open fixed by a session (`OpenAwaitingSession`, `BeginSession`); a
+  `KeySlot` signer that refuses while locked, so the engine itself refuses a signed batch or seal;
+  every write rohy can put in a commit is an **attributed transaction** (one per loop, not one per
+  relation); the audit log on for every disk case, with its framing checked and a torn tail kept
+  aside by a session that writes.
+- `custody`: the seal history (format 2, reading 1) records who sealed and the seal's signature;
+  a new **signing layer** requires what the engine does not — inside a signed interval the current
+  seal verifies, follows the last signed seal recorded (`Prev`), and a removal's ledger record is
+  signed.
+- `api`: the **session step** before the case opens, reading only files; a write gate in the case
+  lock (`ErrCodeReadOnly`), with readers that still run; rohy's own audit entries (session,
+  signing, keys, accepted logs, ingest counts, proof exports) — never evidence content or a path,
+  pinned by a needle test.
+- UI: the session step on the splash; a **Signing** card on the Maintenance page (fingerprint to
+  copy and keep, **Sign this case…**, **Unlock key**, who has worked on the case and their keys); a
+  read-only mark in the status bar.
+
+**Measured** (PERFORMANCE.md §19): a 512-event batch costs the same as an attributed transaction
+and as a signed one, within run-to-run noise (2.4–4.7 ms, fsync-bound; +9% bytes for the
+transaction's copy). A seal of a 10k-event case is unchanged by the audit log and by signing
+(~23–25 ms). An unlock is 60–78 ms and 64 MiB, once per session.
+
+**Upstream notes** (graphene, worth raising):
+
+- `RequireSignedCommits` does not reject records outside a batch; stripping a batch's markers is
+  likely to make its records apply unchecked.
+- No way to require an attestation, and none to check one read from a file.
+- `KeyTimeline` is wiped at every compaction.
+- The audit log is unsigned, never repairs a torn tail, and is written after a compaction's commit
+  point; `AuditOpen` is never written.
+- A redaction or grant record's signature is outside its hash.
+- `InspectWAL` reports a signed commit as having no detail, and reads past a checkpoint.
+- Retention keeps what a redaction removed: a redaction-aware retention would let both be on.
+- `RoleID` never reaches a commit.
+
+**Still open:**
+
+- Everything rohy detects from inside the case is a defence against accident and casual editing.
+  Whoever can rewrite the case and the analyst's profile can rewrite both; the guarantee rests on a
+  key fingerprint and a seal fingerprint kept elsewhere, and after #42 on an anchor.
+- Index entries and redaction mutations stay unsigned records (upstream).
+- A key added by a second analyst is self-asserted, and recorded as such: no earlier key
+  authorises it.
+- An unlocked key cannot be reliably wiped from memory in Go.
+- Sign this case takes effect at the next start: graphene takes the signer at open.

@@ -234,7 +234,7 @@ func (s *Store) RedactRelation(id uint64, reason string) error {
 		return err
 	}
 	defer s.bumpVersion()
-	_, err = fs.RedactEdge(store.EdgeID(id), disk.RedactionRequest{Reason: reason})
+	_, err = fs.RedactEdge(store.EdgeID(id), disk.RedactionRequest{ActorID: s.forensic.posture.Actor, Reason: reason})
 	var missing *store.ErrNotFound
 	if errors.As(err, &missing) {
 		recs, rerr := s.redactionRecords()
@@ -286,7 +286,7 @@ func (s *Store) RedactEventRecord(id uint64, hashNormalized, reason string) erro
 		if err := fs.PurgeNodeIndex(store.NodeID(id)); err != nil {
 			return err
 		}
-	} else if _, err := fs.RedactNodeProperties(store.NodeID(id), disk.RedactionRequest{Reason: reason}); err != nil {
+	} else if _, err := fs.RedactNodeProperties(store.NodeID(id), disk.RedactionRequest{ActorID: s.forensic.posture.Actor, Reason: reason}); err != nil {
 		return err
 	}
 

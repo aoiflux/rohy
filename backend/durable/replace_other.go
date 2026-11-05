@@ -9,6 +9,11 @@ func replaceDurably(dir, tmp, file string) error {
 	if err := os.Rename(tmp, file); err != nil {
 		return err
 	}
+	return syncDir(dir)
+}
+
+// syncDir makes a directory's entries durable.
+func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return err

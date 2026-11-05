@@ -50,6 +50,10 @@ export function PendingRedactions() {
   return window['go']['api']['MaintenanceAPI']['PendingRedactions']();
 }
 
+export function PickKeyFile(arg1) {
+  return window['go']['api']['MaintenanceAPI']['PickKeyFile'](arg1);
+}
+
 export function PreviewRedaction(arg1) {
   return window['go']['api']['MaintenanceAPI']['PreviewRedaction'](arg1);
 }
@@ -66,8 +70,20 @@ export function RepairRelationIndex() {
   return window['go']['api']['MaintenanceAPI']['RepairRelationIndex']();
 }
 
+export function RequestSigning(arg1) {
+  return window['go']['api']['MaintenanceAPI']['RequestSigning'](arg1);
+}
+
+export function SigningStatus() {
+  return window['go']['api']['MaintenanceAPI']['SigningStatus']();
+}
+
 export function Startup(arg1) {
   return window['go']['api']['MaintenanceAPI']['Startup'](arg1);
+}
+
+export function UnlockKey(arg1) {
+  return window['go']['api']['MaintenanceAPI']['UnlockKey'](arg1);
 }
 
 export function VerifyImage() {

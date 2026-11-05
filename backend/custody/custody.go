@@ -76,6 +76,14 @@ type Record struct {
 	Events       int    `json:"events,omitempty"`
 	AppVersion   string `json:"app_version,omitempty"`
 
+	// Who sealed, and whether the seal is signed (item 41). ActorID is the session's analyst, 0 for
+	// a seal made before analysts were recorded. Attestation is the id of the signature the seal
+	// carries, and KeyID the key that made it; both are empty for an unsigned seal. Recorded by rohy
+	// when the seal ran, so a later image that lost its signature disagrees with its own record.
+	ActorID     uint64 `json:"actor_id,omitempty"`
+	KeyID       uint64 `json:"key_id,omitempty"`
+	Attestation string `json:"attestation,omitempty"`
+
 	// Exported records that a copy was taken out of the app, and when.
 	//
 	// 🔒 It does NOT record that a copy is held anywhere. See the package comment: rohy cannot
@@ -101,6 +109,25 @@ type Store struct {
 	mu     sync.Mutex
 	doc    document
 	damage *Damage
+	// aside is set while an unusable document waits to be moved aside (OpenDeferred, Settle).
+	aside bool
+}
+
+// holdAside records an unusable document and holds it in place until Settle.
+func (s *Store) holdAside(reason string) {
+	s.damage, s.aside = &Damage{Reason: reason}, true
+}
+
+// Settle moves aside the unusable document an OpenDeferred held, if there is one, and starts the
+// new history with a note of it.
+func (s *Store) Settle() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.aside {
+		return
+	}
+	s.aside = false
+	s.keepAside(s.damage.Reason)
 }
 
 // Damage describes a history document that could not be used when the case opened.
@@ -130,6 +157,18 @@ type Damage struct {
 // would lose it as surely as overwriting it. Only a document that was read and is not usable
 // (corrupt, or a newer format) is moved.
 func Open(dir string) (*Store, error) {
+	s, err := OpenDeferred(dir)
+	if err != nil {
+		return nil, err
+	}
+	s.Settle()
+	return s, nil
+}
+
+// OpenDeferred is Open without the move: an unusable document is reported by Damage and HELD in
+// place — every write refused — until Settle moves it aside. A session that cannot write (item 41)
+// never settles, so it leaves the case folder exactly as it found it.
+func OpenDeferred(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -144,11 +183,15 @@ func Open(dir string) (*Store, error) {
 	}
 	var d document
 	if err := json.Unmarshal(data, &d); err != nil {
-		s.keepAside(fmt.Sprintf(consts.MsgCustodyHistoryCorrupt, err))
+		s.holdAside(fmt.Sprintf(consts.MsgCustodyHistoryCorrupt, err))
 		return s, nil
 	}
-	if d.Version != consts.RootsDocVersion {
-		s.keepAside(fmt.Sprintf(consts.MsgCustodyHistoryNewer, d.Version, consts.RootsDocVersion))
+	// Every older format reads as this one: version 2 only added who sealed and how (item 41), and
+	// the next write records the document at the current version. A NEWER format is kept aside — an
+	// older build does the same with this one, which is what bumping the version buys: an older build
+	// never re-writes a history and silently drops the fields it does not know.
+	if d.Version < 1 || d.Version > consts.RootsDocVersion {
+		s.holdAside(fmt.Sprintf(consts.MsgCustodyHistoryNewer, d.Version, consts.RootsDocVersion))
 		return s, nil
 	}
 	s.doc = d
@@ -175,7 +218,7 @@ func (s *Store) Kept() []Damage {
 }
 
 // keepAside moves the unusable document to a name no earlier kept document holds, and starts the
-// new history with a note of it. Called from Open only, before the store is shared.
+// new history with a note of it. Called from Settle, under mu.
 func (s *Store) keepAside(reason string) {
 	s.damage = &Damage{Reason: reason}
 	base := s.file() + consts.RootsKeptInfix + time.Now().UTC().Format(consts.RootsKeptStamp)

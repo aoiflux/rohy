@@ -1,6 +1,8 @@
 package durable
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,5 +44,30 @@ func TestAFailedWriteLeavesTheFileAndNoTemporary(t *testing.T) {
 func TestWriteFileIntoAMissingDirectoryFails(t *testing.T) {
 	if err := WriteFile(filepath.Join(t.TempDir(), "absent", "doc.json"), []byte("x")); err == nil {
 		t.Fatal("wrote into a directory that does not exist")
+	}
+}
+
+func TestCreateNewNeverReplacesAFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key.json")
+	if err := CreateNew(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := CreateNew(path, []byte("replacement"), 0o600)
+	if !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("second create: %v, want fs.ErrExist", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "original" {
+		t.Fatalf("file now holds %q: an existing file was touched", got)
+	}
+}
+
+func TestCreateNewIntoAMissingDirectoryLeavesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent", "key.json")
+	if err := CreateNew(path, []byte("x"), 0o600); err == nil {
+		t.Fatal("created a file in a directory that does not exist")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stat: %v", err)
 	}
 }

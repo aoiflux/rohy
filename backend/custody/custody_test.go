@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -370,5 +371,67 @@ func TestACorruptHistoryThatCannotBeMovedIsHeld(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(path); string(got) != "{corrupt" {
 		t.Errorf("the held document was written over: %q", got)
+	}
+}
+
+// A history written before item 41 (format 1) is this build's history: it reads as it is, and the
+// next write records it at the current format with the new fields kept.
+func TestAVersionOneHistoryReadsAndIsCarriedForward(t *testing.T) {
+	dir := t.TempDir()
+	v1 := `{"roots_version": 1, "records": [{"snapshot": "aaa", "sealed_at": "2026-11-01T00:00:00Z", "exported": true, "exported_at": "2026-11-02T00:00:00Z"}]}`
+	if err := os.WriteFile(filepath.Join(dir, consts.RootsStateFile), []byte(v1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Damage() != nil || !s.Exported("aaa") {
+		t.Fatalf("a format-1 history was not read as one: damage %+v", s.Damage())
+	}
+	next := rec("bbb", "aaa")
+	next.ActorID, next.KeyID, next.Attestation = 7, 9, "0123456789abcdef0123456789abcdef"
+	if _, err := s.Observe(next); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := Open(dir)
+	got, ok := again.Get("bbb")
+	if !ok || got.ActorID != 7 || got.KeyID != 9 || got.Attestation != next.Attestation {
+		t.Fatalf("who sealed was not kept: %+v", got)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, consts.RootsStateFile))
+	if !strings.Contains(string(b), `"roots_version": 2`) {
+		t.Fatalf("the history was not written at format 2:\n%s", b)
+	}
+}
+
+// 🔒 A deferred open holds an unusable history in place and moves nothing until Settle: a session
+// that cannot write leaves the case folder as it found it.
+func TestADeferredOpenMovesNothingUntilSettled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, consts.RootsStateFile)
+	_ = os.WriteFile(path, []byte("{damaged"), 0o644)
+	s, err := OpenDeferred(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := s.Damage(); d == nil || d.KeptAt != "" {
+		t.Fatalf("damage %+v", d)
+	}
+	if _, err := s.Observe(rec("aaa", "")); err == nil {
+		t.Fatal("a held history accepted a write")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "{damaged" {
+		t.Fatal("the damaged history was touched before Settle")
+	}
+	s.Settle()
+	if d := s.Damage(); d == nil || d.KeptAt == "" {
+		t.Fatalf("after Settle: %+v", d)
+	}
+	if b, _ := os.ReadFile(s.Damage().KeptAt); string(b) != "{damaged" {
+		t.Fatal("the kept-aside copy is not the original")
+	}
+	if _, err := s.Observe(rec("aaa", "")); err != nil {
+		t.Fatalf("a settled history refused a write: %v", err)
 	}
 }

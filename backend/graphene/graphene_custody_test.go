@@ -187,35 +187,43 @@ func TestRohyNamesTheEngineLayersAsTheEngineDoes(t *testing.T) {
 	}
 }
 
-// 🔒 Pins exactly what the engine reports for a case opened the way rohy opens one: no audit log,
-// no retention, no roles, no signer. A graphene upgrade that adds, drops or hardens a gap fails
-// here, so the report's copy is revisited rather than quietly describing a different engine.
+// 🔒 Pins exactly what the engine reports for a case opened the way rohy opens an unsigned one: the
+// audit log on (item 41), no retention, no roles, no signer. A graphene upgrade that adds, drops or
+// hardens a gap fails here, so the report's copy is revisited rather than quietly describing a
+// different engine. Before the first seal the audit log is empty, so it is still a gap; each seal
+// records a compaction in it.
 func TestRohysPostureProducesExactlyTheseGaps(t *testing.T) {
-	storeWide := []string{
-		consts.CustodyLayerAttestation, consts.CustodyLayerAudit, consts.CustodyLayerExternal,
+	sealed := []string{
+		consts.CustodyLayerAttestation, consts.CustodyLayerExternal,
 		consts.CustodyLayerRoles, consts.CustodyLayerSegments,
 	}
-	withSnapshot := slices.Sorted(slices.Values(append(slices.Clone(storeWide), consts.CustodyLayerSnapshot)))
+	with := func(base []string, extra ...string) []string {
+		return slices.Sorted(slices.Values(append(slices.Clone(base), extra...)))
+	}
 
 	s, ids := provableCase(t)
-	assertGaps := func(when string, c EventCustody, want []string) {
+	assertGaps := func(when string, c EventCustody, want []string, audited int) {
 		t.Helper()
 		got, fatal := gapLayers(c)
 		if !slices.Equal(got, want) || fatal {
 			t.Errorf("%s: gaps in %v (fatal %v), want %v, none fatal", when, got, fatal, want)
 		}
-		if c.Attested || c.AttestationVerified || c.SegmentsChecked != 0 || c.AuditEntriesWalked != 0 ||
-			c.CompactionsRecorded != 0 || c.RedactionsWalked != 0 || c.GrantsWalked != 0 ||
-			c.Redacted != nil || c.RemovalProvable {
+		if c.AuditEntriesWalked != audited || c.CompactionsRecorded != audited {
+			t.Errorf("%s: audit walked %d entries and %d compactions, want %d of each",
+				when, c.AuditEntriesWalked, c.CompactionsRecorded, audited)
+		}
+		if c.Attested || c.AttestationVerified || c.SegmentsChecked != 0 ||
+			c.RedactionsWalked != 0 || c.GrantsWalked != 0 || c.Redacted != nil || c.RemovalProvable {
 			t.Errorf("%s: the engine walked records rohy never writes: %+v", when, c)
 		}
 	}
-	assertGaps("never sealed", mustCustody(t, s, ids[0]), withSnapshot)
+	assertGaps("never sealed", mustCustody(t, s, ids[0]),
+		with(sealed, consts.CustodyLayerAudit, consts.CustodyLayerSnapshot), 0)
 	if err := s.Compact(); err != nil {
 		t.Fatal(err)
 	}
-	assertGaps("in the seal", mustCustody(t, s, ids[0]), storeWide)
-	assertGaps("never held", mustCustody(t, s, 999_999), withSnapshot)
+	assertGaps("in the seal", mustCustody(t, s, ids[0]), with(sealed), 1)
+	assertGaps("never held", mustCustody(t, s, 999_999), with(sealed, consts.CustodyLayerSnapshot), 1)
 }
 
 // 🔒 Found by review, and wider than the review said. A damaged image made the report fail for

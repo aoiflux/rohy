@@ -11,6 +11,8 @@ import (
 	"rohy/backend/consts"
 
 	gr "github.com/aoiflux/graphene"
+	"github.com/aoiflux/graphene/disk"
+	"github.com/aoiflux/graphene/store"
 )
 
 // Forensic integrity tests (§14.2).
@@ -234,7 +236,7 @@ func TestVerifyImageDetectsAnEditedRecord(t *testing.T) {
 
 	// Verification reads the image directly and opens no store, so it can be run without
 	// reopening the case — which is the point of it being on demand.
-	reopened := &Store{dir: dir}
+	reopened := OpenLazy(dir)
 	t.Cleanup(func() { reopened.Close() })
 
 	after, err := reopened.VerifyImage()
@@ -307,13 +309,57 @@ func TestDefaultPostureClaimsNothingItHasNotGot(t *testing.T) {
 	if st.VerifyOnOpen {
 		t.Error("VerifyOnOpen is on by default — it is 🟡 gated on a measurement")
 	}
-	if st.Audit || st.Retention {
-		t.Error("audit/retention reported on with nothing configured")
+	if st.Retention || st.RetentionReason == "" {
+		t.Error("retention reported on, or off without saying why")
 	}
-	// The redaction ledger is the one posture always on (item 40): without it the only removal left
-	// is the unattributed one.
-	if !st.Redaction {
-		t.Error("the redaction ledger is reported off")
+	// The redaction ledger and the audit log are always on for a disk case (items 40 and 41): without
+	// the first the only removal left is the unattributed one, without the second no seal or rohy
+	// action is recorded.
+	if !st.Redaction || !st.Audit {
+		t.Errorf("redaction %v, audit %v: both are always on", st.Redaction, st.Audit)
+	}
+	if st.Mode != consts.CaseModeUnsigned || st.ReadOnly != "" {
+		t.Errorf("mode %q, read-only %q: a default store is unsigned and writable", st.Mode, st.ReadOnly)
+	}
+}
+
+// An existing case, written before the audit log existed, opens with it to the same image: the
+// engine only creates an empty file, and the first seal records itself.
+func TestAnExistingCaseOpensUnchangedWithTheAuditLog(t *testing.T) {
+	dir := t.TempDir()
+	g, err := gr.OpenWithOptions(dir, disk.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.AddNodes([]*store.Node{{Labels: []store.NodeType{consts.NodeEvent}, Properties: []byte("{}")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := g.Forensics()
+	rootsBefore, err := before.SnapshotRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("an existing case does not open with the audit log: %v", err)
+	}
+	defer s.Close()
+	fs, err := s.forensics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootsAfter, err := fs.SnapshotRoots()
+	if err != nil || rootsAfter != rootsBefore {
+		t.Fatalf("roots changed on opening with the audit log: %v", err)
+	}
+	if entries, err := fs.AuditEntries(); err != nil || len(entries) != 0 {
+		t.Fatalf("opening wrote audit entries %v (%v): only actions are recorded", entries, err)
 	}
 }
 

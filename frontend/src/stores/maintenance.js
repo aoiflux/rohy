@@ -139,7 +139,9 @@ function create() {
     update((s) => ({ ...s, running: 'export', error: '' }));
     try {
       const doc = await api.exportCaseFingerprint();
-      update((s) => ({ ...s, running: '', lastResult: 'export' }));
+      // A read-only session hands the value over and records nothing (item 41); say so.
+      const note = doc && doc.not_recorded ? `${UI.MAINT_EXPORT_NOT_RECORDED} ${doc.not_recorded}` : '';
+      update((s) => ({ ...s, running: '', lastResult: 'export', error: note }));
       await loadForensics();
       return doc;
     } catch (e) {

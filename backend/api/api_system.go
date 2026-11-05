@@ -18,6 +18,8 @@ import (
 // The state is exposed BOTH as events and as a pollable snapshot: a view that mounts after
 // initialization already finished would otherwise miss the event and wait forever.
 type SystemAPI struct {
+	// session is the analyst's session, whose step the splash shows (item 41).
+	session *Session
 	mu      sync.Mutex
 	emitter Emitter
 	state   InitState

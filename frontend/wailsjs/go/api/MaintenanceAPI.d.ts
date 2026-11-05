@@ -5,6 +5,7 @@ import {caseintegrity} from '../models';
 import {custody} from '../models';
 import {api} from '../models';
 import {redaction} from '../models';
+import {keyfile} from '../models';
 import {context} from '../models';
 
 export function BackfillCorrelationKeys():Promise<graphene.BackfillResult>;
@@ -31,6 +32,8 @@ export function IsRunningMaintenance():Promise<boolean>;
 
 export function PendingRedactions():Promise<Array<redaction.Entry>>;
 
+export function PickKeyFile(arg1:boolean):Promise<string>;
+
 export function PreviewRedaction(arg1:number):Promise<api.RedactionPreview>;
 
 export function RebuildIndexes():Promise<void>;
@@ -39,7 +42,13 @@ export function RedactEvent(arg1:api.RedactRequest):Promise<redaction.Outcome>;
 
 export function RepairRelationIndex():Promise<number>;
 
+export function RequestSigning(arg1:api.SigningRequest):Promise<keyfile.Info>;
+
+export function SigningStatus():Promise<api.SessionView>;
+
 export function Startup(arg1:context.Context):Promise<void>;
+
+export function UnlockKey(arg1:api.KeyUnlockRequest):Promise<void>;
 
 export function VerifyImage():Promise<graphene.ImageCheck>;
 

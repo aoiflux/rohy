@@ -4,11 +4,15 @@ import {api} from '../models';
 import {context} from '../models';
 import {version} from '../models';
 
+export function BeginSession(arg1:api.SessionRequest):Promise<api.SessionView>;
+
 export function Failed(arg1:Error):Promise<void>;
 
 export function InitStatus():Promise<api.InitState>;
 
 export function Ready():Promise<void>;
+
+export function SessionStatus():Promise<api.SessionView>;
 
 export function Stage(arg1:string):Promise<void>;
 

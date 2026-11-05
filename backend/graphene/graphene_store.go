@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"rohy/backend/consts"
 	"rohy/backend/payload"
@@ -19,11 +20,27 @@ type Store struct {
 	dir string // empty for the in-memory store
 	// inMemory selects the in-memory backend when the store is first opened.
 	inMemory bool
-	// openOnce defers the actual open until first use, so the application can show its
-	// window before paying for a WAL replay. It also provides the happens-before edge that
-	// makes reading g lock-free once ensure() has returned.
-	openOnce sync.Once
-	openErr  error
+
+	// The open. It is deferred until first use, so the application can show its window before
+	// paying for a WAL replay, and — for the application's store — until a session has fixed the
+	// posture (OpenAwaitingSession), because graphene takes the signer and the actor at open.
+	//
+	// ready is the happens-before edge that makes reading g lock-free once ensure() has returned:
+	// it is stored after g, under openMu, and loaded first by every reader.
+	//
+	// A failed open is kept only for a lazy store, which has no other way to report it. A session's
+	// open can be tried again with another posture: nothing is kept from a failed attempt.
+	openMu    sync.Mutex
+	ready     atomic.Bool
+	attempted bool
+	openErr   error
+	awaiting  bool
+	session   chan struct{} // closed once a session has opened the store
+	stopping  chan struct{} // closed when shutdown begins: waiters stop waiting
+	stopOnce  sync.Once
+	// poisoned is set when a seal replaced the image on disk but this session's copy no longer
+	// matches it: nothing more is written until a restart reopens it.
+	poisoned atomic.Bool
 	// order caches the id ordering of the most recent event query so that paging through
 	// a filter does not rescan and re-sort the whole matching set for every page. Any
 	// write invalidates it (see bumpVersion).
@@ -40,12 +57,66 @@ type Store struct {
 // Open opens (creating if necessary) a disk-backed store rooted at dir, eagerly. The WAL
 // is replayed automatically on restart. Call Compact after a bulk ingest.
 func Open(dir string) (*Store, error) {
-	s := &Store{dir: dir}
+	s := newStore(dir)
 	if err := s.ensure(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
+
+// newStore is a store with the default posture: unsigned, audited, with the redaction ledger.
+func newStore(dir string) *Store {
+	return &Store{
+		dir:      dir,
+		session:  make(chan struct{}),
+		stopping: make(chan struct{}),
+		forensic: forensicOptions{posture: Posture{Mode: consts.CaseModeUnsigned}},
+	}
+}
+
+// OpenAwaitingSession returns the application's store: it opens only when BeginSession fixes the
+// session's posture. A call that needs the store before then waits for it, exactly as a call to a
+// lazy store waits for the open; once shutdown begins, it returns ErrNoSession instead.
+func OpenAwaitingSession(dir string) *Store {
+	s := newStore(dir)
+	s.awaiting = true
+	return s
+}
+
+// BeginSession opens the store under p. A failed open leaves the store closed and keeps nothing,
+// so the session can be begun again with another posture — a case whose signed open failed is
+// then opened for recovery. Once a session has opened the store, it cannot be begun again.
+func (s *Store) BeginSession(p Posture) error {
+	if !s.awaiting {
+		return errors.New("this store is not awaiting a session")
+	}
+	select {
+	case <-s.stopping:
+		return ErrNoSession
+	default:
+	}
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	if s.ready.Load() {
+		return errors.New(consts.MsgSessionStarted)
+	}
+	if err := p.validate(); err != nil {
+		return err
+	}
+	s.forensic.posture = p
+	if err := s.openLocked(); err != nil {
+		return err
+	}
+	close(s.session)
+	return nil
+}
+
+// Opened reports whether the store is open. Shutdown asks it before sealing, so closing the app
+// at the session step never opens a case only to seal it.
+func (s *Store) Opened() bool { return s.ready.Load() }
+
+// Shutdown stops anything waiting for a session. Idempotent.
+func (s *Store) Shutdown() { s.stopOnce.Do(func() { close(s.stopping) }) }
 
 // OpenLazy returns a disk-backed store that opens on FIRST USE rather than immediately.
 //
@@ -55,41 +126,64 @@ func Open(dir string) (*Store, error) {
 // in the background (see Warm). Any call arriving before the store is open simply blocks
 // until it is, so laziness can never surface as a nil dereference or a half-open read.
 func OpenLazy(dir string) *Store {
-	return &Store{dir: dir}
+	return newStore(dir)
 }
 
 // OpenInMemory returns an in-memory store, suitable for development and tests.
 func OpenInMemory() *Store {
-	s := &Store{inMemory: true}
+	s := newStore("")
+	s.inMemory = true
 	_ = s.ensure() // cannot fail for the in-memory backend
 	return s
 }
 
-// ensure performs the one-time open. Every accessor funnels through it, so the store
-// behaves identically whether it was opened eagerly or lazily.
+// ensure opens the store on first use. Every accessor funnels through it, so the store behaves
+// identically whether it was opened eagerly, lazily, or by a session.
 func (s *Store) ensure() error {
-	s.openOnce.Do(func() {
-		if s.inMemory {
-			s.g = graphene.NewInMemory()
-			s.payloads = payload.OpenInMemory()
-			return
+	if s.ready.Load() {
+		return nil
+	}
+	if s.awaiting {
+		select {
+		case <-s.session:
+			return nil
+		case <-s.stopping:
+			return ErrNoSession
 		}
-		// Opened under the case's posture (graphene_forensics.go), which always includes the
-		// redaction ledger.
-		g, err := s.openGraph()
-		if err != nil {
-			s.openErr = err
-			return
-		}
-		p, err := payload.Open(filepath.Join(s.dir, consts.PayloadDirName))
-		if err != nil {
-			g.Close()
-			s.openErr = err
-			return
-		}
-		s.g, s.payloads = g, p
-	})
+	}
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	if s.ready.Load() {
+		return nil
+	}
+	if !s.attempted {
+		s.attempted = true
+		s.openErr = s.openLocked()
+	}
 	return s.openErr
+}
+
+// openLocked opens the graph under the store's posture, then the payload log. On failure nothing is
+// left open. Caller holds openMu.
+func (s *Store) openLocked() error {
+	if s.inMemory {
+		s.g = graphene.NewInMemory()
+		s.payloads = payload.OpenInMemory()
+		s.ready.Store(true)
+		return nil
+	}
+	g, err := s.openGraph()
+	if err != nil {
+		return err
+	}
+	p, err := payload.Open(filepath.Join(s.dir, consts.PayloadDirName))
+	if err != nil {
+		g.Close()
+		return err
+	}
+	s.g, s.payloads = g, p
+	s.ready.Store(true)
+	return nil
 }
 
 // NOTE — why no ordered property is declared here.
@@ -142,7 +236,11 @@ func nodeEventType() store.NodeType {
 // Close releases the underlying store resources. Closing a store that was never opened is
 // a no-op — nothing was acquired to release.
 func (s *Store) Close() error {
-	if s.g == nil {
+	s.Shutdown()
+	// Holding openMu means a session's open cannot be half way through while this closes.
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	if !s.ready.Load() {
 		return nil
 	}
 	// Close the payload log first: it is written before the events that reference it, so it
@@ -354,8 +452,14 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 		nodes[i] = n
 	}
 
-	ids, err := g.AddNodes(nodes)
-	if err != nil {
+	// One attributed commit for the batch (item 41). The engine's own batch insert commits as
+	// actor 0; a transaction carries the session's analyst, and is just as atomic.
+	tx := s.tx(g)
+	ids := make([]store.NodeID, len(nodes))
+	for i, n := range nodes {
+		ids[i] = tx.AddNode(n)
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -382,8 +486,9 @@ func (s *Store) InsertRelation(r *Relation) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, err := g.AddEdge(edge)
-	if err != nil {
+	tx := s.tx(g)
+	id := tx.AddEdge(edge)
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	r.ID = uint64(id)
@@ -418,17 +523,17 @@ func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
 		return nil, err
 	}
 
-	edges := make([]*store.Edge, len(rels))
+	tx := s.tx(g)
+	ids := make([]store.EdgeID, len(rels))
 	for i, r := range rels {
 		ed, err := r.toEdge()
 		if err != nil {
+			_ = tx.Rollback()
 			return nil, err
 		}
-		edges[i] = ed
+		ids[i] = tx.AddEdge(ed)
 	}
-
-	ids, err := g.AddEdges(edges)
-	if err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -445,26 +550,57 @@ func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
 	return out, nil
 }
 
-// UpdateRelation replaces a relation's type/label/confidence in place (its endpoints
-// are immutable — graphene ignores Src/Dst on update).
+// UpdateRelation replaces a relation's type/label/confidence in place. Its endpoints are the
+// relation's own: callers read the relation, change it and write it back, and a transaction's update
+// writes the endpoints it is given (TestATransactionUpdateKeepsARelationsEndpoints pins it).
 //
-// The record and its index entries are replaced in ONE call. The plain update leaves the
-// index alone under the default reindex policy, so an edited relation would keep matching
-// its previous indexed values — and graph_id is one of those values, so a relation moved
-// between graphs would still be found under the old graph. There is no window here in
-// which the record and its index disagree.
+// The record is replaced in one attributed commit, then its index entries are purged and registered
+// again. The plain update leaves the index alone under the default reindex policy, so an edited
+// relation would keep matching its previous indexed values — and graph_id is one of those values, so
+// a relation moved between graphs would still be found under the old graph. Index entries cannot be
+// part of a commit, so between the commit and the re-registration the relation briefly matches
+// nothing by its indexed values; it never matches stale ones once this returns.
 func (s *Store) UpdateRelation(r *Relation) error {
+	_, err := s.updateRelations([]*Relation{r})
+	return err
+}
+
+// updateRelations replaces every relation in one commit, then re-registers their index entries.
+// Returns how many were re-indexed, which on error is how far the index pass got.
+func (s *Store) updateRelations(rels []*Relation) (int, error) {
 	defer s.bumpVersion()
+	if len(rels) == 0 {
+		return 0, nil
+	}
 	g, err := s.graph()
 	if err != nil {
-		return err
+		return 0, err
 	}
-	edge, err := r.toEdge()
-	if err != nil {
-		return err
+	tx := s.tx(g)
+	for _, r := range rels {
+		edge, err := r.toEdge()
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, err
+		}
+		edge.ID = store.EdgeID(r.ID)
+		tx.UpdateEdge(edge)
 	}
-	edge.ID = store.EdgeID(r.ID)
-	return g.UpdateEdgeIndexed(edge, r.indexValues())
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	reindexer, canPurge := g.GraphStore.(store.Reindexer)
+	for i, r := range rels {
+		if canPurge {
+			if err := reindexer.PurgeEdgeIndex(store.EdgeID(r.ID)); err != nil {
+				return i, err
+			}
+		}
+		if err := g.IndexEdgeProperties(store.EdgeID(r.ID), r.indexValues()); err != nil {
+			return i, err
+		}
+	}
+	return len(rels), nil
 }
 
 // DeleteRelation removes a single mapped relation (and purges its index entries).
@@ -475,7 +611,12 @@ func (s *Store) DeleteRelation(id uint64) error {
 	if err != nil {
 		return err
 	}
-	return g.DeleteEdge(store.EdgeID(id))
+	if _, err := g.GetEdge(store.EdgeID(id)); err != nil {
+		return err
+	}
+	tx := s.tx(g)
+	tx.DeleteEdge(store.EdgeID(id))
+	return tx.Commit()
 }
 
 // DeleteEvent removes an event node and cascades to every relation incident to it, so
@@ -487,7 +628,12 @@ func (s *Store) DeleteEvent(id uint64) error {
 	if err != nil {
 		return err
 	}
-	return g.DeleteNode(store.NodeID(id))
+	if _, err := g.GetNode(store.NodeID(id)); err != nil {
+		return err
+	}
+	tx := s.tx(g)
+	tx.DeleteNode(store.NodeID(id))
+	return tx.Commit()
 }
 
 // IncrementDedupCounts adds each delta to the deduplication_count of an existing
@@ -525,7 +671,7 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 	// already gone, so there is nothing to increment.
 	_ = missing
 
-	tx := g.Begin()
+	tx := s.tx(g)
 	for _, n := range nodes {
 		// 🔒 A redacted event keeps no record, and writing one back would restore what the
 		// redaction removed. Its occurrences are not counted: there is nothing left to count them on.
@@ -563,18 +709,15 @@ func (s *Store) MigrateRelationsToGraph(graphID uint64) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	migrated := 0
+	var legacy []*Relation
 	for _, r := range rels {
-		if r.GraphID != 0 {
-			continue
+		if r.GraphID == 0 {
+			r.GraphID = graphID
+			legacy = append(legacy, r)
 		}
-		r.GraphID = graphID
-		if err := s.UpdateRelation(r); err != nil {
-			return migrated, err
-		}
-		migrated++
 	}
-	return migrated, nil
+	// One commit for the lot: a commit per relation would be a durable write each.
+	return s.updateRelations(legacy)
 }
 
 // DeleteGraphRelations removes every relation belonging to a graph (used when a graph
@@ -599,7 +742,7 @@ func (s *Store) DeleteGraphRelations(graphID uint64) (int, error) {
 	// partly cleared — which the idempotent rebuild would then treat as the previous
 	// result. A transaction either removes the whole graph's edges or removes none.
 	// Index entries are cleaned up as part of the delete, so no separate purge is needed.
-	tx := g.Begin()
+	tx := s.tx(g)
 	for _, r := range rels {
 		tx.DeleteEdge(store.EdgeID(r.ID))
 	}
@@ -623,16 +766,25 @@ func (s *Store) deleteRelationsIndividually(rels []*Relation) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// The edges still there, deleted in one attributed commit: a commit per edge would be a durable
+	// write each. Nothing else writes between the look and the commit — the API holds the case
+	// lock — so an edge found here is still there to delete.
+	tx := s.tx(g)
 	deleted := 0
 	for _, r := range rels {
-		if err := g.DeleteEdge(store.EdgeID(r.ID)); err != nil {
+		if _, err := g.GetEdge(store.EdgeID(r.ID)); err != nil {
 			var nf *store.ErrNotFound
 			if errors.As(err, &nf) {
 				continue
 			}
-			return deleted, err
+			_ = tx.Rollback()
+			return 0, err
 		}
+		tx.DeleteEdge(store.EdgeID(r.ID))
 		deleted++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 	return deleted, nil
 }

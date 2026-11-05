@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"rohy/backend/analyst"
 	"rohy/backend/annotate"
 	"rohy/backend/api"
 	"rohy/backend/capture"
@@ -33,6 +34,8 @@ type App struct {
 	registry    *graphreg.Store
 	// roots is the fingerprint history, kept so the seal on close is recorded like every other.
 	roots *custody.Store
+	// session is who is working and how the case opened (item 41).
+	session *api.Session
 
 	Events   *api.EventsAPI
 	Graph    *api.GraphAPI
@@ -80,7 +83,9 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := graphene.OpenLazy(dir)
+	// The store opens once the session has fixed how (item 41): graphene takes the signer and the
+	// analyst at open. Until then a call that needs it waits.
+	store := graphene.OpenAwaitingSession(dir)
 
 	layoutStore, err := layout.Open(layoutDir(dir))
 	if err != nil {
@@ -110,7 +115,8 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	rootStore, err := custody.Open(rootsDir(dir))
+	// Deferred: a damaged seal history is moved aside only by a session that may write.
+	rootStore, err := custody.OpenDeferred(rootsDir(dir))
 	if err != nil {
 		return nil, err
 	}
@@ -120,12 +126,33 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The analyst's profile lives outside every case, in the OS's per-user configuration folder:
+	// it is the one record of a signed case that whoever holds the case folder cannot edit.
+	profileDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := analyst.OpenProfile(filepath.Join(profileDir, consts.ProfileDirName))
+	if err != nil {
+		return nil, err
+	}
+	register, err := analyst.OpenRegister(analystsDir(dir))
+	if err != nil {
+		return nil, err
+	}
+	session := api.NewSession(api.SessionDeps{
+		Store: store, Profiles: profiles, Register: register, Roots: rootStore, Journal: journal,
+		// The working folder holds rohy-data and is the case: no key may live in it.
+		WorkDir: filepath.Dir(filepath.Dir(dir)),
+		DBDir:   dir,
+	})
 
-	return &App{
+	app := &App{
 		store:       store,
 		layoutStore: layoutStore,
 		registry:    registry,
 		roots:       rootStore,
+		session:     session,
 		Events: api.AttachRedactionJournal(
 			api.AttachSealHistory(api.NewEventsAPI(store, positions, findingStore), rootStore), journal),
 		Graph:    api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
@@ -144,7 +171,9 @@ func NewApp() (*App, error) {
 		}),
 		Snapshots: api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
 		Annotate:  api.NewAnnotateAPI(store, noteStore, registry),
-	}, nil
+	}
+	api.AttachSession(session, app.System, app.Maintenance)
+	return app, nil
 }
 
 // startup is invoked by Wails once the runtime is ready: it hands the app context to the
@@ -166,16 +195,35 @@ func (a *App) startup(ctx context.Context) {
 // A failure here is reported and left visible instead of killing the process: the user
 // gets a readable reason in the window, which is far more useful than the app vanishing.
 func (a *App) initialize() {
+	// The session step (item 41). A case with nothing to ask — a known analyst, never signed —
+	// starts as it always did; otherwise the splash shows the step and this waits for the answer.
+	if v := a.session.Status(); v.Need == consts.SessionNeedNone {
+		if _, err := a.session.Begin(api.SessionRequest{}); err != nil {
+			a.System.Failed(err)
+			return
+		}
+	} else {
+		api.AwaitSession(a.System)
+		select {
+		case <-a.session.Begun():
+		case <-a.ctx.Done():
+			return
+		}
+	}
+
 	a.System.Stage(consts.MsgInitStore)
 	if err := a.store.Warm(); err != nil {
 		a.System.Failed(err)
 		return
 	}
 
-	a.System.Stage(consts.MsgInitGraphs)
-	if err := migrateGraphs(a.store, a.layoutStore, a.registry); err != nil {
-		a.System.Failed(err)
-		return
+	// The migrations write; a session that cannot write leaves the case as it is.
+	if a.store.Writable() == nil {
+		a.System.Stage(consts.MsgInitGraphs)
+		if err := migrateGraphs(a.store, a.layoutStore, a.registry); err != nil {
+			a.System.Failed(err)
+			return
+		}
 	}
 
 	// Rules are already loaded (the registry scan is cheap); the stage exists so the
@@ -197,8 +245,12 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.Events != nil {
 		a.Events.Shutdown()
 	}
+	// The session seals what changed and records how a signed case was left. A session that never
+	// began, or cannot write, seals nothing — closing at the session step opens nothing.
+	if a.session != nil {
+		_ = a.session.Close()
+	}
 	if a.store != nil {
-		_ = api.SealOnClose(a.store, a.roots)
 		_ = a.store.Close()
 	}
 }
@@ -278,4 +330,10 @@ func rootsDir(dbDir string) string {
 // store, and kept with the case: it lists what must not be ingested again (plan §14.5).
 func redactionsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.RedactionsSubdir)
+}
+
+// analystsDir returns the case's analyst register directory, a sibling of the DB directory
+// (<cwd>/rohy-data/analysts): who has worked on the case, and the public keys it has seen.
+func analystsDir(dbDir string) string {
+	return filepath.Join(filepath.Dir(dbDir), consts.AnalystsSubdir)
 }

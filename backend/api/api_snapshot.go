@@ -253,6 +253,8 @@ func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
 	for _, id := range req.Recreate {
 		wanted[id] = true
 	}
+	// One commit for every recreated relation: a commit each would be a durable write per edge.
+	var restored []*graphene.Relation
 	for _, r := range plan.Recreatable() {
 		if !wanted[r.SnapshotID] {
 			continue
@@ -270,11 +272,12 @@ func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
 		// say why it matched. An analyst reading the inspector sees "restored from snapshot …"
 		// rather than a blank, and never a rule's reasoning.
 		rel.Basis = []string{formatRestoredBasis(plan.SnapshotID)}
-		if _, err := a.store.InsertRelation(rel); err != nil {
-			return out, AsError(consts.ErrCodePersistence, err)
-		}
-		out.RelationsCreated++
+		restored = append(restored, rel)
 	}
+	if _, err := a.store.InsertRelations(restored); err != nil {
+		return out, AsError(consts.ErrCodePersistence, err)
+	}
+	out.RelationsCreated += len(restored)
 	return out, nil
 }
 

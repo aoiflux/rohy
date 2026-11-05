@@ -20,3 +20,7 @@ func replaceDurably(_, tmp, file string) error {
 	}
 	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
+
+// syncDir is a no-op: Windows offers no directory sync. NTFS journals the new directory entry, and
+// the file's own data is flushed before this is reached.
+func syncDir(string) error { return nil }

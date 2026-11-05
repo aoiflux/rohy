@@ -30,10 +30,44 @@ import (
 // drawer and lists drop what they showed when the redaction reports.
 
 // caseLock is a reader–writer lock that knows who holds it, so a refusal can name them.
+//
+// It is also the write gate (item 41). A session that cannot write — a signed case whose key is
+// locked, a case opened for recovery — refuses every write at the one place every write already
+// passes, with the reason and the remedy. shareRead is the same lock without the gate, for the few
+// passes that take it to stay clear of a redaction but write nothing.
 type caseLock struct {
 	mu     sync.Mutex
 	shared map[string]int
 	sole   string
+	// gate reports whether the session can write; nil allows every write.
+	gate func() error
+}
+
+// setGate installs the session's write check. Nil removes it.
+func (l *caseLock) setGate(gate func() error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.gate = gate
+}
+
+// writable asks the gate.
+func (l *caseLock) writable() error {
+	l.mu.Lock()
+	gate := l.gate
+	l.mu.Unlock()
+	if gate == nil {
+		return nil
+	}
+	if err := gate(); err != nil {
+		return AsError(consts.ErrCodeReadOnly, err)
+	}
+	return nil
+}
+
+// shareRead takes the lock shared for a pass that writes nothing: it waits out no redaction and is
+// not refused in a read-only session.
+func (l *caseLock) shareRead(what string) (func(), error) {
+	return l.take(what, false)
 }
 
 // theCase is the lock for the process's one case.
@@ -43,8 +77,18 @@ type caseLock struct {
 // fixture. One process opens one case.
 var theCase caseLock
 
-// share takes the lock shared, for what. The release runs once however often it is called.
+// share takes the lock shared, for a write called what. The release runs once however often it is
+// called.
 func (l *caseLock) share(what string) (func(), error) {
+	return l.take(what, true)
+}
+
+func (l *caseLock) take(what string, writes bool) (func(), error) {
+	if writes {
+		if err := l.writable(); err != nil {
+			return nil, err
+		}
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.sole != "" {
@@ -66,8 +110,11 @@ func (l *caseLock) share(what string) (func(), error) {
 	}, nil
 }
 
-// exclusive takes the lock alone, for what.
+// exclusive takes the lock alone, for what. Only redactions take it, and a redaction writes.
 func (l *caseLock) exclusive(what string) (func(), error) {
+	if err := l.writable(); err != nil {
+		return nil, err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.sole != "" {

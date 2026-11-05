@@ -12,6 +12,7 @@
   import ProgressBar from '../components/material/ProgressBar.svelte';
   import Button from '../components/material/Button.svelte';
   import Logo from '../components/material/Logo.svelte';
+  import SessionStep from '../components/session/SessionStep.svelte';
 
   // A floor on how long the splash shows, so a fast start is a deliberate beat rather than
   // a flash of branding. It never ADDS to a slow start — it only applies when init beat it.
@@ -26,6 +27,7 @@
   });
 
   const failed = $derived($init.phase === INIT_PHASE.FAILED);
+  const awaiting = $derived($init.phase === INIT_PHASE.AWAITING_SESSION);
 
   // Advance only once the backend is genuinely ready — never on a timer alone.
   $effect(() => {
@@ -45,6 +47,9 @@
     <p class="failtitle">{UI.INIT_FAILED_TITLE}</p>
     <p class="failmsg">{$init.error}</p>
     <Button variant="tonal" onclick={() => init.refresh()}>{UI.ACTION_RETRY_INIT}</Button>
+  {:else if awaiting}
+    <!-- The case waits for the analyst (item 41): who they are, and how to open a signed case. -->
+    <SessionStep />
   {:else}
     <div class="bar"><ProgressBar value={null} /></div>
     <p class="loading">{$init.stage || UI.SPLASH_LOADING}</p>

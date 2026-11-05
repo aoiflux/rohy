@@ -42,3 +42,33 @@ func WriteFile(path string, data []byte) (err error) {
 	}
 	return replaceDurably(dir, tmp.Name(), path)
 }
+
+// CreateNew writes data to path only if nothing is there, durably, with perm. An existing file is
+// never touched: the error then satisfies errors.Is(err, fs.ErrExist). On any other failure the
+// partial file is removed.
+//
+// For files whose loss cannot be repaired by writing them again, such as a signing key: WriteFile
+// would replace one, and a replaced key can no longer sign for anything it signed before.
+func CreateNew(path string, data []byte, perm os.FileMode) (err error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
+}

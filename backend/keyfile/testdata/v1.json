@@ -1,0 +1,20 @@
+{
+  "format": "rohy-signing-key",
+  "version": 1,
+  "key_id": 6199544084531275,
+  "public_key": "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+  "created": "2026-11-05T09:30:00Z",
+  "label": "Golden",
+  "kdf": {
+    "name": "argon2id",
+    "time": 1,
+    "memory_kib": 8192,
+    "threads": 1,
+    "salt": "2122232425262728292a2b2c2d2e2f30"
+  },
+  "cipher": {
+    "name": "aes-256-gcm",
+    "nonce": "3132333435363738393a3b3c",
+    "ciphertext": "2242f7141a906ec3985b5dc1e5b26a7cfcc63088c1f13ab24429a9c33457cab3dd2e54e7aed01874d155e631a5f11add"
+  }
+}

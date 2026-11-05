@@ -180,6 +180,14 @@ type ForensicStatus struct {
 	// Redaction reports whether attributed removal is possible at all. Without it RedactNode
 	// refuses rather than degrading to the unattributed DeleteNode.
 	Redaction bool `json:"redaction"`
+
+	// Mode is how this session opened the case (consts.CaseMode*), Actor who it records, and
+	// ReadOnly why nothing can be written, when that is so.
+	Mode     string `json:"mode"`
+	Actor    uint64 `json:"actor,omitempty"`
+	ReadOnly string `json:"read_only,omitempty"`
+	// RetentionReason says why retention is off.
+	RetentionReason string `json:"retention_reason,omitempty"`
 }
 
 // forensicOptions is the posture rohy opens a case under. Zero value is the permissive default —
@@ -187,9 +195,9 @@ type ForensicStatus struct {
 // reported rather than faked.
 type forensicOptions struct {
 	verifyOnOpen bool
-	// signer/verifier are deliberately absent for now. They arrive with §14.6, and the key
-	// custody question they raise is not one to answer by accident: a key stored inside the case
-	// folder proves nothing, because whoever can rewrite the store can re-sign it.
+	// posture is the session's: its mode, actor, key slot and verifier (graphene_signing.go). 🔒 The
+	// key itself lives outside the case (backend/keyfile); this holds only the slot it is put in.
+	posture Posture
 }
 
 // diskOptions renders the posture as engine options.
@@ -198,8 +206,12 @@ type forensicOptions struct {
 // the engine refuses every attributed removal, and the only removal left is the unattributed
 // DeleteNode. Turning it on creates an empty ledger file and changes nothing else about how a case
 // loads — an absent ledger and an empty one read the same everywhere the engine reads one.
+//
+// The audit log is on too (item 41), for the same reason: it creates an empty file, and every seal,
+// redaction and rohy action after that is recorded. Retention stays off: a retained log segment keeps
+// the records a redaction removed (TestSpikeRetentionKeepsWhatARedactionRemoved).
 func (o forensicOptions) diskOptions() disk.Options {
-	return disk.Options{VerifyOnOpen: o.verifyOnOpen, Redaction: true}
+	return o.posture.diskOptions(o.verifyOnOpen)
 }
 
 // openGraph opens the disk-backed graph under this store's posture.
@@ -390,18 +402,25 @@ func (s *Store) ForensicStatus() ForensicStatus {
 		return ForensicStatus{Available: false, Reason: err.Error()}
 	}
 
+	p := s.forensic.posture
+	opts := p.diskOptions(s.forensic.verifyOnOpen)
 	st := ForensicStatus{
 		Available:    true,
 		VerifyOnOpen: s.forensic.verifyOnOpen,
-		// The remaining postures arrive with §14.6 and are reported as off rather than omitted,
-		// because "not configured" is the answer an analyst needs — an absent field reads as an
-		// unasked question.
-		Signed:        false,
-		RequireSigned: false,
-		Audit:         false,
-		Retention:     false,
+		// Signed is what THIS session's commits and seals carry: a signed case whose key is still
+		// locked signs nothing, and says so.
+		Signed:          p.Mode == consts.CaseModeSigned && p.Slot.Unlocked(),
+		RequireSigned:   opts.RequireSignedCommits,
+		Audit:           opts.Audit,
+		Retention:       false,
+		RetentionReason: consts.MsgRetentionOff,
 		// Always on for a disk case (diskOptions, item 40).
 		Redaction: true,
+		Mode:      p.Mode,
+		Actor:     p.Actor,
+	}
+	if err := s.Writable(); err != nil {
+		st.ReadOnly = err.Error()
 	}
 
 	// A roots read that fails is not allowed to present as "never compacted": the two are

@@ -1018,3 +1018,39 @@ per redaction; the payload walk has no index to use at all.
 ```
 go test ./backend/redaction/ -run XXX -bench 'Resolve|Redact' -benchtime 3x -count 3
 ```
+
+### Signing and attribution (v0.3.0)
+
+Item 41 changed three costs: every write rohy can put in a commit became an attributed
+transaction instead of the engine's batch insert; every case keeps an audit log, which records each
+seal; and a signed case signs each commit and seal. Each is measured against what it replaced, in
+one binary, so no other build is needed. Same machine, `-benchtime 20x`, three runs:
+
+| One ingest batch (512 events) | Time | Allocated | Allocations |
+| --- | ---: | ---: | ---: |
+| Engine batch insert, actor 0 (before) | 2.6–3.2 ms | 1.10 MB | 5,648 |
+| Attributed transaction | 2.4–4.2 ms | 1.20 MB | 5,663 |
+| Attributed and signed | 2.4–4.7 ms | 1.20 MB | 5,667 |
+
+| One seal of a 10k-event case | Time | Allocated | Allocations |
+| --- | ---: | ---: | ---: |
+| No audit log (before) | 20–35 ms | 14.27 MB | 49,306 |
+| Audit log | 22–26 ms | 14.27 MB | 49,311 |
+| Audit log, signed | 24–26 ms | 14.27 MB | 49,317 |
+
+The three are inside each other's run-to-run spread: a batch is one durable commit whichever way
+it is written, and the fsync is the cost. The transaction copies each node once more (+9% bytes);
+signing adds a handful of allocations per commit, flat. The audit entry is one more synced append
+per seal.
+
+**Unlocking a key** is argon2id at 64 MiB: 60–78 ms and 67 MB allocated, once per session. That is
+the point of it — an offline guess at a stolen key file pays the same per try.
+
+The three loops that wrote one relation at a time — a snapshot restore, the legacy graph migration,
+the tolerant graph clear — now commit once each, so turning each write into a transaction did not
+turn each relation into an fsync.
+
+```
+go test ./backend/graphene/ -run XXX -bench 'InsertShape|SealShape' -benchtime 20x -count 3
+go test ./backend/keyfile/  -run XXX -bench Unlock -benchtime 10x -count 3
+```

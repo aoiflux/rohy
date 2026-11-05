@@ -83,12 +83,31 @@ whole answer.
     refused. They are not reversible, but they are not secret either.
   - **What rohy cannot reach:** event proofs and exports already saved outside the case, and copies
     the operating system kept (backups, shadow copies, freed disk blocks, the page file).
-  - **The reason is required** and is kept in plain text, permanently. Who redacted is not recorded
-    yet: this build keeps no analyst identity.
+  - **The reason is required** and is kept in plain text, permanently, with who redacted.
   - A redaction that stops part way says which step failed. It is listed on the Maintenance page,
     with **Finish the redactions**, and the integrity check reports it until it is finished.
   - Refused on a case with no ledger (in memory), while anything else is writing the case (an
     ingest, live capture, a rule run, a maintenance pass), and if its journal cannot be read.
+- **Who did it, and signed seals.** rohy now records who works on a case and can sign its seals.
+  - **Your name** is asked once, on first start, and kept on this computer in your user profile
+    folder (`rohy/analyst.json`), outside every case. Every change you make to a case records it,
+    and the case keeps a list of everyone who has worked on it.
+  - **Sign this case…** on the Maintenance page creates a signing key, or uses one you have, and
+    signs the case's seals from its next start. The key is a file **you keep outside the case
+    folder**, locked with a passphrase; rohy refuses one inside it. The page shows the key's
+    fingerprint: keep a copy somewhere else. Someone checking a seal compares that fingerprint
+    with the one the seal names — the case's own list of keys proves nothing by itself.
+  - **A signed case asks for the passphrase when it opens.** Without it, the case opens
+    read-only, and you can unlock the key later on the Maintenance page. *Continue this case
+    unsigned* is there for a lost key; it needs a reason, which is recorded.
+  - **A signed case whose log changed while rohy was closed** — after a crash, or an edit — says
+    so before it opens, and nothing is signed over it until you accept it with a reason.
+  - **The custody report has a Signing layer**: whether the current seal is signed by a key the
+    case lists, and whether the case's record of its signed seals is unbroken.
+  - **An audit log** (`graphene.audit` in the case folder) records every seal, redaction, ingest,
+    proof export and signing change. It holds ids, counts and the reasons you gave — never event
+    content or file paths.
+  - Several analysts can work on one case, each with their own key: *Add my key* on opening it.
 
 ### Fixed
 
@@ -124,6 +143,17 @@ whole answer.
   seconds; nothing ever waits behind one.
 - **An ingest refuses** if the redaction journal (`rohy-data/redactions/journal.json`) cannot be
   read, and names the file. It lists what must not be ingested again, so it is never replaced.
+- **Every disk case now keeps an audit log** (`graphene.audit`). A case written by an earlier build
+  opens unchanged, with the same fingerprint; the log starts with the next seal.
+- **The case opens after a short session step** when there is something to ask: your name on first
+  start, and how to open a signed case. A case you have opened before, never signed, opens as it
+  always did.
+- **A read-only session refuses every change**, names why, and is marked in the status bar. The
+  image check still runs.
+- **The fingerprint history is in format 2**: it records who sealed and the seal's signature. An
+  earlier build keeps a format-2 history aside rather than drop those fields by rewriting it.
+- **Some writes now commit once instead of once per relation**: a snapshot restore, the migration of
+  relations from before named graphs, and clearing a graph whose relations had drifted.
 
 - **A raw record that cannot be read, or a damaged sealed image, is reported as damage.** *Save
   proof…* used to fail with a generic error in both cases. It now says which, the same way as a

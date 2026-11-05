@@ -31,6 +31,8 @@ type SealOutcome struct {
 	State string `json:"state"`
 	// Snapshot is the case fingerprint after the seal, when there is one.
 	Snapshot string `json:"snapshot,omitempty"`
+	// Signed is set when the seal that ran carries the analyst's signature.
+	Signed bool `json:"signed,omitempty"`
 }
 
 // sealMu serialises every seal in the process, from check to record.
@@ -64,10 +66,39 @@ func sealAndRecord(store *graphene.Store, hist *custody.Store, force bool) (Seal
 		}
 	}
 	if err := store.Compact(); err != nil {
+		// A compaction can fail after its commit point: the engine records the seal in the audit log
+		// after the new image is in place. Then the image on disk is not the one this session holds,
+		// and writing on would build on a copy that no longer exists.
+		if same, cerr := store.ImageMatchesSession(); cerr == nil && !same {
+			store.Poison()
+			return SealOutcome{State: consts.SealStateFailed}, fmt.Errorf(consts.MsgSealPoisoned, err)
+		}
 		return SealOutcome{State: consts.SealStateFailed}, fmt.Errorf(consts.MsgSealCompactFailed, err)
 	}
-	return recordSeal(store, hist, consts.SealStateSealed)
+	out, err := recordSeal(store, hist, consts.SealStateSealed)
+	if err != nil {
+		return out, err
+	}
+	// A signed seal is recorded where the case's signing is checked from: the register and the
+	// analyst's profile keep the id of the last signed seal, which the next one must name.
+	if sealObserver != nil {
+		sig, serr := store.SealSignature(nil)
+		if serr != nil {
+			return out, fmt.Errorf(consts.MsgSealRecordFailed, serr)
+		}
+		if sig != nil {
+			out.Signed = true
+			if err := sealObserver(sig); err != nil {
+				return out, fmt.Errorf(consts.MsgSealRecordFailed, err)
+			}
+		}
+	}
+	return out, nil
 }
+
+// sealObserver is told about each seal that ran and carries a signature. The session sets it
+// (api_session.go); it is read and set only under sealMu.
+var sealObserver func(*graphene.SealSignature) error
 
 // recordSeal reads the fingerprint the case now has and adds it to the history.
 //
@@ -122,6 +153,14 @@ func fingerprintRecord(store *graphene.Store, roots *graphene.SnapshotRoots) cus
 	}
 	if nodes, _, err := store.Stats(); err == nil {
 		rec.Events = int(nodes)
+	}
+	// Who sealed, and the signature the image carries (item 41). The signature is the one on the
+	// image this session holds, which is the image whose roots these are.
+	if p, ok := store.Session(); ok {
+		rec.ActorID = p.Actor
+	}
+	if sig, err := store.SealSignature(nil); err == nil && sig != nil {
+		rec.KeyID, rec.Attestation = sig.KeyID, sig.ID
 	}
 	return rec
 }

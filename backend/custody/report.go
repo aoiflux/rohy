@@ -84,6 +84,9 @@ type ReportInput struct {
 	Kept         string
 	KeptKnown    bool
 	KeptAncestor bool
+	// Signing is what the case records about its signing (item 41). Nil leaves the signing layer
+	// out, for a caller with no analyst register.
+	Signing *SigningInput
 }
 
 // EventReport assembles the report.
@@ -121,7 +124,11 @@ func EventReport(in ReportInput) Report {
 		}
 		history.Notes = append(history.Notes, consts.MsgCustodyNoSealAdvice)
 	}
-	r.Layers = append(r.Layers, history, keptLayer(in))
+	r.Layers = append(r.Layers, history)
+	if in.Signing != nil {
+		r.Layers = append(r.Layers, signingLayer(*in.Signing, e))
+	}
+	r.Layers = append(r.Layers, keptLayer(in))
 	r.CaseRecords = caseRecords(e)
 
 	r.Establishes = []string{}
@@ -134,6 +141,9 @@ func EventReport(in ReportInput) Report {
 	}
 	if stateOf(r.Layers, consts.CustodyEventLayerKept) == consts.CustodyEstablished {
 		r.Establishes = append(r.Establishes, consts.CustodyEstablishesKept)
+	}
+	if stateOf(r.Layers, consts.CustodyEventLayerSigning) == consts.CustodyEstablished {
+		r.Establishes = append(r.Establishes, consts.CustodyEstablishesSigned)
 	}
 	if r.Form == consts.CustodyFormCaseOnly {
 		r.DoesNotEstablish = append(r.DoesNotEstablish, consts.CustodyNotKept)

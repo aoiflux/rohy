@@ -261,6 +261,9 @@ func (a *EventsAPI) CaptureStatus() CaptureStatus {
 // ResetCapturePositions clears the durable capture bookmarks so the next live run reads
 // its channels from the beginning again. Passing an empty channel clears every position.
 func (a *EventsAPI) ResetCapturePositions(channel string) error {
+	if err := theCase.writable(); err != nil {
+		return err
+	}
 	resetter, ok := a.positions.(interface{ Reset(string) error })
 	if !ok || resetter == nil {
 		return nil
@@ -330,6 +333,11 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 	// reintroduce.
 	defer a.sealCase(emitter)
 
+	// Recorded in the audit log after everything the request wrote and before the seal, which the
+	// engine records itself (item 41). Counts only: the audit log is never redacted.
+	var tally ingestTally
+	defer a.auditIngest(emitter, req.Source, &tally)
+
 	// The outermost guard, registered LAST so it runs FIRST — before sealing, before the state
 	// resets, before `done` closes.
 	//
@@ -373,7 +381,9 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 				Gate:             gate,
 				Suppress:         a.suppressor(),
 			}
-			if _, err := evtx.Ingest(ctx, opts, a.store, reporter); err != nil && ctx.Err() == nil {
+			sum, err := evtx.Ingest(ctx, opts, a.store, reporter)
+			tally.add(sum)
+			if err != nil && ctx.Err() == nil {
 				// A .db that is a real database with an unrecognized structure is a
 				// user-actionable schema problem, not an I/O failure — code it as such so
 				// the UI can say which of the two actually happened (P17).
@@ -399,7 +409,9 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 			Gate:       gate,
 			Suppress:   a.suppressor(),
 		}
-		if _, err := evtx.Ingest(ctx, opts, a.store, reporter); err != nil && ctx.Err() == nil {
+		sum, err := evtx.Ingest(ctx, opts, a.store, reporter)
+		tally.add(sum)
+		if err != nil && ctx.Err() == nil {
 			emitter.Emit(consts.EventIngestError, AsError(consts.ErrCodeInternal, err))
 		}
 	}
@@ -663,4 +675,26 @@ func (q EventQuery) toFilter() (graphene.EventFilter, error) {
 		f.TimeTo = &t
 	}
 	return f, nil
+}
+
+// ingestTally adds up what a request's runs did, for its audit entry.
+type ingestTally struct {
+	runs, persisted, duplicate, suppressed int
+}
+
+func (t *ingestTally) add(s evtx.Summary) {
+	t.runs++
+	t.persisted += s.RecordsPersisted
+	t.duplicate += s.RecordsDuplicate
+	t.suppressed += s.RecordsSuppressed
+}
+
+// auditIngest records that an ingest request finished. A failure is reported as an ingest error
+// that names the gap; the ingest itself happened.
+func (a *EventsAPI) auditIngest(emitter Emitter, source string, t *ingestTally) {
+	detail := fmt.Sprintf("ingest (%s): %d run(s), %d stored, %d duplicates, %d suppressed",
+		source, t.runs, t.persisted, t.duplicate, t.suppressed)
+	if err := recordAction(a.store, consts.AuditActionIngest, detail); err != nil {
+		emitter.Emit(consts.EventIngestError, AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgSessionAuditGap, err)))
+	}
 }

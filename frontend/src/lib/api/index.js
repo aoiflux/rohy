@@ -688,6 +688,43 @@ export function initStatus() {
   return call(SYSTEM, 'InitStatus');
 }
 
+/** What the session step shows (item 41). Never holds secret material. */
+export function sessionStatus() {
+  return call(SYSTEM, 'SessionStatus');
+}
+
+/**
+ * Answers the session step; on success the case opens. The passphrase crosses once, inside the
+ * request, and nothing here keeps it.
+ * @param {{name?:string, choice:string, passphrase?:string, reason?:string, accept_log?:boolean, keep_profile_aside?:boolean}} req
+ */
+export function beginSession(req) {
+  return call(SYSTEM, 'BeginSession', req);
+}
+
+/** The case's signing as the Maintenance page shows it. */
+export function signingStatus() {
+  return call(MAINTENANCE, 'SigningStatus');
+}
+
+/** Unlocks the signing key of a signed case opened read-only. @param {string} passphrase */
+export function unlockKey(passphrase) {
+  return call(MAINTENANCE, 'UnlockKey', { passphrase });
+}
+
+/** Native dialog for a key file: save for a new key, open for an existing one. '' = cancelled. */
+export function pickKeyFile(create) {
+  return call(MAINTENANCE, 'PickKeyFile', !!create);
+}
+
+/**
+ * Sets the case to be signed with a key from its next start.
+ * @param {{path:string, create:boolean, passphrase:string, label?:string}} req
+ */
+export function requestSigning(req) {
+  return call(MAINTENANCE, 'RequestSigning', req);
+}
+
 /** Build identity for the About surface (P13).
  * @returns {Promise<{name:string, version:string, commit:string, date:string, development:boolean}>} */
 export function version() {

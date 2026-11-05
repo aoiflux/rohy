@@ -3,9 +3,11 @@ package main
 import (
 	"embed"
 
+	"rohy/backend/api"
 	"rohy/backend/consts"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
@@ -36,6 +38,8 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
+		// Withholds a failed call from the log: a passphrase crosses a call as an argument (item 41).
+		Logger: api.NewSafeLogger(logger.NewDefaultLogger()),
 		Bind: []interface{}{
 			app.Events,
 			app.Graph,

@@ -1540,7 +1540,9 @@ Small and deliberate. Here is the whole of it:
 | Sidecar stores           | UI reads while the pipeline writes                                     | `sync.Mutex` per store                                               |
 | Pause gate               | UI flips, pipeline observes                                            | mutex plus **replaced** channels, so a waiter cannot latch a stale one |
 | Cancellation             | everywhere                                                             | one `context.Context` per run, checked at batch and rule boundaries  |
-| Case lock                | every write to the case shares it; a redaction holds it alone          | `api.theCase`: try-only, names its holders in the refusal (§18.4)    |
+| Case lock                | every write to the case shares it; a redaction holds it alone          | `api.theCase`: try-only, names its holders in the refusal (§18.4); also the write gate of a read-only session (§18.5) |
+| Store open               | a call before the session waits; shutdown releases it                  | mutex + `atomic.Bool` ready, retryable; `Close` holds the open's mutex (§18.5) |
+| Key slot                 | a mid-session unlock while commits sign                                | `sync.RWMutex`; `KeyID` never changes, so a commit cannot mix two keys |
 
 The rule of thumb the code follows: **make the hot path single-goroutine and put
 the concurrency at the edges.** The sink is the clearest example — it trades a
@@ -1716,6 +1718,48 @@ The invariants, each a test:
 Refused on an in-memory case (no ledger) and on a ledger whose framing does not match its size
 (the next record would be misframed, and every seal after it would fail). An image older than body
 version 3 is sealed first, so the ledger's hashes match the image the redaction's own seal writes.
+
+### 18.5 Who did it: the session, attribution and signed seals
+
+graphene takes the signer, the verifier and the actor at **open**, so how a case opens is decided
+before it opens, at the session step. What the step reads, it reads from files: the store waits.
+
+| Piece | What it does |
+|---|---|
+| `keyfile` | An Ed25519 key sealed under the analyst's passphrase (argon2id, AES-256-GCM, every public field in a fixed binary AAD). Refuses a path inside the case's working folder, comparing files rather than strings, at creation and at every unlock. Never replaces a file. |
+| `analyst.Profiles` | Per user, outside every case (`os.UserConfigDir()/rohy/analyst.json`): the name, a random analyst id, the key's path, and each case this analyst signs with how its log was left at the last clean close. |
+| `analyst.Register` | Per case (`rohy-data/analysts/register.json`): analysts (actor id derived from the analyst id), keys (each signed over its analyst), the signing state and its intervals, each recording where the seal chain, the ledger and the audit log stood. Fails closed: unreadable is *unknown*, never *unsigned*. |
+| `graphene` | `OpenAwaitingSession` / `BeginSession` (retryable; a failed open keeps nothing), the `Posture` (mode, actor, `KeySlot`, verifier), attributed transactions for every write rohy can commit, the audit log on for every disk case with its framing checked first. |
+| `custody` | The seal history (format 2) records who sealed and the signature; the report's **signing** layer requires what the engine does not. |
+| `api.Session` | The step's decision, the open, the close; `api.theCase` gains the write gate. |
+
+The modes, fixed at open:
+
+| Mode | Signer | Verifier | Unsigned commits refused | Writes |
+|---|---|---|---|---|
+| `unsigned` | — | — | no | yes |
+| `signed` | key slot, unlocked | the register's bound keys | yes, except on the open that turns signing on | yes |
+| `signed`, key locked | key slot, locked | the register's bound keys | yes | no — the engine refuses a signed batch or seal itself, and the write gate everything else |
+| `unsigned_after_signed` | — | — | no | yes |
+| `recovery` | — | — | no | no |
+
+The invariants, each a test:
+
+- **The register alone never says a case is unsigned.** A case is treated as signed if the register,
+  the image's own signature, or the analyst's profile says so; a disagreement is a choice with a
+  reason, never a silent start.
+- **A signed log is not proof nothing was added.** graphene applies records written outside a batch
+  unchecked. So a signed case whose log is not as this analyst left it is flagged before it opens,
+  and nothing is signed over it until the analyst accepts it with a reason; unlocking mid-session is
+  refused in a flagged session.
+- **Nothing is lost to a failed open.** A strict open that fails leaves the store closed and offers
+  recovery; closing the window at the session step opens nothing and seals nothing.
+- **A read-only session writes nothing** — not the case, not its sidecars, not the audit log, not a
+  damaged seal history moved aside (`custody.OpenDeferred`); the image check still runs.
+- **The audit log holds no evidence.** rohy's entries are ids, counts and the analyst's reasons; a
+  test searches the file for an ingested needle.
+- **No secret reaches the log.** Passphrases cross one struct argument; the key bindings recover
+  their own panics; `api.SafeLogger` withholds the call Wails would log on a failed one.
 
 ---
 

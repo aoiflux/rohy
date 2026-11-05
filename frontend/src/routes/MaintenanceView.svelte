@@ -33,6 +33,7 @@
   import AppBar from '../components/material/AppBar.svelte';
   import Button from '../components/material/Button.svelte';
   import ProgressBar from '../components/material/ProgressBar.svelte';
+  import SigningCard from '../components/maintenance/SigningCard.svelte';
 
   const report = $derived($maintenance.report);
   const read = $derived(verdict(report));
@@ -158,6 +159,10 @@
       </Button>
     {/if}
   </section>
+
+  <!-- Who is working, how the case opened, and its keys (item 41). Above what the case can prove:
+       a read-only session is the first thing to know before reading anything below it. -->
+  <SigningCard />
 
   <!--
     What the case can prove (§14). Placed ABOVE the integrity report deliberately: it qualifies

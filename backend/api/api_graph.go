@@ -161,6 +161,9 @@ func (a *GraphAPI) SetActiveGraph(id uint64) error {
 
 // CreateGraph adds a new named graph and makes it active.
 func (a *GraphAPI) CreateGraph(req GraphRequest) (*graphreg.Graph, error) {
+	if err := theCase.writable(); err != nil {
+		return nil, err
+	}
 	if a.registry == nil {
 		return nil, AsError(consts.ErrCodeInternal, errors.New("graph registry unavailable"))
 	}
@@ -177,6 +180,9 @@ func (a *GraphAPI) CreateGraph(req GraphRequest) (*graphreg.Graph, error) {
 
 // RenameGraph updates a graph's name and description.
 func (a *GraphAPI) RenameGraph(req GraphRequest) (*graphreg.Graph, error) {
+	if err := theCase.writable(); err != nil {
+		return nil, err
+	}
 	if a.registry == nil {
 		return nil, AsError(consts.ErrCodeInternal, errors.New("graph registry unavailable"))
 	}

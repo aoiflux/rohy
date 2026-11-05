@@ -206,6 +206,9 @@ type CaseFingerprint struct {
 	// and its limits have to be inside the file, because the file is what gets forwarded.
 	Establishes      []string `json:"establishes"`
 	DoesNotEstablish []string `json:"does_not_establish"`
+	// NotRecorded says why this export was not recorded in the case's history: the session could
+	// not write. The value is the same either way.
+	NotRecorded string `json:"not_recorded,omitempty"`
 }
 
 // ExportCaseFingerprint returns the fingerprint artefact and records that a copy was taken.
@@ -253,6 +256,12 @@ func (a *MaintenanceAPI) ExportCaseFingerprint() (CaseFingerprint, error) {
 	a.mu.Lock()
 	hist := a.integrity.Roots
 	a.mu.Unlock()
+	// A read-only session hands the value over and records nothing: recording an export is a write
+	// to the case. Said in the artefact's reply, so the export page can say it was not recorded.
+	if err := theCase.writable(); err != nil {
+		out.NotRecorded = err.Error()
+		return out, nil
+	}
 	if hist != nil {
 		if _, err := hist.Observe(fingerprintRecord(a.store, roots)); err == nil {
 			_ = hist.MarkExported(roots.Snapshot)
@@ -278,6 +287,9 @@ type EventProofExport struct {
 	// 🔒 When it has not, the recipient has no root to check against, and the UI must say so: a
 	// proof checkable only against a value inside the case proves nothing.
 	FingerprintExported bool `json:"fingerprint_exported"`
+	// AuditGap is set when the export could not be recorded in the audit log (item 41). The proof is
+	// the same either way.
+	AuditGap string `json:"audit_gap,omitempty"`
 }
 
 // ExportEventProof builds the proof document for one event (plan §14.3).
@@ -304,6 +316,11 @@ func (a *MaintenanceAPI) ExportEventProof(id uint64) (EventProofExport, error) {
 	if hist != nil {
 		out.FingerprintExported = hist.Exported(p.Snapshot)
 	}
+	// The export is recorded in the audit log (item 41): which event, against which seal.
+	if err := recordAction(a.store, consts.AuditActionProofExported,
+		fmt.Sprintf("proof exported: event %d against seal %s", id, p.Snapshot)); err != nil {
+		out.AuditGap = fmt.Sprintf(consts.MsgSessionAuditGap, err)
+	}
 	return out, nil
 }
 
@@ -322,14 +339,16 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 		return custody.Report{}, AsError(consts.ErrCodeParse, err)
 	}
 	a.mu.Lock()
-	hist := a.integrity.Roots
+	hist, session := a.integrity.Roots, a.session
 	a.mu.Unlock()
 
 	sealMu.Lock()
 	defer sealMu.Unlock()
 
 	in := custody.ReportInput{Event: id, Kept: k, NoHistory: hist == nil}
-	eng, err := a.store.EventCustody(id)
+	// Signatures are checked under the keys the case lists (item 41); with no session, unchecked.
+	ring := session.Keyring()
+	eng, err := a.store.EventCustodyUnder(id, ring)
 	if errors.Is(err, graphene.ErrForensicsUnavailable) {
 		in.Unavailable = true
 		return custody.EventReport(in), nil
@@ -351,6 +370,17 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 			in.KeptAncestor = hist.DescendsFrom(in.Current, k)
 		}
 	}
+	if session != nil {
+		seal, err := a.store.SealSignature(ring)
+		if err != nil {
+			return custody.Report{}, AsError(consts.ErrCodePersistence, err)
+		}
+		var seq uint64
+		if eng.Redacted != nil {
+			seq = eng.Redacted.Seq
+		}
+		in.Signing = session.SigningInput(seal, seq)
+	}
 	return custody.EventReport(in), nil
 }
 
@@ -365,7 +395,8 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 // 449 MB of churn beside a running backfill would make both slower and neither wrong, and the
 // analyst cannot tell which pass is responsible.
 func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
-	if err := a.begin(); err != nil {
+	// A reader: in a read-only session this is the check the analyst most needs.
+	if err := a.beginRead(); err != nil {
 		return graphene.ImageCheck{}, err
 	}
 	defer a.finish()

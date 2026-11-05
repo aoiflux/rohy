@@ -64,7 +64,44 @@ export const INIT_PHASE = Object.freeze({
   INITIALIZING: 'initializing',
   READY: 'ready',
   FAILED: 'failed',
+  // The case waits for the analyst at the session step (item 41).
+  AWAITING_SESSION: 'awaiting_session',
 });
+
+// The session step (item 41; mirror backend consts.SessionNeed*, Session*, Evidence*, CaseMode*,
+// Signing*). The splash asks only what the case needs before it opens.
+export const SESSION_NEED = Object.freeze({
+  NONE: 'none',
+  IDENTITY: 'identity',
+  CHOICE: 'choice',
+});
+export const SESSION_CHOICE = Object.freeze({
+  START: 'start',
+  UNLOCK: 'unlock',
+  ADD_KEY: 'add_key',
+  READ_ONLY: 'read_only',
+  RECOVERY: 'recovery',
+  CONTINUE_UNSIGNED: 'continue_unsigned',
+  CANCEL_REQUEST: 'cancel_request',
+});
+export const SIGNING_STATE = Object.freeze({
+  UNSIGNED: 'unsigned',
+  REQUESTED: 'requested',
+  SIGNED: 'signed',
+  UNSIGNED_AFTER_SIGNED: 'unsigned_after_signed',
+});
+export const CASE_MODE = Object.freeze({
+  UNSIGNED: 'unsigned',
+  SIGNED: 'signed',
+  AFTER_SIGNED: 'unsigned_after_signed',
+  RECOVERY: 'recovery',
+});
+// Key file and reason bounds (mirror backend consts.KeyMinPassphrase, KeyMaxPassphrase,
+// MaxSigningReasonLen, AnalystMaxName).
+export const KEY_MIN_PASSPHRASE_BYTES = 12;
+export const KEY_MAX_PASSPHRASE_BYTES = 1024;
+export const MAX_SIGNING_REASON_BYTES = 2048;
+export const ANALYST_MAX_NAME = 128;
 
 // --- Ingestion source kinds (mirror backend consts.Source*) ---
 export const SOURCES = Object.freeze({
@@ -130,6 +167,10 @@ export const ERROR_CODES = Object.freeze({
   INTERNAL: 'internal_error',
   // Refused because the case lock is held (plan §14.5); the message names what is running.
   BUSY: 'case_busy',
+  // Refused because this session cannot write the case (item 41); the message says why and how.
+  READ_ONLY: 'case_read_only',
+  // A session step refused: a choice the case does not offer, a passphrase that did not unlock.
+  SESSION: 'session_error',
 });
 
 // --- Protected Windows channels (mirror backend consts.Channel*) ---
@@ -1427,6 +1468,100 @@ export const UI = Object.freeze({
   REDACTED_BADGE: 'Redacted',
   REDACTED_ON: 'Redacted %d: %r',
   REDACTED_NO_LEDGER: 'Redacted. This case keeps no ledger, so when and why are not recorded.',
+
+  // The session step (item 41). 🔒 The copy never says a signature proves more than it does: a seal
+  // signed by a key this case lists, checked by whoever compares the key's fingerprint with theirs.
+  SESSION_TITLE: 'Before the case opens',
+  SESSION_NAME_LABEL: 'Your name',
+  SESSION_NAME_HINT:
+    'Recorded with what you do in this case. Kept on this computer, outside the case, with where your key is — never the key.',
+  SESSION_PROFILE_DAMAGED: 'Your analyst profile cannot be read:',
+  SESSION_PROFILE_ASIDE: 'Start a new profile (the unreadable one is kept beside it)',
+  SESSION_STATE: 'This case:',
+  SESSION_STATE_LABEL: Object.freeze({
+    unsigned: 'not signed',
+    requested: 'signing starts with this session',
+    signed: 'signed',
+    unsigned_after_signed: 'signed, then continued unsigned',
+    '': 'signing state unknown',
+  }),
+  SESSION_EVIDENCE: 'Treated as signed because of %s.',
+  SESSION_EVIDENCE_LABEL: Object.freeze({
+    register: 'the case’s register',
+    image: 'the signature on its last seal',
+    profile: 'your own record of signing it',
+  }),
+  SESSION_KEY: 'Your key: %s',
+  SESSION_NO_KEY: 'No signing key is set up for you on this computer.',
+  SESSION_CHOICE_LABEL: Object.freeze({
+    start: 'Open the case',
+    unlock: 'Unlock my key and sign',
+    add_key: 'Add my key to this case and sign',
+    read_only: 'Open read-only',
+    recovery: 'Open for recovery (read-only, signatures not checked)',
+    continue_unsigned: 'Continue this case unsigned…',
+    cancel_request: 'Cancel the signing request',
+  }),
+  SESSION_CHOICE_HINT: Object.freeze({
+    start: '',
+    unlock: 'Seals and commits in this session are signed with your key.',
+    add_key: 'Your key is added to the case’s list on your own say-so, and recorded as such.',
+    read_only: 'Nothing can be changed until you unlock your key on the Maintenance page.',
+    recovery: 'For a case whose signing cannot be established. Nothing can be changed.',
+    continue_unsigned: 'Seals from now on are not signed. The reason is recorded with the case.',
+    cancel_request: 'The case stays unsigned.',
+  }),
+  SESSION_PASSPHRASE: 'Passphrase',
+  SESSION_REASON: 'Reason',
+  SESSION_REASON_WARNING: 'Kept in plain text with the case, permanently.',
+  SESSION_ACCEPT_LOG: 'I accept the log as it is, and will sign over it',
+  SESSION_ACCEPT_REASON: 'Why the log is as it is',
+  SESSION_PENDING: '%d redaction(s) did not finish. A read-only session cannot finish them.',
+  SESSION_SUBMIT: 'Open the case',
+  SESSION_WORKING: 'Opening the case…',
+  SESSION_FAILED: 'The case could not be opened:',
+  SESSION_NEED_NAME: 'Enter your name.',
+  SESSION_NEED_CHOICE: 'Choose how to open the case.',
+  SESSION_NEED_PASSPHRASE: 'Enter your key’s passphrase.',
+  SESSION_NEED_REASON: 'Give a reason: it is recorded with the case.',
+  SESSION_REASON_TOO_LONG: 'The reason is longer than %d bytes.',
+  SESSION_NAME_TOO_LONG: 'A name is at most %d characters.',
+
+  // Signing on the Maintenance page (item 41).
+  MAINT_EXPORT_NOT_RECORDED: 'The fingerprint was handed over, but the export is not recorded in the case:',
+  SIGNING_TITLE: 'Signing',
+  SIGNING_HINT:
+    'Each seal is signed with the analyst’s key. Someone checking a seal compares the key’s fingerprint ' +
+    'with one they kept: this case’s own list of keys proves nothing by itself.',
+  SIGNING_MODE_LABEL: Object.freeze({
+    unsigned: 'Not signed',
+    signed: 'Signed',
+    unsigned_after_signed: 'Continued unsigned',
+    recovery: 'Opened for recovery',
+  }),
+  SIGNING_READ_ONLY: 'Read-only:',
+  SIGNING_ANALYST: 'You are %s.',
+  SIGNING_KEY_FINGERPRINT: 'Your key’s fingerprint — keep a copy outside the case',
+  SIGNING_COPY: 'Copy',
+  SIGNING_COPIED: 'Copied',
+  SIGNING_REQUEST: 'Sign this case…',
+  SIGNING_CREATE_KEY: 'Create a new key',
+  SIGNING_USE_KEY: 'Use an existing key',
+  SIGNING_PASS_REPEAT: 'Repeat the passphrase',
+  SIGNING_PASS_MISMATCH: 'The passphrases differ.',
+  SIGNING_PASS_SHORT: 'A passphrase is at least %d bytes.',
+  SIGNING_PASS_LONG: 'A passphrase is at most %d bytes.',
+  SIGNING_KEY_LABEL: 'Label (optional)',
+  SIGNING_PICK_FAILED: 'No key file was chosen.',
+  SIGNING_REQUESTED: 'Signing starts the next time rohy opens this case, with key %s.',
+  SIGNING_UNLOCK: 'Unlock key',
+  SIGNING_UNLOCKED: 'Key unlocked. This session signs.',
+  SIGNING_ANALYSTS: 'Who has worked on this case',
+  SIGNING_KEYS: 'Keys this case lists',
+  SIGNING_UNBOUND: 'not bound to its analyst: not used to check seals',
+  SIGNING_AUDIT_GAPS: 'These actions happened but are not in the audit log:',
+  SIGNING_FAILED: 'Signing could not be set up:',
+  STATUS_READ_ONLY: 'Read-only',
   REDACT_PENDING_TITLE: 'Unfinished redactions',
   REDACT_PENDING_NONE: 'None.',
   REDACT_PENDING_ROW: 'Event %e, started %d: %r',
@@ -1474,6 +1609,7 @@ export const UI = Object.freeze({
     audit: 'Audit log',
     roles: 'Role grants',
     removals: 'Removal ledger',
+    signing: 'Signing',
   }),
   CUSTODY_RECORDS_TITLE: 'Case records (the same for every event)',
   CUSTODY_CAUSE: 'Cause:',

@@ -34,6 +34,11 @@ type MaintenanceAPI struct {
 	// integrity holds the sidecars the case checks read. Attached after construction (see
 	// WithIntegrity) so this binding keeps its narrow constructor.
 	integrity IntegrityDeps
+	// ctx is the Wails runtime context, for the key file dialogs.
+	ctx context.Context
+	// session is the analyst's session (item 41): the case's keys for checking signatures, and the
+	// signing actions the Maintenance page offers. Nil in tests that need neither.
+	session *Session
 }
 
 // NewMaintenanceAPI constructs the binding over the open store.
@@ -43,6 +48,9 @@ func NewMaintenanceAPI(store *graphene.Store) *MaintenanceAPI {
 
 // Startup installs the Wails event sink once the runtime is ready.
 func (a *MaintenanceAPI) Startup(ctx context.Context) {
+	a.mu.Lock()
+	a.ctx = ctx
+	a.mu.Unlock()
 	a.setEmitter(NewWailsEmitter(ctx))
 }
 
@@ -122,12 +130,21 @@ func (a *MaintenanceAPI) BackfillCorrelationKeys() (graphene.BackfillResult, err
 // the thing it exists to prevent. It also shares the case lock, so no pass runs beside a
 // redaction (plan §14.5). The error it returns is already coded for the binding.
 func (a *MaintenanceAPI) begin() error {
+	return a.beginAs(theCase.share)
+}
+
+// beginRead is begin for a pass that writes nothing: a read-only session may still run it.
+func (a *MaintenanceAPI) beginRead() error {
+	return a.beginAs(theCase.shareRead)
+}
+
+func (a *MaintenanceAPI) beginAs(take func(string) (func(), error)) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.running {
 		return AsError(consts.ErrCodeInternal, errMaintenanceRunning)
 	}
-	release, err := theCase.share(consts.CaseActivityMaintain)
+	release, err := take(consts.CaseActivityMaintain)
 	if err != nil {
 		return err
 	}
