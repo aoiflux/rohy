@@ -1540,6 +1540,7 @@ Small and deliberate. Here is the whole of it:
 | Sidecar stores           | UI reads while the pipeline writes                                     | `sync.Mutex` per store                                               |
 | Pause gate               | UI flips, pipeline observes                                            | mutex plus **replaced** channels, so a waiter cannot latch a stale one |
 | Cancellation             | everywhere                                                             | one `context.Context` per run, checked at batch and rule boundaries  |
+| Case lock                | every write to the case shares it; a redaction holds it alone          | `api.theCase`: try-only, names its holders in the refusal (§18.4)    |
 
 The rule of thumb the code follows: **make the hot path single-goroutine and put
 the concurrency at the edges.** The sink is the clearest example — it trades a
@@ -1681,6 +1682,40 @@ mere store update: both stores replace their state on every progress tick.
 A damaged image is reported, not failed: when the engine finds the seal broken, the event's proof
 is not asked for, and record and raw read "not checked". A layer's `remedy` (seal, or seal again)
 is cleared whenever the history is broken.
+
+### 18.4 Redacting one event
+
+**Redact this event…** removes an event's content from everywhere rohy put it, records the
+removal in graphene's ledger with its reason, and keeps the content from coming back. The node
+stays, so the analyst's relations and the fact of the removal survive.
+
+| Piece | What it does |
+|---|---|
+| `payload.Store.Redact` | Overwrites a payload record in place, same length: `0x00 'R' 'D' 'X'`, a version, the owning event's id, zeros. Refuses a reference whose framing it cannot confirm by walking the log from the start, so crafted evidence cannot steer the write. |
+| `graphene` primitives | `RedactEventRecord` (strip the record, then purge its index; a retry finishes a purge that did not land), `RedactRelation`, `EventsSharing`, `PayloadCopies`, `TombstonePayload`, `LedgerFramingClean`. A relation or event removed outside a redaction is a `GoneError`. |
+| `redaction.Journal` | `rohy-data/redactions/journal.json`, written durably (`backend/durable`) before anything is destroyed: the only place the payload references survive the strip. It is also the suppression list. |
+| `redaction.Prepare` / `Run` | Resolve the targets (the event and every event holding the same record), then run five steps — relations, records, payloads, sidecars, seal — each recorded as it ends. Pure over narrow interfaces, so each step is fault-injected in tests. |
+| `MaintenanceAPI` | `PreviewRedaction`, `RedactEvent`, `PendingRedactions`, `FinishRedaction`. Checks everything that must hold first, under the case lock held alone. |
+
+The invariants, each a test:
+
+- **Nothing brings it back.** Ingest skips a record whose `hash_normalized` or `hash_raw` the
+  journal names, whether or not it deduplicates; a journal that cannot be read refuses the ingest.
+  Dedup counts and the backfill skip a stripped event; a build reads through the timestamp index,
+  which a stripped event has left; `toNode` refuses an event read as redacted; a finding written on
+  a redacted hash keeps no descriptor.
+- **Nothing races it.** Every binding that writes the case, or a copy of an event's content,
+  shares `api.theCase`; a redaction takes it alone. Both sides only try, so nothing waits behind a
+  redaction and a redaction never starts unattended behind a long ingest.
+- **Every step can be run again.** Finishing a redaction is running it again: what landed does
+  nothing, what did not lands. A failure stops at its step; later steps report "not reached".
+- **The definition of done is checked on disk.** The end-to-end test searches every file under the
+  case folder for the raw record and the copied values — present before, absent after — and finds
+  the analyst's own note exactly once.
+
+Refused on an in-memory case (no ledger) and on a ledger whose framing does not match its size
+(the next record would be misframed, and every seal after it would fail). An image older than body
+version 3 is sealed first, so the ledger's hashes match the image the redaction's own seal writes.
 
 ---
 

@@ -4,6 +4,7 @@ import {graphene} from '../models';
 import {caseintegrity} from '../models';
 import {custody} from '../models';
 import {api} from '../models';
+import {redaction} from '../models';
 import {context} from '../models';
 
 export function BackfillCorrelationKeys():Promise<graphene.BackfillResult>;
@@ -22,11 +23,19 @@ export function ExportCaseFingerprint():Promise<api.CaseFingerprint>;
 
 export function ExportEventProof(arg1:number):Promise<api.EventProofExport>;
 
+export function FinishRedaction(arg1:number):Promise<redaction.Outcome>;
+
 export function ForensicStatus():Promise<graphene.ForensicStatus>;
 
 export function IsRunningMaintenance():Promise<boolean>;
 
+export function PendingRedactions():Promise<Array<redaction.Entry>>;
+
+export function PreviewRedaction(arg1:number):Promise<api.RedactionPreview>;
+
 export function RebuildIndexes():Promise<void>;
+
+export function RedactEvent(arg1:api.RedactRequest):Promise<redaction.Outcome>;
 
 export function RepairRelationIndex():Promise<number>;
 

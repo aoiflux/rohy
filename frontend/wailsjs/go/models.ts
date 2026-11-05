@@ -357,6 +357,77 @@ export namespace api {
 	        this.slot = source["slot"];
 	    }
 	}
+	export class EventDetail {
+	    id: number;
+	    event_id: string;
+	    // Go type: time
+	    timestamp: any;
+	    provider: string;
+	    channel: string;
+	    computer: string;
+	    user: string;
+	    hash_raw: string;
+	    hash_normalized: string;
+	    source_type: string;
+	    source_identifier: string;
+	    deduplication_count: number;
+	    source_counts?: Record<string, number>;
+	    payload?: payload.Ref;
+	    ck?: string[];
+	    ckv?: number;
+	    redacted?: boolean;
+	    raw_xml: string;
+	    parsed_fields: Record<string, string>;
+	    payload_redacted: boolean;
+	    redaction?: graphene.RedactionRecord;
+	
+	    static createFrom(source: any = {}) {
+	        return new EventDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.event_id = source["event_id"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.provider = source["provider"];
+	        this.channel = source["channel"];
+	        this.computer = source["computer"];
+	        this.user = source["user"];
+	        this.hash_raw = source["hash_raw"];
+	        this.hash_normalized = source["hash_normalized"];
+	        this.source_type = source["source_type"];
+	        this.source_identifier = source["source_identifier"];
+	        this.deduplication_count = source["deduplication_count"];
+	        this.source_counts = source["source_counts"];
+	        this.payload = this.convertValues(source["payload"], payload.Ref);
+	        this.ck = source["ck"];
+	        this.ckv = source["ckv"];
+	        this.redacted = source["redacted"];
+	        this.raw_xml = source["raw_xml"];
+	        this.parsed_fields = source["parsed_fields"];
+	        this.payload_redacted = source["payload_redacted"];
+	        this.redaction = this.convertValues(source["redaction"], graphene.RedactionRecord);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class EventProofExport {
 	    state: string;
 	    event: number;
@@ -554,6 +625,10 @@ export namespace api {
 	    // Go type: custody
 	    Roots?: any;
 	    LayoutDir: string;
+	    // Go type: redaction
+	    Journal?: any;
+	    // Go type: snapshot
+	    Snapshots?: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new IntegrityDeps(source);
@@ -566,6 +641,8 @@ export namespace api {
 	        this.Rules = this.convertValues(source["Rules"], null);
 	        this.Roots = this.convertValues(source["Roots"], null);
 	        this.LayoutDir = source["LayoutDir"];
+	        this.Journal = this.convertValues(source["Journal"], null);
+	        this.Snapshots = this.convertValues(source["Snapshots"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -665,6 +742,54 @@ export namespace api {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	
 	    }
+	}
+	export class RedactRequest {
+	    event: number;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RedactRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.event = source["event"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class RedactionPreview {
+	    plan: redaction.Plan;
+	    findings: findings.Finding[];
+	    blocked?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RedactionPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plan = this.convertValues(source["plan"], redaction.Plan);
+	        this.findings = this.convertValues(source["findings"], findings.Finding);
+	        this.blocked = source["blocked"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class RelationDetail {
 	    relation?: graphene.Relation;
@@ -1395,6 +1520,7 @@ export namespace graphene {
 	    projected: number;
 	    already_current: number;
 	    failed: number;
+	    redacted: number;
 	    cancelled: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -1407,6 +1533,7 @@ export namespace graphene {
 	        this.projected = source["projected"];
 	        this.already_current = source["already_current"];
 	        this.failed = source["failed"];
+	        this.redacted = source["redacted"];
 	        this.cancelled = source["cancelled"];
 	    }
 	}
@@ -1414,6 +1541,7 @@ export namespace graphene {
 	    total: number;
 	    current: number;
 	    stale: number;
+	    redacted: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CorrelationKeyStatus(source);
@@ -1424,6 +1552,7 @@ export namespace graphene {
 	        this.total = source["total"];
 	        this.current = source["current"];
 	        this.stale = source["stale"];
+	        this.redacted = source["redacted"];
 	    }
 	}
 	export class Event {
@@ -1444,6 +1573,7 @@ export namespace graphene {
 	    payload?: payload.Ref;
 	    ck?: string[];
 	    ckv?: number;
+	    redacted?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Event(source);
@@ -1467,6 +1597,7 @@ export namespace graphene {
 	        this.payload = this.convertValues(source["payload"], payload.Ref);
 	        this.ck = source["ck"];
 	        this.ckv = source["ckv"];
+	        this.redacted = source["redacted"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1680,6 +1811,47 @@ export namespace graphene {
 	        this.roots_checked = source["roots_checked"];
 	        this.roots_error = source["roots_error"];
 	    }
+	}
+	export class RedactionRecord {
+	    seq: number;
+	    scope: string;
+	    // Go type: time
+	    at: any;
+	    reason: string;
+	    node_id?: number;
+	    edge_id?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RedactionRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.scope = source["scope"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.reason = source["reason"];
+	        this.node_id = source["node_id"];
+	        this.edge_id = source["edge_id"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Relation {
 	    id: number;
@@ -2012,6 +2184,228 @@ export namespace payload {
 	        this.l = source["l"];
 	    }
 	}
+
+}
+
+export namespace redaction {
+	
+	export class Step {
+	    name: string;
+	    state: string;
+	    error?: string;
+	    // Go type: time
+	    at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Step(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.state = source["state"];
+	        this.error = source["error"];
+	        this.at = this.convertValues(source["at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Target {
+	    node: number;
+	    hash_normalized: string;
+	    hash_raw?: string;
+	    payload: payload.Ref;
+	    copies?: payload.Ref[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Target(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.node = source["node"];
+	        this.hash_normalized = source["hash_normalized"];
+	        this.hash_raw = source["hash_raw"];
+	        this.payload = this.convertValues(source["payload"], payload.Ref);
+	        this.copies = this.convertValues(source["copies"], payload.Ref);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Entry {
+	    id: number;
+	    event: number;
+	    reason: string;
+	    // Go type: time
+	    at: any;
+	    targets: Target[];
+	    relations?: number[];
+	    steps?: Step[];
+	    done: boolean;
+	    // Go type: time
+	    done_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Entry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.event = source["event"];
+	        this.reason = source["reason"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.targets = this.convertValues(source["targets"], Target);
+	        this.relations = source["relations"];
+	        this.steps = this.convertValues(source["steps"], Step);
+	        this.done = source["done"];
+	        this.done_at = this.convertValues(source["done_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class StepOutcome {
+	    name: string;
+	    state: string;
+	    error?: string;
+	    count: number;
+	    notes?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new StepOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.state = source["state"];
+	        this.error = source["error"];
+	        this.count = source["count"];
+	        this.notes = source["notes"];
+	    }
+	}
+	export class Outcome {
+	    entry: number;
+	    event: number;
+	    done: boolean;
+	    steps: StepOutcome[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Outcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry = source["entry"];
+	        this.event = source["event"];
+	        this.done = source["done"];
+	        this.steps = this.convertValues(source["steps"], StepOutcome);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Plan {
+	    entry: Entry;
+	    analyst_relations: graphene.Relation[];
+	    payload_copies: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Plan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry = this.convertValues(source["entry"], Entry);
+	        this.analyst_relations = this.convertValues(source["analyst_relations"], graphene.Relation);
+	        this.payload_copies = source["payload_copies"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 
 }
 

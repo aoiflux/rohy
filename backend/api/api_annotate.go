@@ -110,6 +110,11 @@ type LayerRequest struct {
 
 // SaveLayer adds a layer, or updates the one named by ID.
 func (a *AnnotateAPI) SaveLayer(req LayerRequest) (*annotate.Layer, error) {
+	release, busy := theCase.share(consts.CaseActivityAnnotation)
+	if busy != nil {
+		return nil, busy
+	}
+	defer release()
 	if a.notes == nil {
 		return nil, nil
 	}
@@ -150,6 +155,11 @@ func (a *AnnotateAPI) CountOnLayer(graphID uint64, layerID string) (LayerDeletio
 
 // DeleteLayer removes a layer and everything on it, returning how many annotations went with it.
 func (a *AnnotateAPI) DeleteLayer(graphID uint64, layerID string) (LayerDeletion, error) {
+	release, busy := theCase.share(consts.CaseActivityAnnotation)
+	if busy != nil {
+		return LayerDeletion{}, busy
+	}
+	defer release()
 	if a.notes == nil {
 		return LayerDeletion{}, nil
 	}
@@ -168,6 +178,11 @@ type AnnotationRequest struct {
 
 // SaveAnnotation writes one annotation.
 func (a *AnnotateAPI) SaveAnnotation(req AnnotationRequest) (*annotate.Item, error) {
+	release, busy := theCase.share(consts.CaseActivityAnnotation)
+	if busy != nil {
+		return nil, busy
+	}
+	defer release()
 	if a.notes == nil {
 		return nil, nil
 	}
@@ -180,6 +195,11 @@ func (a *AnnotateAPI) SaveAnnotation(req AnnotationRequest) (*annotate.Item, err
 
 // DeleteAnnotation removes one. Deleting one that is already gone is success.
 func (a *AnnotateAPI) DeleteAnnotation(graphID uint64, id string) error {
+	release, busy := theCase.share(consts.CaseActivityAnnotation)
+	if busy != nil {
+		return busy
+	}
+	defer release()
 	if a.notes == nil {
 		return nil
 	}

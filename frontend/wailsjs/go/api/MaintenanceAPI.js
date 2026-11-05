@@ -34,6 +34,10 @@ export function ExportEventProof(arg1) {
   return window['go']['api']['MaintenanceAPI']['ExportEventProof'](arg1);
 }
 
+export function FinishRedaction(arg1) {
+  return window['go']['api']['MaintenanceAPI']['FinishRedaction'](arg1);
+}
+
 export function ForensicStatus() {
   return window['go']['api']['MaintenanceAPI']['ForensicStatus']();
 }
@@ -42,8 +46,20 @@ export function IsRunningMaintenance() {
   return window['go']['api']['MaintenanceAPI']['IsRunningMaintenance']();
 }
 
+export function PendingRedactions() {
+  return window['go']['api']['MaintenanceAPI']['PendingRedactions']();
+}
+
+export function PreviewRedaction(arg1) {
+  return window['go']['api']['MaintenanceAPI']['PreviewRedaction'](arg1);
+}
+
 export function RebuildIndexes() {
   return window['go']['api']['MaintenanceAPI']['RebuildIndexes']();
+}
+
+export function RedactEvent(arg1) {
+  return window['go']['api']['MaintenanceAPI']['RedactEvent'](arg1);
 }
 
 export function RepairRelationIndex() {

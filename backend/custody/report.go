@@ -175,6 +175,10 @@ func presence(e graphene.EventCustody) (string, string) {
 		return consts.CustodyPresenceRemovedSinceSeal, consts.MsgCustodyPresenceRemovedSinceSeal
 	case !e.Live:
 		return consts.CustodyPresenceNotInCase, consts.MsgCustodyPresenceNotInCase
+	// Still in the case, its content removed by a recorded redaction. Decided before the seal's
+	// state: an event that holds nothing must not be described as an event in the seal.
+	case e.Redacted != nil && e.Redacted.Scope == consts.RedactionScopeProperties && e.ProofState == consts.EventProofRedacted:
+		return consts.CustodyPresenceRedactedContent, fmt.Sprintf(consts.MsgCustodyPresenceRedactedContent, stamp(e.Redacted.At), e.Redacted.Reason)
 	case e.InSnapshot:
 		return consts.CustodyPresenceInSeal, consts.MsgCustodyPresenceInSeal
 	case e.HasFingerprint:
@@ -195,6 +199,13 @@ func sealLayer(e graphene.EventCustody, presence string) Layer {
 	switch presence {
 	case consts.CustodyPresenceInSeal:
 		l.State, l.Message = consts.CustodyEstablished, consts.MsgCustodySealIn
+	case consts.CustodyPresenceRedactedContent:
+		// Here a seal IS the fix: until one, the image keeps what the redaction removed.
+		if e.RemovalProvable {
+			l.State, l.Message = consts.CustodyEstablished, consts.MsgCustodySealRedacted
+		} else {
+			l.Message, l.Remedy = consts.MsgCustodySealStillHolds, consts.MsgCustodyRemedySealRedaction
+		}
 	case consts.CustodyPresenceWrittenSinceSeal:
 		l.Message, l.Remedy = consts.MsgCustodySealWritten, consts.MsgCustodyRemedySeal
 	case consts.CustodyPresenceNoFingerprint:
@@ -228,6 +239,12 @@ func recordLayer(proof string) Layer {
 		l.Message = consts.MsgCustodyRecordNotChecked
 	case consts.EventProofImageDamaged:
 		l.Message = consts.MsgCustodyRecordDamaged
+	case consts.EventProofRedacted:
+		l.Message = consts.MsgCustodyRecordRedacted
+	case consts.EventProofRawRedacted:
+		l.Message = consts.MsgCustodyRecordRedactionPending
+	case consts.EventProofRecordEmpty:
+		l.State, l.Message = consts.CustodyBroken, consts.MsgCustodyRecordEmpty
 	default:
 		l.Message = fmt.Sprintf(consts.MsgCustodyUnknownState, proof)
 	}
@@ -254,6 +271,12 @@ func rawLayer(proof string, bound, hashed bool) Layer {
 	case consts.EventProofChangedSinceSeal, consts.EventProofImageOutdated, consts.EventProofImageDamaged,
 		consts.EventProofNotSealed, consts.EventProofWrittenSinceSeal:
 		l.Message = consts.MsgCustodyRawNotChecked
+	case consts.EventProofRedacted:
+		l.Message = consts.MsgCustodyRawRedacted
+	case consts.EventProofRawRedacted:
+		l.Message = consts.MsgCustodyRawRedactionPending
+	case consts.EventProofRecordEmpty:
+		l.Message = consts.MsgCustodyRawNoRecord
 	default:
 		l.Message = fmt.Sprintf(consts.MsgCustodyUnknownState, proof)
 	}
@@ -271,8 +294,17 @@ func redactionLayer(e graphene.EventCustody) Layer {
 	default:
 		l.Message = fmt.Sprintf(consts.MsgCustodyRedactedOther, red.Scope, stamp(red.At), red.Reason)
 	}
+	// 🔒 A recorded removal of the content beside an event that holds a record: the redaction did
+	// not finish, or something wrote the record back. Either way the ledger and the case disagree.
+	if red.Scope == consts.RedactionScopeProperties && e.Live && e.ProofState != consts.EventProofRedacted {
+		l.State = consts.CustodyBroken
+		l.Notes = append(l.Notes, consts.MsgCustodyRedactionUndone)
+	}
 	if !e.RemovalProvable {
 		l.Notes = append(l.Notes, consts.MsgCustodyRedactionUnbound)
+	}
+	if red.ActorID == 0 {
+		l.Notes = append(l.Notes, consts.MsgCustodyRedactionNoActor)
 	}
 	return l
 }

@@ -72,9 +72,25 @@ describe('lib/maintenance / proof outcome', () => {
   // 🔒 Damage is reported, not routed around: the payload store is outside the sealed image, so a
   // seal would repair nothing and hide the finding.
   it('a raw record that no longer matches, or cannot be read, is damage, with no seal button', () => {
-    for (const state of [PROOF_STATE.RAW_MISMATCH, PROOF_STATE.RAW_UNREADABLE, PROOF_STATE.IMAGE_DAMAGED]) {
+    for (const state of [
+      PROOF_STATE.RAW_MISMATCH,
+      PROOF_STATE.RAW_UNREADABLE,
+      PROOF_STATE.IMAGE_DAMAGED,
+      PROOF_STATE.RECORD_EMPTY,
+    ]) {
       const o = proofOutcome({ state });
       expect(o.damage).toBe(true);
+      expect(o.sealable).toBe(false);
+      expect(o.saved).toBe(false);
+      expect(o.message).toBe(UI.DETAIL_PROOF_STATE[state]);
+    }
+  });
+
+  // A redaction that did not finish is neither damage nor fixed by a seal: the remedy is to finish it.
+  it('a redacted event, finished or not, is not damage and offers no seal', () => {
+    for (const state of [PROOF_STATE.RAW_REDACTED, PROOF_STATE.REDACTED]) {
+      const o = proofOutcome({ state });
+      expect(o.damage).toBe(false);
       expect(o.sealable).toBe(false);
       expect(o.saved).toBe(false);
       expect(o.message).toBe(UI.DETAIL_PROOF_STATE[state]);

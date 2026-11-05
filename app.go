@@ -16,6 +16,7 @@ import (
 	"rohy/backend/graphene"
 	"rohy/backend/graphreg"
 	"rohy/backend/layout"
+	"rohy/backend/redaction"
 	"rohy/backend/rules"
 	"rohy/backend/snapshot"
 )
@@ -113,24 +114,33 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A journal that cannot be read still opens: it reports itself, and ingest refuses until it is
+	// restored. Only a directory that cannot be made stops the app.
+	journal, err := redaction.Open(redactionsDir(dir))
+	if err != nil {
+		return nil, err
+	}
 
 	return &App{
 		store:       store,
 		layoutStore: layoutStore,
 		registry:    registry,
 		roots:       rootStore,
-		Events:      api.AttachSealHistory(api.NewEventsAPI(store, positions, findingStore), rootStore),
-		Graph:       api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
-		Rules:       api.NewRulesAPI(ruleReg),
-		Build:       api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
-		Findings:    api.NewFindingsAPI(findingStore, store),
-		System:      api.NewSystemAPI(),
+		Events: api.AttachRedactionJournal(
+			api.AttachSealHistory(api.NewEventsAPI(store, positions, findingStore), rootStore), journal),
+		Graph:    api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
+		Rules:    api.NewRulesAPI(ruleReg),
+		Build:    api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
+		Findings: api.AttachFindingsRedactions(api.NewFindingsAPI(findingStore, store), journal),
+		System:   api.NewSystemAPI(),
 		Maintenance: api.NewMaintenanceAPI(store).WithIntegrity(api.IntegrityDeps{
 			Findings:  findingStore,
 			Graphs:    registry,
 			Rules:     ruleReg,
 			Roots:     rootStore,
 			LayoutDir: layoutDir(dir),
+			Journal:   journal,
+			Snapshots: snapStore,
 		}),
 		Snapshots: api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
 		Annotate:  api.NewAnnotateAPI(store, noteStore, registry),
@@ -262,4 +272,10 @@ func annotationsDir(dbDir string) string {
 // left this folder establishes nothing against anyone able to rewrite the folder. See §14.2.
 func rootsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.RootsSubdir)
+}
+
+// redactionsDir returns the redaction journal's directory (<cwd>/rohy-data/redactions). Beside the
+// store, and kept with the case: it lists what must not be ingested again (plan §14.5).
+func redactionsDir(dbDir string) string {
+	return filepath.Join(filepath.Dir(dbDir), consts.RedactionsSubdir)
 }

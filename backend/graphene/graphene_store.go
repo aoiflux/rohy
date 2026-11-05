@@ -74,9 +74,8 @@ func (s *Store) ensure() error {
 			s.payloads = payload.OpenInMemory()
 			return
 		}
-		// The default posture uses the plain Open, so a case opened without asking for
-		// anything takes byte-for-byte the path every existing case already took. Only a
-		// deliberate posture reaches OpenWithOptions.
+		// Opened under the case's posture (graphene_forensics.go), which always includes the
+		// redaction ledger.
 		g, err := s.openGraph()
 		if err != nil {
 			s.openErr = err
@@ -165,7 +164,16 @@ func (s *Store) hydrate(e *Event) error {
 		return nil
 	}
 	blob, err := s.payloads.Read(e.Payload)
-	if err != nil {
+	var red *payload.RedactedError
+	switch {
+	case errors.As(err, &red) && red.Owner != e.ID && red.Version == consts.PayloadTombstoneVersion:
+		// A tombstone naming another event is not this event's removal. Damage.
+		return &payload.TombstoneOwnerError{Offset: red.Offset, Owner: red.Owner, Requested: e.ID}
+	case red != nil:
+		// A redaction removed the cold record. The event reads without it and says so.
+		e.payloadRedacted = true
+		return nil
+	case err != nil:
 		return err
 	}
 	return e.applyPayload(blob)
@@ -519,6 +527,11 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 
 	tx := g.Begin()
 	for _, n := range nodes {
+		// 🔒 A redacted event keeps no record, and writing one back would restore what the
+		// redaction removed. Its occurrences are not counted: there is nothing left to count them on.
+		if isStrippedEvent(n) {
+			continue
+		}
 		e, err := eventFromNode(n)
 		if err != nil {
 			return err

@@ -22,12 +22,22 @@ export const PROOF_STATE = Object.freeze({
   TOO_LARGE: 'too_large',
   RAW_UNREADABLE: 'raw_unreadable',
   IMAGE_DAMAGED: 'image_damaged',
+  // A redaction removed the raw record and has not finished. Neither damage nor sealable.
+  RAW_REDACTED: 'raw_redacted',
+  // A recorded redaction removed the event's content. Nothing is left to prove.
+  REDACTED: 'redacted',
+  // An empty record with no redaction behind it: damage.
+  RECORD_EMPTY: 'record_empty',
 });
 
-/** The states a seal fixes. raw_mismatch, raw_unreadable and image_damaged are deliberately
- *  absent: they are damage, and sealing repairs nothing — over a damaged image it would build a
- *  new one on top of it. */
-const DAMAGE = new Set([PROOF_STATE.RAW_MISMATCH, PROOF_STATE.RAW_UNREADABLE, PROOF_STATE.IMAGE_DAMAGED]);
+/** The states a seal fixes. The damage states are deliberately absent: sealing repairs nothing —
+ *  over a damaged image it would build a new one on top of it. */
+const DAMAGE = new Set([
+  PROOF_STATE.RAW_MISMATCH,
+  PROOF_STATE.RAW_UNREADABLE,
+  PROOF_STATE.IMAGE_DAMAGED,
+  PROOF_STATE.RECORD_EMPTY,
+]);
 
 const SEALABLE = new Set([
   PROOF_STATE.NOT_SEALED,

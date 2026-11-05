@@ -7,7 +7,9 @@ import (
 
 	"rohy/backend/consts"
 	"rohy/backend/custody"
+	"rohy/backend/evtx"
 	"rohy/backend/graphene"
+	"rohy/backend/redaction"
 	"rohy/backend/version"
 )
 
@@ -139,4 +141,23 @@ func AttachSealHistory(e *EventsAPI, hist *custody.Store) *EventsAPI {
 	defer e.mu.Unlock()
 	e.sealHistory = hist
 	return e
+}
+
+// AttachRedactionJournal gives the ingest binding the journal whose entries it must not ingest
+// again (plan §14.5). A package function for the reason AttachSealHistory is one.
+func AttachRedactionJournal(e *EventsAPI, j *redaction.Journal) *EventsAPI {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// 🔒 Never a nil *Journal inside the interface: it would read as a list to consult and panic.
+	if j != nil {
+		e.suppress = j
+	}
+	return e
+}
+
+// suppressor is the list the next ingest consults.
+func (a *EventsAPI) suppressor() evtx.Suppressor {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.suppress
 }

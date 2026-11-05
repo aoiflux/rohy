@@ -35,10 +35,10 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          ██████████░░░░░░░░░░  50%  3½/7   #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6); #43 ½ (detectors 16/17 missing); #40–#42 ⬜
+P8 Forensic          █████████████░░░░░░░  64%  4½/7   #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7); #43 ½ (detectors 16/17 missing); #41–#42 ⬜
 ───────────────────────────────────────────────────────
-Overall              █████████████████░░░  85%  40/47
-Definition of done   ███████████████░░░░░  73%  8/11   the "integration path" ✅ was not true; proof gate ✅ via #38
+Overall              █████████████████░░░  87%  41/47
+Definition of done   ████████████████░░░░  82%  9/11   the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
@@ -48,16 +48,20 @@ disk, (c) diff in the rename dialog; §7.1 completion filtered by algorithm.
 seal over an unchanged case no longer moves the fingerprint, and an unreadable history is kept
 rather than overwritten. **Upstream is not a blocker for anything left:** every API #38–#42 needs exists in
 graphene v0.4.0 (`disk.ProveNode`, `ExportNodeProof`, package-level `VerifyExportedProof`,
-`CustodyFor*`, `RedactNodeProperties`, `PublishCheckpoint`, `Anchor`, `signing.*`). #40 is
-blocked only by rohy's own payload tombstone.
+`CustodyFor*`, `RedactNodeProperties`, `PublishCheckpoint`, `Anchor`, `signing.*`). #40 needed
+only rohy's own payload tombstone, which it built first.
 
 **#38 landed 2026-11-04** (§15.4): event proofs, exported from the drawer and checked with
 `rohyctl verify-proof`.
 
 **#39 landed 2026-11-04** (§15.6): a custody report per event in the drawer — gaps, never a
 verdict — that compares a fingerprint the analyst kept against the current image whatever the
-event's state. **Next:** #40 attributed redaction, starting with the payload tombstone (§14.5.1)
-that blocks it.
+event's state.
+
+**#40 landed 2026-11-05** (§15.7): attributed redaction. The content goes from everywhere rohy
+put it: the record, the payload log in place, sibling copies, rule-made relations, the sidecar
+copies, then a seal. The removal is recorded with its reason, and a journal keeps the content
+from being ingested again. **Next:** #41 signing and attribution (§14.6).
 
 ---
 
@@ -2431,8 +2435,8 @@ the event that was ingested.
 39. ✅ **Custody report** (§14.4) — `CustodyFor`, reported as gaps rather than a verdict. Landed
     2026-11-04 (§15.6): composed with the record, raw and history layers the engine cannot see, and
     a kept fingerprint compared against the image whatever the event's state.
-40. **Attributed redaction** (§14.5) — 🔴 blocked on the payload-store tombstone (§14.5.1),
-    which is a real finding: rohy's cold store would otherwise defeat graphene's redaction.
+40. ✅ **Attributed redaction** (§14.5) — landed 2026-11-05 (§15.7), payload tombstone first
+    (§14.5.1): the cold store would otherwise have defeated graphene's redaction.
 41. **Signing and attribution** (§14.6) — key custody OUTSIDE the case folder,
     `RequireSignedCommits`, `Audit`, `Retention`, analyst actor identity.
 42. **Anchoring** (§14.7) — checkpoint digest out, receipt in. 🔒 rohy ships no anchor.
@@ -2470,7 +2474,7 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
 | R9 | Snapshot restore corrupts a live graph | 🔴 | Hash-keyed endpoints, explicit preview, re-created edges marked `created_by: user` with a basis, unresolvable items reported |
 | R10 | A second edge type sneaks in | 🔴 | Design forbids it (§5.4); `EdgesOf(..., nil)` reasoning re-stated in the LLD sharp-edges list |
 | R11 | **A signing key stored in the case folder manufactures a false guarantee** | 🔴 | rohy REFUSES to write a key inside `rohy-data/` (§14.6). Whoever can rewrite the store can re-sign it, so a key beside the evidence proves nothing — and a green tick that means nothing is worse than no tick |
-| R12 | **Redaction leaves the raw record in the payload cold store** | 🔴 | §14.5.1: the payload tombstone lands BEFORE any redaction UI exists. A redaction that leaves `RawXML` on disk is not a redaction |
+| R12 | **Redaction leaves the raw record in the payload cold store** | ✅ | Resolved by #40 (§15.7): the tombstone landed before any redaction UI, and the end-to-end test finds the raw record in no file under the case folder afterwards |
 | R13 | `VerifyOnOpen` makes cold start unacceptable on a large case | 🟡 | Measured at 100k events before it is defaulted on; it lands behind the existing `Warm()` progress stage. Response is a per-case setting, never a silent skip |
 | R14 | The only retained root lives inside the case | 🔴 | Every internal check compares the store against itself. Root export is a first-class action and the UI states plainly what an internal-only root does and does not establish (§14.2) |
 | R15 | Nothing is provable because the case was never compacted | ⚠️ | Compaction moves to the ingest boundary (§14.2); un-attested events are reported as "live but unaccounted for", which is what `CustodyFor` already distinguishes |
@@ -2496,7 +2500,7 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
 - ⬜ **Every integrity posture rohy is not in is stated.** Unsigned commits, an unverified
   image, a case never compacted, a root never exported, a ledger that cannot be verified — all
   reported, none of them silent (§14.8).
-- ⬜ **A redaction removes the content everywhere rohy put it**, including the payload cold
+- ✅ **A redaction removes the content everywhere rohy put it**, including the payload cold
   store, or it is not offered at all (§14.5.1).
 
 ---
@@ -2704,7 +2708,13 @@ store against itself. Supplying a retained root (`CustodyForAnchored`) or an anc
 "custody accounted for" badge on the unanchored form would be the single most misleading thing
 this feature could produce.
 
-### 14.5 Attributed redaction (item 40) 🔴
+### 14.5 Attributed redaction (item 40) ✅
+
+> **Corrected by the build (§15.7).** Property scope does not remove "the personal data": graphene
+> strips the **whole record**, so a redacted event keeps only its id, label and edges. rohy does
+> not offer `RedactNode`. The tombstone below carries the owning event's id, not a reason digest;
+> the reason lives in the ledger. And the payload log is not the only other copy: siblings, orphan
+> payload records, rule-made relations, the sidecars and the WAL all held the content.
 
 `RedactNodeProperties` is the one that matters. An erasure request is almost always about
 personal data, not about the existence of the artefact that carried it — so removing the whole
@@ -2716,7 +2726,7 @@ Every form requires a `Reason`. 🔒 rohy makes it a required field with no defa
 unexplained redaction is indistinguishable from evidence destruction, which is the whole
 distinction the ledger exists to draw.
 
-#### 14.5.1 🔴 The payload cold store defeats it — and must be fixed first
+#### 14.5.1 ✅ The payload cold store defeats it — and must be fixed first
 
 **This is the finding that reorders the phase.** rohy stores `RawXML` and `ParsedFields`
 outside graphene, in `payload/payloads.log`, precisely because they are ~70% of an event's
@@ -2841,10 +2851,15 @@ analyst created. §12.4's rule holds: an all-clear is a claim, and it gets quali
 
 ```
 backend/graphene/graphene_forensics.go   Forensics() accessor, roots, proofs, redaction,
-                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37), ProveEvent (#38) and EventCustody (#39, graphene_custody.go) built; redaction, checkpoints ❌
+                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37), ProveEvent (#38), EventCustody (#39, graphene_custody.go) and redaction (#40) built; checkpoints ❌
 backend/custody                          policy + report assembly over narrow interfaces ✅ fingerprint history + Chain (#37, §15.5); custody report + DescendsFrom (#39, §15.6)
 backend/api/api_seal.go                  every seal through one path, recorded            ✅ (#37, §15.5)
-backend/payload/payload_redact.go        same-length in-place tombstone (§14.5.1) 🔴      ❌
+backend/payload/payload_redact.go        same-length in-place tombstone (§14.5.1)         ✅ (#40, §15.7)
+backend/graphene/graphene_redact.go      redaction primitives over the ledger             ✅ (#40, §15.7)
+backend/redaction                        journal (= suppression list), Prepare, Run        ✅ (#40, §15.7)
+backend/durable                          synced write + durable rename                    ✅ (#40, §15.7)
+backend/api/api_redact.go                Preview/Redact/Pending/Finish on MaintenanceAPI  ✅ (#40, §15.7)
+backend/api/api_caselock.go              the case lock: writes shared, redaction alone    ✅ (#40, §15.7)
 backend/api/api_custody.go               binding; hangs off MaintenanceAPI               — not created: the #37 methods and EventCustody (#39) live in api_integrity.go
 backend/eventproof                       proof document: assemble + verify, storeless    ✅ (#38, §15.4)
 cmd/rohyctl verify-proof                 storeless, keyless — §14.3's question decided    ✅ (#38, §15.4)
@@ -3209,3 +3224,99 @@ two proofs, so twice `ProveEvent`, linear. It runs on a click.
 
 **Still open:** the third form, a published anchor (`CustodyForAnchor`), arrives with #42; the
 store-wide layers stay "not recorded" until #41 turns on audit, retention, roles and signing.
+
+### 15.7 #40 attributed redaction (2026-11-05)
+
+**What §14.5 assumed, measured against the engine.** Property scope was meant to remove the
+personal data and keep the rest. graphene's `RedactNodeProperties` strips the **whole record**
+(`disk/redact.go:740`): an event keeps its id, label and edges, and nothing else. Writing the safe
+fields back afterwards would be an unrecorded edit, and it would break the ledger's
+`SurvivingHash`. So in rohy, redacting an event means all of its content goes; the node, the
+fact of the removal, and the relations an analyst drew stay. `RedactNode` is not offered.
+
+**Where the content was** — the list the build had to empty, each now a test:
+
+| Copy | How it goes |
+|---|---|
+| Node record and its index entries | `RedactNodeProperties`, then `PurgeNodeIndex` on a retry: strip and purge are two WAL records, and a crash between them leaves the index holding the values |
+| Payload log | Same-length tombstone in place (§14.5.1), the owning event's id in the marker |
+| Orphan payload copies (a failed batch, a resumed ingest, `DeleteEvent`) | Found by walking the log: the same bytes, or a raw record hashing to `hash_raw` |
+| Sibling events (the same record ingested twice, or from another path) | Redacted too, one ledger record each |
+| Rule-made relations, whose basis quotes the event | `RedactEdge`, one ledger record each |
+| Findings and snapshot descriptors; snapshot basis copies; stale `.tmp` files | Scrubbed, durably |
+| Sealed image and WAL | The redaction's own seal |
+| Analyst notes, tags, annotations, analyst-drawn relations | Listed in the preview, never touched |
+| Exported proofs; backups, shadow copies, freed blocks, the page file | Out of reach, and the dialog says so every time |
+
+**Found on the way, and it changed the work** (an independent review of the design, 13 defects,
+all folded in before code):
+
+- 🔒 **A re-ingest brought it straight back.** Dedup looks events up through the
+  `hash_normalized` index, which a stripped event has left; and `hash_normalized` carries the
+  source, so the same record from a new path is a new identity. The journal is the suppression
+  list, checked on the stamped identity and on `hash_raw`, whether or not the run deduplicates.
+- 🔒 **Read-then-write paths would un-redact it.** `IncrementDedupCounts`, the backfill and a
+  build read a record and write it later; a strip landing between the two is undone, and no check
+  on the record can see it. Guards skip a stripped event, `toNode` refuses one, and the case lock
+  keeps every writer out while a redaction runs.
+- 🔒 **Crash order.** The payload reference lives only in the record, and the strip destroys it.
+  The journal entry is written durably — synced file, write-through rename — before any
+  destructive step.
+- **Images below body version 3** hash leaves differently, so such a case is sealed first.
+- **A torn tail in the ledger** misframes the next record, and every compaction after it fails.
+  rohy checks the framing against the file size and refuses to append.
+- **Proof, custody and integrity read a stripped event as damage or work.** New states:
+  `ProveEvent` → `redacted` / `raw_redacted` / `record_empty`; custody presence
+  `redacted_content`, with the seal as the remedy until the removal is bound in; the inventory and
+  backfill status count redacted events apart, and caseintegrity no longer calls a tombstone
+  "tail", a finding on a redacted hash "orphaned", or a stripped event "unprojected".
+- 🔴 **A pre-existing bug: the drawer never received the raw record or the parsed fields.**
+  `GetEvent` returned `*graphene.Event`, whose cold fields are `json:"-"` because that JSON is
+  also the stored record. It has been true since v0.1.0. `api.EventDetail` carries them.
+- **A crafted payload could steer the tombstone.** Evidence content can contain a byte pattern
+  that looks like a record header; checking only the four bytes before an offset would accept it.
+  The tombstone confirms the offset by walking the framing from the start of the log.
+
+**Decisions (owner, 2026-11-04):**
+
+| Question | Decision |
+|---|---|
+| Rule-made relations touching the event | **Removed**, each by its own recorded `RedactEdge`. Analyst-drawn relations stay. |
+| Re-ingest | **Suppression list** in the case: ingest skips matches and counts them (`records_suppressed`). |
+| Sidecars | **Scrub the copies rohy made.** The analyst's notes and annotations are listed, never deleted. |
+
+**As built:**
+
+- `payload.Store.Redact` / `Walk` (`FuzzRedact`); `graphene` primitives in `graphene_redact.go`;
+  the ledger on for every disk case (an existing case opens to the same roots).
+- `backend/redaction`: the journal (fail closed — a journal that cannot be read refuses ingest and
+  redaction and is never replaced; `FuzzDecode`), `Prepare` and `Run`. Five steps — relations,
+  records, payloads, sidecars, seal — each recorded as it ends, each safe to run again. Finishing
+  is running it again. A fault injected at each step stops there, says so, and is finished.
+- `api.theCase`: every binding that writes the case or a copy of its content shares it; a
+  redaction holds it alone. Both sides only try, and a refusal names what is running.
+- `MaintenanceAPI`: `PreviewRedaction`, `RedactEvent`, `PendingRedactions`, `FinishRedaction`;
+  `case:redacted` carries the outcome.
+- UI: **Redact this event…** in the drawer — what goes, what stays, what rohy cannot reach, a
+  required reason with the permanence warning, the outcome step by step. Canvas cards read
+  *Redacted*. Unfinished redactions are listed on the Maintenance page with **Finish the
+  redactions**, which the integrity check also offers.
+- 🔒 The definition of done is checked on disk: the end-to-end test searches every file under the
+  case folder for the raw record and the copied values — found before, absent after — and finds
+  the analyst's note exactly once. The custody report then reads `redacted_content`, its seal layer
+  established.
+
+**Upstream notes** (graphene, worth raising):
+
+- A property redaction that keeps a residual blob — the fields a recipient needs to place the
+  entity (a timestamp, a type) — would let rohy keep a redacted event on the timeline without an
+  unrecorded write.
+- The ledger's append does not repair or refuse a torn tail; rohy checks the framing itself.
+
+**Measured** (PERFORMANCE.md §18): the preview is ~50 ms at 10k events and ~600 ms at
+100k, a redaction ~205 ms and ~2.1 s, seal included — linear, and at 100k mostly the seal. Both run
+on a click with a working state.
+
+**Still open:** who redacted is not recorded (`ActorID` is 0) until #41 adds an analyst identity;
+the suppression hashes match only a byte-identical raw record, so a copy whose raw form differs —
+if, say, the live channel renders a record differently from an exported file — is not recognised.

@@ -41,6 +41,9 @@ type BackfillResult struct {
 	// They are LEFT ALONE rather than stamped: stamping would record "projected, nothing
 	// found", which is a different and false claim, and would stop a later run retrying them.
 	Failed int `json:"failed"`
+	// Redacted is how many were skipped because a redaction removed their payload: there is
+	// nothing left to project from, and stamping "projected, nothing found" would be false.
+	Redacted int `json:"redacted"`
 	// Cancelled reports that the run stopped early. What it completed is durable, and
 	// re-running continues from there.
 	Cancelled bool `json:"cancelled"`
@@ -54,6 +57,8 @@ type CorrelationKeyStatus struct {
 	Total   int `json:"total"`
 	Current int `json:"current"`
 	Stale   int `json:"stale"`
+	// Redacted events have no record to project (plan §14.5). Counted in Total, never as Stale.
+	Redacted int `json:"redacted"`
 }
 
 // NeedsBackfill reports whether any event lacks a current projection. A field, temporal or
@@ -91,6 +96,10 @@ func (s *Store) CorrelationKeyStatus() (CorrelationKeyStatus, error) {
 			return st, err
 		}
 		for _, n := range nodes {
+			if isStrippedEvent(n) {
+				st.Redacted++
+				continue
+			}
 			var v correlationStatusView
 			if len(n.Properties) > 0 {
 				if err := json.Unmarshal(n.Properties, &v); err != nil {
@@ -146,6 +155,7 @@ func (s *Store) BackfillCorrelationKeys(ctx context.Context, progress func(done,
 		res.Projected += batch.Projected
 		res.AlreadyCurrent += batch.AlreadyCurrent
 		res.Failed += batch.Failed
+		res.Redacted += batch.Redacted
 		if err != nil {
 			return res, err
 		}
@@ -175,6 +185,12 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 	pending := 0
 	for _, n := range nodes {
 		res.Examined++
+		// 🔒 A redacted event keeps no record. Projecting it would write one back — an empty event
+		// stamped with this recipe — and break the ledger's record of what survived.
+		if isStrippedEvent(n) {
+			res.Redacted++
+			continue
+		}
 		e, err := eventFromNode(n)
 		if err != nil {
 			return res, err
@@ -189,6 +205,10 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 			// One unreadable payload must not abort the case's backfill. The event is left
 			// unstamped so a later run retries it, and the count says how many there were.
 			res.Failed++
+			continue
+		}
+		if e.PayloadRedacted() {
+			res.Redacted++
 			continue
 		}
 		e.ComputeCorrelationKeys()

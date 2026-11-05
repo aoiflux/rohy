@@ -79,6 +79,11 @@ func (a *SnapshotAPI) graphID(requested uint64) uint64 {
 // connected is part of what is recorded. Every node and endpoint is stamped with its
 // hash_normalized, which is what a restore matches on.
 func (a *SnapshotAPI) TakeSnapshot(req SnapshotRequest) (snapshot.Summary, error) {
+	release, busy := theCase.share(consts.CaseActivitySnapshot)
+	if busy != nil {
+		return snapshot.Summary{}, busy
+	}
+	defer release()
 	var out snapshot.Summary
 	if a.snaps == nil {
 		return out, AsError(consts.ErrCodeInternal, errors.New("snapshots unavailable"))
@@ -171,6 +176,11 @@ func (a *SnapshotAPI) ListSnapshots(graphID uint64) ([]snapshot.Summary, error) 
 
 // DeleteSnapshot removes one. Deleting an already-gone snapshot is success.
 func (a *SnapshotAPI) DeleteSnapshot(graphID uint64, id string) error {
+	release, busy := theCase.share(consts.CaseActivitySnapshot)
+	if busy != nil {
+		return busy
+	}
+	defer release()
 	if a.snaps == nil {
 		return nil
 	}
@@ -202,6 +212,11 @@ func (a *SnapshotAPI) PreviewRestore(graphID uint64, id string) (snapshot.Plan, 
 // claim from a rule having inferred it then, and an edge that wore the old provenance would be
 // indistinguishable from one the current rules produced.
 func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
+	release, busy := theCase.share(consts.CaseActivityRestore)
+	if busy != nil {
+		return RestoreResult{}, busy
+	}
+	defer release()
 	var out RestoreResult
 	doc, live, rels, err := a.restoreInputs(req.GraphID, req.ID)
 	if err != nil {

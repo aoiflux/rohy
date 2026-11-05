@@ -28,6 +28,9 @@ type EventsAPI struct {
 	// sealHistory records the fingerprint each post-ingest seal produces (AttachSealHistory). Nil
 	// in tests that do not look at the history; the seal still runs.
 	sealHistory *custody.Store
+	// suppress keeps redacted records out of every ingest (AttachRedactionJournal). Nil in tests
+	// that do not look at redaction.
+	suppress evtx.Suppressor
 
 	mu      sync.Mutex
 	emitter Emitter
@@ -191,6 +194,13 @@ func (a *EventsAPI) StartIngest(req IngestRequest) error {
 		a.mu.Unlock()
 		return err
 	}
+	// Refused here, not only inside the job, so the analyst is told at once (plan §14.5).
+	if a.suppress != nil {
+		if err := a.suppress.Err(); err != nil {
+			a.mu.Unlock()
+			return AsError(consts.ErrCodePersistence, err)
+		}
+	}
 	if req.Source == consts.SourceLive {
 		decision := evtx.EvaluateAccess(req.Channels, evtx.CheckPermissions())
 		if decision.Needed {
@@ -199,6 +209,13 @@ func (a *EventsAPI) StartIngest(req IngestRequest) error {
 			emitter.Emit(consts.EventPermissionWarn, decision)
 			return AsError(consts.ErrCodePermission, errors.New(decision.Message))
 		}
+	}
+
+	// Held until the job ends, not until this call returns: the job writes long after (plan §14.5).
+	release, err := theCase.share(ingestActivity(req))
+	if err != nil {
+		a.mu.Unlock()
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -219,7 +236,7 @@ func (a *EventsAPI) StartIngest(req IngestRequest) error {
 	// Announce the state transition outside the lock: emitting re-enters the runtime, and
 	// holding the mutex across it would serialize the UI against the pipeline.
 	a.setState(consts.IngestStateActive)
-	go a.runIngestion(ctx, req, gate, done, emitter)
+	go a.runIngestion(ctx, req, gate, done, emitter, release)
 	return nil
 }
 
@@ -281,8 +298,12 @@ func reportIngestPanic(emitter Emitter, fault any) {
 
 // runIngestion executes the job off the caller's goroutine and clears running state
 // on exit. Per-file Started/Progress/Complete events are emitted by the reporter.
-func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *evtx.Gate, done chan struct{}, emitter Emitter) {
+//
+// release gives back the case lock StartIngest took. It runs after the seal, so a redaction cannot
+// start between the last write and the seal that accounts for it.
+func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *evtx.Gate, done chan struct{}, emitter Emitter, release func()) {
 	defer func() {
+		release()
 		a.mu.Lock()
 		a.running = false
 		a.cancel = nil
@@ -350,6 +371,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 				SourceIdentifier: path,
 				Idempotent:       req.Idempotent,
 				Gate:             gate,
+				Suppress:         a.suppressor(),
 			}
 			if _, err := evtx.Ingest(ctx, opts, a.store, reporter); err != nil && ctx.Err() == nil {
 				// A .db that is a real database with an unrecognized structure is a
@@ -375,6 +397,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 			Continuous: req.Continuous,
 			Positions:  a.positions,
 			Gate:       gate,
+			Suppress:   a.suppressor(),
 		}
 		if _, err := evtx.Ingest(ctx, opts, a.store, reporter); err != nil && ctx.Err() == nil {
 			emitter.Emit(consts.EventIngestError, AsError(consts.ErrCodeInternal, err))
@@ -528,12 +551,44 @@ func (a *EventsAPI) Timeline(q EventQuery, buckets int, groupBy string) (graphen
 }
 
 // GetEvent returns a single event by node id.
-func (a *EventsAPI) GetEvent(id uint64) (*graphene.Event, error) {
+func (a *EventsAPI) GetEvent(id uint64) (*EventDetail, error) {
 	e, err := a.store.GetEvent(id)
 	if err != nil {
 		return nil, AsError(consts.ErrCodePersistence, err)
 	}
-	return e, nil
+	out := &EventDetail{
+		Event:           e,
+		RawXML:          e.RawXML,
+		ParsedFields:    e.ParsedFields,
+		PayloadRedacted: e.PayloadRedacted(),
+	}
+	if e.Redacted {
+		// The ledger says when and why. An in-memory case has no ledger; the event is still shown
+		// as redacted, without them.
+		if rec, ok, err := a.store.RedactionFor(id); err == nil && ok {
+			out.Redaction = &rec
+		}
+	}
+	return out, nil
+}
+
+// EventDetail is one event as the drawer shows it: the stored record, and beside it the cold
+// fields read from the payload store.
+//
+// graphene.Event keeps RawXML and ParsedFields out of its JSON on purpose, because that JSON is
+// also the node record and the cold fields must never be persisted there. So the binding carries
+// them explicitly. 🔒 Found during item 40: returning *graphene.Event directly meant the drawer
+// never received the raw record or the parsed fields at all.
+type EventDetail struct {
+	*graphene.Event
+	RawXML       string            `json:"raw_xml"`
+	ParsedFields map[string]string `json:"parsed_fields"`
+	// PayloadRedacted says a redaction removed the raw record and parsed fields, so their absence
+	// is not read as an event that never had them.
+	PayloadRedacted bool `json:"payload_redacted"`
+	// Redaction is the ledger's record of the redaction that removed this event's content, when
+	// Redacted is set (plan §14.5).
+	Redaction *graphene.RedactionRecord `json:"redaction,omitempty"`
 }
 
 // Stats returns event/relation counts for dashboard display.

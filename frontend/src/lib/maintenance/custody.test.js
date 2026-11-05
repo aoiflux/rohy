@@ -122,6 +122,7 @@ describe('lib/maintenance / when a custody report goes stale', () => {
     expect(caseMark({ ...ing, state: 'running' }, maint)).not.toBe(mark);
     expect(caseMark(ing, { ...maint, seals: 1 })).not.toBe(mark);
     expect(caseMark(ing, { ...maint, running: 'backfill' })).not.toBe(mark);
+    expect(caseMark(ing, { ...maint, redactions: 1 })).not.toBe(mark);
     expect(caseMark(null, undefined)).toBe(caseMark({}, {}));
   });
 });

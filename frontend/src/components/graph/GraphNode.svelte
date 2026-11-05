@@ -46,6 +46,10 @@
   {...{ [OWNS_CONTEXT_MENU_ATTR]: '' }}
   style="left: {node.x}px; top: {node.y}px; width: {GRAPH.NODE_WIDTH}px; height: {GRAPH.NODE_HEIGHT}px; border-color: var(--{borderToken})"
 >
+  {#if node.event.redacted}
+    <!-- Redacted (plan §14.5): the node is all that is left, so nothing else is drawn. -->
+    <div class="head"><span class="eid redacted">{UI.REDACTED_BADGE}</span></div>
+  {:else}
   <div class="head">
     <span class="eid">
       {node.event.event_id}
@@ -67,6 +71,7 @@
     </div>
   {/if}
   <div class="ts">{fmtTime(node.event.timestamp)}</div>
+  {/if}
 
   <!-- Connect handle: drag from here to another node to create an edge. Its visible size
        is generous and its hit area is larger still (the ::before pad), so linking never
@@ -95,6 +100,9 @@
 </div>
 
 <style>
+  .redacted {
+    color: var(--color-warning);
+  }
   .node {
     position: absolute;
     background: var(--color-surface);

@@ -12,6 +12,7 @@
   import { selection } from '../stores/selection.js';
   import { rules } from '../stores/rules.js';
   import { ruleEditor } from '../stores/ruleEditor.js';
+  import { maintenance } from '../stores/maintenance.js';
   import * as api from '../lib/api/index.js';
   import { ROUTES, UI, GRAPH, THEMES, PICKER_SEARCH_DEBOUNCE_MS } from '../lib/consts/index.js';
 
@@ -47,6 +48,15 @@
     if (($rules.list || []).length === 0) rules.load();
     await graph.loadGraphs();
     await loadMapping();
+  });
+
+  // A redaction changes the events it touched: re-read the canvas so no card keeps their content.
+  let redactionsSeen = $maintenance.redactions;
+  $effect(() => {
+    const n = $maintenance.redactions;
+    if (n === redactionsSeen) return;
+    redactionsSeen = n;
+    graph.refreshEvents().catch((err) => snackbar.error(String(err && err.message ? err.message : err)));
   });
 
   // Findings for whatever is on the canvas, so an analyst's flag travels with the event

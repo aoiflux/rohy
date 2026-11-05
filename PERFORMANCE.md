@@ -995,3 +995,26 @@ at the cost of a second path that could disagree with the proof export.
 ```
 go test ./backend/graphene/ -run XXX -bench EventCustody -benchtime 5x -count 3
 ```
+
+### Redacting one event (v0.3.0)
+
+Two costs, both on a click. The **preview** is what the dialog waits for before it can say what
+would go: every event's record is read for the raw hash, which is not indexed, and the whole
+payload log is walked for unreferenced copies. The **redaction** does that work again, then the
+five steps, then the seal, which rewrites the whole image. Same machine, compacted store with a raw
+record per event, median of three runs of `-benchtime 3x`:
+
+| Events | Preview (`Resolve`) | Allocated | Redaction, seal included | Allocated |
+| -----: | ------------------: | --------: | -----------------------: | --------: |
+| 10k    |             50.2 ms |   13.7 MB |                   205 ms |   57.4 MB |
+| 100k   |              597 ms |    127 MB |                   2.07 s |    537 MB |
+
+Linear in both. At 100k the seal is most of the redaction (the ~1.3 s and ~566 MB above), and the
+preview's two passes are most of the rest. Nothing is optimised: the dialog shows a working state
+for the preview and the redaction, and a redaction is rare. Indexing `hash_raw` would make the
+sibling search a lookup, at an index entry per event paid on every open, for a question asked once
+per redaction; the payload walk has no index to use at all.
+
+```
+go test ./backend/redaction/ -run XXX -bench 'Resolve|Redact' -benchtime 3x -count 3
+```

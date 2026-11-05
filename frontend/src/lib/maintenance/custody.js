@@ -32,6 +32,8 @@ export const CUSTODY_PRESENCE = Object.freeze({
   NO_FINGERPRINT: 'no_fingerprint',
   REMOVED_SINCE_SEAL: 'removed_since_seal',
   REDACTED: 'redacted',
+  // Still in the case, its content removed by a recorded redaction (item 40).
+  REDACTED_CONTENT: 'redacted_content',
   NOT_IN_CASE: 'not_in_case',
 });
 
@@ -53,7 +55,7 @@ const KNOWN_PRESENCE = new Set(Object.values(CUSTODY_PRESENCE));
 export function caseMark(ingestion, maintenance) {
   const i = ingestion || {};
   const m = maintenance || {};
-  return `${i.seals ?? 0}|${i.state ?? ''}|${m.seals ?? 0}|${m.running ?? ''}`;
+  return `${i.seals ?? 0}|${i.state ?? ''}|${m.seals ?? 0}|${m.running ?? ''}|${m.redactions ?? 0}`;
 }
 
 /**

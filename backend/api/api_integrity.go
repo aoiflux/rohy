@@ -12,7 +12,9 @@ import (
 	"rohy/backend/findings"
 	"rohy/backend/graphene"
 	"rohy/backend/graphreg"
+	"rohy/backend/redaction"
 	"rohy/backend/rules"
+	"rohy/backend/snapshot"
 	"rohy/backend/version"
 )
 
@@ -32,6 +34,11 @@ type IntegrityDeps struct {
 	// reported unconditionally, which is the safe direction.
 	Roots     *custody.Store
 	LayoutDir string
+	// Journal is the redaction journal (plan §14.5). The same one the ingest binding suppresses
+	// with (AttachRedactionJournal); without it the redaction checks are not run.
+	Journal *redaction.Journal
+	// Snapshots holds the snapshot documents a redaction scrubs.
+	Snapshots *snapshot.Store
 }
 
 // WithIntegrity attaches the stores the integrity checks read. Returns the receiver so it can be
@@ -83,6 +90,12 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 	}
 	if d.Roots != nil {
 		out.Roots = rootHistoryAdapter{d.Roots}
+	}
+	if j := d.Journal; j != nil {
+		out.Redacted = func(h string) bool { return j.Suppressed(h, "") }
+		out.RedactedPayloadEnd = j.PayloadEnd()
+		out.RedactionsPending = len(j.Pending())
+		out.RedactionJournalErr = j.Err()
 	}
 	if a.store != nil {
 		// Size is what the log holds; PayloadUsed comes from the same inventory scan the other
@@ -144,7 +157,7 @@ func (g graphRegistryAdapter) List() []*caseintegrity.GraphInfo {
 // reports; repairing is a separate act the analyst chooses.
 func (a *MaintenanceAPI) RepairRelationIndex() (int, error) {
 	if err := a.begin(); err != nil {
-		return 0, AsError(consts.ErrCodeInternal, err)
+		return 0, err
 	}
 	defer a.finish()
 
@@ -353,7 +366,7 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 // analyst cannot tell which pass is responsible.
 func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
 	if err := a.begin(); err != nil {
-		return graphene.ImageCheck{}, AsError(consts.ErrCodeInternal, err)
+		return graphene.ImageCheck{}, err
 	}
 	defer a.finish()
 
@@ -379,7 +392,7 @@ func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
 // unchanged case is exactly where that image lives. The new fingerprint is recorded either way.
 func (a *MaintenanceAPI) CompactCase() error {
 	if err := a.begin(); err != nil {
-		return AsError(consts.ErrCodeInternal, err)
+		return err
 	}
 	defer a.finish()
 
@@ -396,7 +409,7 @@ func (a *MaintenanceAPI) CompactCase() error {
 // `index_damaged`, and it is the heaviest thing this binding does.
 func (a *MaintenanceAPI) RebuildIndexes() error {
 	if err := a.begin(); err != nil {
-		return AsError(consts.ErrCodeInternal, err)
+		return err
 	}
 	defer a.finish()
 

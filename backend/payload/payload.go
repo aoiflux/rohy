@@ -31,6 +31,10 @@
 // Deleting an event does not reclaim its payload for the same reason: the log is
 // append-only, so a delete would have to rewrite it. Space is recovered by re-ingesting,
 // which the project's pre-release position explicitly allows.
+//
+// A redaction is the one write that is not an append: it overwrites a record in place with a
+// tombstone of the same length, so the content is gone and no reference moves
+// (payload_redact.go).
 package payload
 
 import (
@@ -187,16 +191,29 @@ func (s *Store) Read(r Ref) ([]byte, error) {
 	if s.closed {
 		return nil, ErrClosed
 	}
+	out, err := s.readLocked(r)
+	if err != nil {
+		return nil, err
+	}
+	// A record a redaction removed reads as that, never as bytes a caller would try to decode
+	// and then report as damage (payload_redact.go).
+	if err := tombstoneError(r.Offset, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// readLocked returns the bytes a reference covers, exactly as stored. Caller holds s.mu.
+func (s *Store) readLocked(r Ref) ([]byte, error) {
 	end := r.Offset + uint64(r.Length)
-	if end > s.size {
+	if end < r.Offset || end > s.size {
 		return nil, &OutOfRangeError{Offset: r.Offset, Length: r.Length, End: s.size}
 	}
+	out := make([]byte, r.Length)
 	if s.inMem {
-		out := make([]byte, r.Length)
 		copy(out, s.mem[r.Offset:end])
 		return out, nil
 	}
-	out := make([]byte, r.Length)
 	if _, err := s.f.ReadAt(out, int64(r.Offset)); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}

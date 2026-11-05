@@ -25,6 +25,16 @@ type EventSink interface {
 // capture (P7). It is satisfied by *capture.Store. The pipeline only ever advances a
 // position AFTER the events up to it are durably persisted, so a crash re-reads a little
 // (harmless under hash idempotency) and can never skip.
+// Suppressor names the records a redaction removed, which an ingest must not bring back (plan
+// §14.5). It is satisfied by *redaction.Journal.
+type Suppressor interface {
+	// Err reports why the list cannot be consulted. While it is not nil nothing is ingested: the
+	// list is what keeps redacted content out.
+	Err() error
+	// Suppressed reports whether a record with these identities was redacted.
+	Suppressed(hashNormalized, hashRaw string) bool
+}
+
 type PositionStore interface {
 	Position(channel string) uint64
 	SetPosition(channel string, recordID uint64) error
@@ -51,6 +61,9 @@ type Progress struct {
 	// canonical is already in memory; catching it against already-persisted events would
 	// cost a fetch per duplicate.
 	RecordsDivergent int `json:"records_divergent"`
+	// RecordsSuppressed counts records skipped because a redaction removed them from the case
+	// (plan §14.5). They are read, and not stored or counted as duplicates.
+	RecordsSuppressed int `json:"records_suppressed"`
 }
 
 // Summary is the terminal state of an ingest run, carried on Completed/Cancelled.
@@ -115,6 +128,8 @@ type Options struct {
 	Positions PositionStore
 	// Gate pauses/resumes the run (P8). Nil means the run can never pause.
 	Gate *Gate
+	// Suppress skips records a redaction removed. Nil suppresses nothing.
+	Suppress Suppressor
 }
 
 func (o Options) normalized() Options {
@@ -162,6 +177,13 @@ func Ingest(ctx context.Context, opts Options, sink EventSink, reporter Reporter
 	// the file). Cancelling a derived context on every return releases them, whatever ended the run.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// 🔒 Before any reader starts: a list that cannot be read cannot keep anything out.
+	if opts.Suppress != nil {
+		if err := opts.Suppress.Err(); err != nil {
+			return Summary{}, err
+		}
+	}
 
 	switch opts.Source {
 	case consts.SourceFile:
@@ -471,6 +493,14 @@ loop:
 				// into one event and be reported as duplicates. See consts.IdentityRecipeFor.
 				if !ev.Timestamp.IsZero() {
 					ev.StampIdentity()
+				}
+				// A redacted record stays out (plan §14.5). Checked on the stamped identity, and
+				// whether or not this run deduplicates: a non-idempotent run would otherwise store
+				// it again as a new event. hash_raw catches the same record read from another path,
+				// which hash_normalized, carrying the source, does not.
+				if opts.Suppress != nil && opts.Suppress.Suppressed(ev.HashNormalized, ev.HashRaw) {
+					p.RecordsSuppressed++
+					continue
 				}
 				if opts.Idempotent {
 					// Duplicate already in the current unflushed batch: bump its count.

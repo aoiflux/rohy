@@ -12,7 +12,8 @@
 // refuses to keep.
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
-import { CHANNELS, SEAL_STATE } from '../lib/consts/index.js';
+import { CHANNELS, SEAL_STATE, UI } from '../lib/consts/index.js';
+import { outcomeView, redactionFailure } from '../lib/maintenance/redaction.js';
 
 const empty = () => ({
   /** @type {{total:number,current:number,stale:number}|null} */
@@ -45,6 +46,11 @@ const empty = () => ({
    *  before — a custody report — drops it when this moves. Counted on failure too: a seal whose
    *  fingerprint could not be RECORDED still compacted, so the image moved either way. */
   seals: 0,
+  /** How many redactions this store has run or finished (plan §14.5). A view holding a copy of an
+   *  event's content — the drawer, a canvas card — drops it when this moves. */
+  redactions: 0,
+  /** @type {any[]|null} redactions that did not finish; null until read. */
+  pending: null,
   error: '',
 });
 
@@ -202,9 +208,87 @@ function create() {
     }
   }
 
+  /** loadPending reads the redactions that did not finish. */
+  async function loadPending() {
+    try {
+      const pending = await api.pendingRedactions();
+      update((s) => ({ ...s, pending: Array.isArray(pending) ? pending : [] }));
+      return pending;
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /** After a redaction ran, whatever it did: it may have written, and it sealed if it finished. */
+  async function afterRedaction() {
+    update((s) => ({ ...s, running: '', redactions: s.redactions + 1, seals: s.seals + 1, image: null }));
+    await loadPending();
+    try {
+      await loadForensics();
+    } catch (_) {
+      // loadForensics reports its own failure.
+    }
+  }
+
+  /**
+   * redact removes an event's content. Returns the outcome view, never throws.
+   *
+   * 🔒 Refused, not queued, while another pass runs here; the backend refuses it too while
+   * anything else holds the case.
+   * @param {number} id
+   * @param {string} reason
+   */
+  async function redact(id, reason) {
+    if (busy()) return redactionFailure(UI.DETAIL_PROOF_BUSY);
+    update((s) => ({ ...s, running: 'redact', error: '', lastResult: '' }));
+    let outcome;
+    try {
+      outcome = await api.redactEvent({ event: id, reason });
+    } catch (e) {
+      // Nothing started, so nothing changed: the counters stay where they are.
+      update((s) => ({ ...s, running: '' }));
+      return redactionFailure(e);
+    }
+    await afterRedaction();
+    return outcomeView(outcome);
+  }
+
+  /** finishRedactions runs every pending redaction's steps again, then re-checks the case. */
+  async function finishRedactions() {
+    if (busy()) return [];
+    update((s) => ({ ...s, running: 'finish_redaction', error: '', lastResult: '' }));
+    const pending = (await api.pendingRedactions().catch(() => [])) || [];
+    const outcomes = [];
+    for (const e of pending) {
+      try {
+        outcomes.push(outcomeView(await api.finishRedaction(e.id)));
+      } catch (err) {
+        outcomes.push(redactionFailure(err));
+      }
+    }
+    await afterRedaction();
+    const allDone = outcomes.every((o) => o.done);
+    update((s) => ({
+      ...s,
+      lastResult: allDone ? 'finish_redaction' : '',
+      error: allDone ? '' : outcomes.map((o) => o.error || o.message).filter(Boolean).join(' '),
+    }));
+    try {
+      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
+      update((s) => ({ ...s, report }));
+    } catch (e) {
+      fail(e);
+    }
+    return outcomes;
+  }
+
   return {
     subscribe,
     current: () => get({ subscribe }),
+    loadPending,
+    redact,
+    finishRedactions,
     loadStatus,
     loadForensics,
     check,

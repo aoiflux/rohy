@@ -680,6 +680,102 @@ const (
 	MsgPayloadOutOfRange = "payload reference (offset %d, length %d) lies beyond the log end %d"
 )
 
+// RedactionLedgerFile is graphene's redaction ledger inside the database directory. It mirrors the
+// engine's own unexported name; rohy reads the file only to check its framing before appending to it
+// (a torn tail would misframe the next record, and every compaction after it would fail).
+const RedactionLedgerFile = "graphene.redactions"
+
+// The redaction journal (plan §14.5, item 40): rohy-data/redactions/journal.json.
+//
+// One entry per redaction, written durably BEFORE anything is destroyed: it is the only place the
+// targets' payload references survive the strip. It is also the suppression list — ingest skips a
+// record whose identity any entry names — so it is never set aside when it cannot be read.
+const (
+	RedactionsSubdir        = "redactions"
+	RedactionJournalFile    = "journal.json"
+	RedactionJournalVersion = 1
+	// MaxRedactionJournalSize bounds what Open reads. Entries are a few hundred bytes; a file
+	// this large is not a journal rohy wrote.
+	MaxRedactionJournalSize = 64 << 20
+	// MaxRedactionReasonLen bounds the reason, in bytes. It is kept in plain text, permanently,
+	// in the journal and in graphene's ledger.
+	MaxRedactionReasonLen = 2048
+
+	// Redaction steps, in the order they run.
+	RedactStepRelations = "relations"
+	RedactStepRecords   = "records"
+	RedactStepPayloads  = "payloads"
+	RedactStepSidecars  = "sidecars"
+	RedactStepSeal      = "seal"
+
+	// Step states. A step with no state was not reached.
+	RedactStepDone   = "done"
+	RedactStepFailed = "failed"
+)
+
+const (
+	MsgJournalUnreadable   = "the redaction journal %s cannot be read: %v. rohy will not ingest or redact until it can: it lists what must not come back. Restore it from a backup, or move it aside only if this case has never been redacted"
+	MsgJournalCorrupt      = "the redaction journal %s is not valid: %v. rohy will not ingest or redact until it is restored: it lists what must not come back"
+	MsgJournalNewer        = "the redaction journal %s was written by a newer rohy (format %d, this build reads %d). Use that build; this one will not ingest or redact"
+	MsgJournalTooLarge     = "the redaction journal %s is %d bytes, more than the %d this build reads"
+	MsgJournalBadEntry     = "entry %d: %s"
+	MsgJournalDuplicateID  = "entry id %d appears twice"
+	MsgJournalNoTargets    = "a redaction must name at least one event"
+	MsgJournalBadTarget    = "target %d has no node id or no identity hash"
+	MsgJournalNoEntry      = "no redaction %d in the journal"
+	MsgJournalUnknownStep  = "unknown redaction step %q"
+	MsgJournalWriteFailed  = "the redaction journal could not be written: %w"
+	MsgRedactReasonEmpty   = "a redaction needs a reason: it is recorded with the redaction, permanently"
+	MsgRedactReasonTooLong = "the reason is %d bytes; at most %d are kept"
+	MsgRedactReasonUTF8    = "the reason is not valid text"
+)
+
+// Running a redaction (plan §14.5, item 40).
+const (
+	// RedactStepNotReached is an outcome's state for a step a failure stopped short of.
+	RedactStepNotReached = "not_reached"
+	// RedactedDescriptor replaces each descriptor a redaction scrubs from findings and snapshots.
+	RedactedDescriptor = "(redacted event)"
+	// MinRedactionBodyVersion is the oldest image a redaction is recorded against. Older images
+	// hash an entity's leaf differently, so the ledger's hashes would not match the image the
+	// redaction's seal writes; such a case is sealed first.
+	MinRedactionBodyVersion = 3
+
+	MsgRedactAlready          = "event %d has already been redacted"
+	MsgRedactPendingFor       = "event %d is part of redaction %d, which did not finish: finish it on the Maintenance page"
+	MsgRedactNotPending       = "redaction %d is not waiting to be finished"
+	MsgRedactUnavailable      = "redaction is unavailable in this session: %s is not attached"
+	MsgRedactOldImage         = "the case image is in an older format and could not be sealed in the current one first: %v"
+	MsgRedactNoteRelationGone = "relation %d was removed outside this redaction: the seal takes it out of the image, but the ledger does not record its removal"
+	MsgRedactNoteEventGone    = "event %d was removed outside this redaction: the seal takes it out of the image, but the ledger does not record its removal"
+	MsgRedactNoteOtherOwner   = "the payload record at offset %d had already been removed by the redaction of event %d"
+	MsgRedactNoteSeal         = "seal: %s"
+	MsgRedactSnapsUnreadable  = "%d snapshot file(s) cannot be read, so rohy cannot tell whether they hold a copy: %s. Restore or delete them, then finish the redaction"
+	MsgRedactStepUnrecorded   = "the step ran, but the journal could not record it: %v"
+	MsgRedactUnfinished       = "the redaction finished every step, but the journal could not mark it done: %v"
+)
+
+// Payload tombstones (plan §14.5.1, item 40). A redacted record is overwritten in place, same
+// length: this marker, a format version, the redacted event's id, then zeros. The marker starts
+// with 0x00, which no JSON payload can, so a tombstone is never mistaken for a record or for damage.
+const (
+	PayloadTombstoneMagic   = "\x00RDX"
+	PayloadTombstoneVersion = 1
+	// PayloadTombstoneSize is the marker, the version byte and the owner's id (u64).
+	PayloadTombstoneSize = len(PayloadTombstoneMagic) + 1 + 8
+)
+
+const (
+	MsgPayloadRedacted       = "payload record at offset %d was removed by a redaction of event %d"
+	MsgPayloadTombstoneDirty = "payload record at offset %d is marked as redacted but still holds data: damage"
+	MsgPayloadTombstoneOwner = "payload record at offset %d was already removed by a redaction of event %d, not %d"
+	MsgPayloadTooShort       = "payload record at offset %d is %d bytes, too short to hold a tombstone (%d bytes)"
+	MsgPayloadNotARecord     = "payload reference (offset %d, length %d) does not frame a record: %s"
+	MsgPayloadFrameEarly     = "it starts inside the log's first header"
+	MsgPayloadFrameHeader    = "the header before it says %d bytes"
+	MsgPayloadFrameNoStart   = "no record starts there"
+)
+
 // --- Store read integrity ---
 //
 // MsgNodesMissing reports ids that an index or query produced but that no longer resolve
@@ -716,6 +812,9 @@ const (
 	// after "complete" is indistinguishable from a hang.
 	EventCaseSealing = "case:sealing"
 	EventCaseSealed  = "case:sealed"
+	// A redaction ran (plan §14.5). It carries the outcome, so every view holding a copy of the
+	// event's content can drop it.
+	EventCaseRedacted = "case:redacted"
 
 	EventRulesStarted   = "rules:started"
 	EventRulesProgress  = "rules:progress"
@@ -805,6 +904,37 @@ const (
 	// SQLite database that does not hold EVTX data in the expected shape (P17). Distinct
 	// from ErrCodeIO so the UI can tell the user which problem they have.
 	ErrCodeSchema = "schema_error"
+	// ErrCodeBusy marks a call refused because the case lock is held by something that cannot
+	// run beside it (plan §14.5). Nothing was written; the message names what is running.
+	ErrCodeBusy = "case_busy"
+)
+
+// --- Case lock (plan §14.5, item 40) ---
+//
+// Everything that writes the case, or a copy of an event's content, holds the case lock shared; a
+// redaction holds it alone. The activity names fill the refusal messages, so they read as a noun
+// phrase in a sentence.
+const (
+	CaseActivityIngest     = "an ingest"
+	CaseActivityCapture    = "live capture"
+	CaseActivityRuleRun    = "a rule run"
+	CaseActivityRuleTest   = "a rule test"
+	CaseActivityMaintain   = "a maintenance pass"
+	CaseActivitySnapshot   = "a snapshot"
+	CaseActivityRestore    = "a snapshot restore"
+	CaseActivityFinding    = "a finding edit"
+	CaseActivityAnnotation = "an annotation edit"
+	CaseActivityGraphEdit  = "a graph edit"
+	CaseActivityRedaction  = "a redaction"
+
+	// MsgCaseBusyExclusive: what was refused, then what holds the case alone.
+	MsgCaseBusyExclusive = "%s cannot start while %s is in progress; try again when it finishes"
+	// MsgCaseBusyShared: what was refused, then the holders, joined.
+	MsgCaseBusyShared = "%s cannot start while %s: wait for it to finish, or stop it"
+	// MsgCaseBusyRunning joins the holders in MsgCaseBusyShared: "an ingest is running".
+	MsgCaseBusyRunning = "%s is running"
+	// MsgCaseBusyRunningMany is the same for several: "an ingest and a rule run are running".
+	MsgCaseBusyRunningMany = "%s and %s are running"
 )
 
 // --- Correlation rules (P2) ---
@@ -1176,6 +1306,11 @@ const (
 	IntegrityRootsChainGap          = "roots_chain_gap"
 	IntegrityRootsUnrecordedSeal    = "roots_unrecorded_seal"
 	IntegrityRootsHistoryUnreadable = "roots_history_unreadable"
+
+	// Redaction (plan §14.5, item 40).
+	IntegrityRedactedFindings = "redacted_findings"
+	IntegrityRedactionPending = "redaction_pending"
+	IntegrityRedactionJournal = "redaction_journal"
 )
 
 // Suggested actions a finding can carry, so the UI offers the fix rather than describing it.
@@ -1197,6 +1332,8 @@ const (
 	// case. Every check the app can run compares the store against itself; a root kept
 	// elsewhere is the only thing that distinguishes "internally consistent" from "unaltered".
 	IntegrityActionRetainRoot = "retain_root"
+	// IntegrityActionFinishRedaction runs the steps an unfinished redaction did not complete.
+	IntegrityActionFinishRedaction = "finish_redaction"
 )
 
 const (
@@ -1215,6 +1352,9 @@ const (
 	MsgIntegrityRuleInert     = "rule %q cannot match: this case holds no %s events."
 	MsgIntegrityRuleBlocked   = "rule %q needs the %q correlation field, which no event in this case carries. It will report zero matches, which is not the same as a clean result."
 	MsgIntegrityRuleUnmatched = "rule %q could match — every step has events — but the pattern does not occur in this case."
+
+	MsgIntegrityRedactedFinds = "%d finding(s) are on events whose content was redacted. Their flags, tags and notes are the analyst's own and were kept; review whether a note repeats what was removed."
+	MsgIntegrityRedactPending = "%d redaction(s) did not finish. Until they do, content they were removing may still be in the case."
 )
 
 // Forensic-posture messages (plan §14.8).
@@ -1355,6 +1495,26 @@ const (
 	// not resolve to its own root. Damage to the image; no proof is handed out, and sealing again is
 	// not offered, because a seal would build a new image on top of the damaged one.
 	EventProofImageDamaged = "image_damaged"
+	// EventProofRawRedacted: the event's raw record was removed by a redaction while its stored
+	// record is still here — a redaction that has not finished. Not damage, and not sealable: the
+	// fix is to finish the redaction, after which the event reads as redacted.
+	EventProofRawRedacted = "raw_redacted"
+	// EventProofRedacted: the event's content was removed by a recorded redaction. Nothing is left
+	// to prove; the ledger record is what the case holds, and the custody report shows it.
+	EventProofRedacted = "redacted"
+	// EventProofRecordEmpty: the event node holds no record and the ledger records no redaction of
+	// it. Only a redaction empties a record, so this is damage.
+	EventProofRecordEmpty = "record_empty"
+)
+
+// Redaction in the engine (plan §14.5, item 40).
+const (
+	MsgRedactBareUnrecorded = "event %d holds no record and the ledger records no redaction of it: damage, not a redaction"
+	MsgRedactIndexSurvived  = "event %d's identity hash still finds it after its record was redacted"
+	MsgRedactLedgerTorn     = "the redaction ledger is %d bytes but its records end at byte %d: a torn write. No redaction can be recorded until it is repaired"
+	MsgRedactRelationGone   = "relation %d does not exist and no redaction of it is recorded"
+	MsgRedactNoWriteBack    = "event %d was redacted; its record is never written again"
+	MsgRedactEventGone      = "event %d is no longer in the case and no redaction of it is recorded"
 )
 
 // MsgNotAnEvent is the error for an id that names a node other than an event. rohy writes only
@@ -1438,6 +1598,9 @@ const (
 	CustodyPresenceRemovedSinceSeal = "removed_since_seal"
 	CustodyPresenceRedacted         = "redacted"
 	CustodyPresenceNotInCase        = "not_in_case"
+	// CustodyPresenceRedactedContent: the event is still in the case, its content removed by a
+	// recorded redaction (item 40). Live, but nothing of what was ingested is left.
+	CustodyPresenceRedactedContent = "redacted_content"
 )
 
 // Which form the report took: checked against the case alone, or against a fingerprint the analyst
@@ -1480,55 +1643,68 @@ const (
 	MsgCustodyPresenceRedacted         = "The event was removed on purpose at %s: %q. Its content is gone; the fact, time and reason are recorded."
 	MsgCustodyPresenceNotInCase        = "This case holds no such event, and keeps no record of removing one. It cannot tell an event that was removed and sealed over from one that never existed."
 
-	MsgCustodySealIn            = "The event is in the current seal, and its place there checks out."
-	MsgCustodySealWritten       = "Not in any seal yet."
-	MsgCustodySealNone          = "The case has no seal to place it in."
-	MsgCustodySealRemoved       = "The current seal holds the event, but the case no longer does."
-	MsgCustodySealAbsent        = "No seal holds the event."
-	MsgCustodySealBroken        = "The event's place in the seal does not check out."
-	MsgCustodyRecordSealed      = "The event's stored record is the one the seal holds."
-	MsgCustodyRecordChanged     = "The stored record changed after the seal: a duplicate was merged into it, or a backfill rewrote it."
-	MsgCustodyRecordOutdated    = "The seal predates fingerprints that cover a record's content: it holds this event's id, not what it said."
-	MsgCustodyRecordDamaged     = "Not checked: the seal itself does not check out, so nothing in it can be compared."
-	MsgCustodyRemedySeal        = "Seal the case to bring the event under a seal."
-	MsgCustodyRemedyReseal      = "Seal again to cover the current record."
-	MsgCustodyNoSealAdvice      = "No seal is suggested: a seal now would build on an image that is not the one rohy last sealed. Review the case first."
-	MsgCustodyRecordNotSealed   = "Nothing to compare against: the event is not in a seal."
-	MsgCustodyRecordNotChecked  = "Not checked: the raw record could not be read, so the check stopped before comparing."
-	MsgCustodyRawBound          = "The raw record is the one rohy read at ingest: its hash is part of the sealed record."
-	MsgCustodyRawNoHash         = "The stored record carries no hash of a raw record, so the seal does not cover one."
-	MsgCustodyRawMissing        = "The stored record carries a raw-record hash, but there is no raw record to check against it."
-	MsgCustodyRawNotChecked     = "Not checked: the stored record itself is not covered by the seal."
-	MsgCustodyRawMismatch       = "The raw record no longer matches the hash in the stored record. This is damage, or a record that could not be stored byte for byte."
-	MsgCustodyRawUnreadable     = "The raw record cannot be read from the case's payload store. This is damage."
-	MsgCustodyUnknownState      = "This build does not know the state %q, so it cannot say what was established."
-	MsgCustodyRedactedProps     = "The event's properties were removed on purpose at %s: %q. What is shown is not what was ingested."
-	MsgCustodyRedactedNode      = "The event was removed on purpose at %s: %q."
-	MsgCustodyRedactedOther     = "A removal of scope %q is recorded for this event at %s: %q."
-	MsgCustodyRedactionUnbound  = "The removal is in the ledger but not yet bound into the seal, so someone given only the sealed image cannot tell it from an event that never existed."
-	MsgCustodyHistoryIntact     = "The case's image is the last seal rohy recorded."
-	MsgCustodyHistoryUnrecorded = "The case's image follows the last recorded seal by one seal that was not recorded, for example after a crash between sealing and recording."
-	MsgCustodyHistoryRolledBack = "The case's image is an earlier seal: %d later seals rohy recorded are missing. A backup may have been restored over the case."
-	MsgCustodyHistoryForked     = "The history shows the case was put back to an earlier seal and sealed again, leaving out %d recorded seals."
-	MsgCustodyHistoryDiverged   = "The case's image does not follow from the last seal rohy recorded: the database was replaced, restored, or sealed by another tool."
-	MsgCustodyHistoryEmpty      = "No seals are recorded for this case yet."
-	MsgCustodyHistoryNoImage    = "The case has no fingerprint to place in its history."
-	MsgCustodyHistoryNone       = "The case's history of seals was not available to this check."
-	MsgCustodyHistoryGaps       = "%d recorded seals do not follow the seal recorded before them. Histories from builds before v0.3.0 recorded only exported fingerprints, which leaves gaps like these."
-	MsgCustodyHistoryReset      = "The history started again (%s), so seals before then cannot be traced. The earlier history was kept at %s."
-	MsgCustodyChainHeld         = "The history could not be read, so this check could not consult it: %s"
-	MsgCustodyKeptNone          = "No fingerprint was supplied, so every check above compares the case against itself."
-	MsgCustodyKeptNoneExported  = "A copy of the current fingerprint has been exported. Paste it here to check the case against it."
-	MsgCustodyKeptNoneNever     = "No copy of the current fingerprint has been exported. Export it from the Maintenance page and keep it outside the case."
-	MsgCustodyKeptMatch         = "The case's image is the one whose fingerprint you kept."
-	MsgCustodyKeptMatchNotOut   = "rohy has no record of this fingerprint being exported. If it was copied from this case's own screens rather than from a copy kept elsewhere, the match proves nothing."
-	MsgCustodyKeptEventOutside  = "The event itself is not in that seal, so the fingerprint vouches for the image, not for this event."
-	MsgCustodyKeptAncestor      = "The fingerprint you kept is an earlier seal of this case: the current image descends from it through the recorded seals. That link is the case's own record, so it does not show the image is untouched since. Keep the current fingerprint to check this event."
-	MsgCustodyKeptRecordedOff   = "The fingerprint you kept is a seal this case recorded, but the current image does not descend from it: the case was rolled back, or put back and sealed again."
-	MsgCustodyKeptRecordedGaps  = "The fingerprint you kept is a seal this case recorded, but the current image cannot be traced back to it through the recorded seals: the history has gaps, or the case was rolled back."
-	MsgCustodyKeptUnknown       = "The case's image does not descend from the fingerprint you kept, and the case has no record of it. It may belong to another case, or this case's image and history were replaced."
-	MsgCustodyKeptNoImage       = "The case has no fingerprint at all, so its image cannot be the one you kept: the image was replaced, or the fingerprint belongs to another case."
-	MsgCustodyKeptHeld          = "The case's image is not the one whose fingerprint you kept, and the history could not be consulted to say whether it descends from it: %s"
+	MsgCustodySealIn           = "The event is in the current seal, and its place there checks out."
+	MsgCustodySealWritten      = "Not in any seal yet."
+	MsgCustodySealNone         = "The case has no seal to place it in."
+	MsgCustodySealRemoved      = "The current seal holds the event, but the case no longer does."
+	MsgCustodySealAbsent       = "No seal holds the event."
+	MsgCustodySealBroken       = "The event's place in the seal does not check out."
+	MsgCustodyRecordSealed     = "The event's stored record is the one the seal holds."
+	MsgCustodyRecordChanged    = "The stored record changed after the seal: a duplicate was merged into it, or a backfill rewrote it."
+	MsgCustodyRecordOutdated   = "The seal predates fingerprints that cover a record's content: it holds this event's id, not what it said."
+	MsgCustodyRecordDamaged    = "Not checked: the seal itself does not check out, so nothing in it can be compared."
+	MsgCustodyRemedySeal       = "Seal the case to bring the event under a seal."
+	MsgCustodyRemedyReseal     = "Seal again to cover the current record."
+	MsgCustodyNoSealAdvice     = "No seal is suggested: a seal now would build on an image that is not the one rohy last sealed. Review the case first."
+	MsgCustodyRecordNotSealed  = "Nothing to compare against: the event is not in a seal."
+	MsgCustodyRecordNotChecked = "Not checked: the raw record could not be read, so the check stopped before comparing."
+	MsgCustodyRawBound         = "The raw record is the one rohy read at ingest: its hash is part of the sealed record."
+	MsgCustodyRawNoHash        = "The stored record carries no hash of a raw record, so the seal does not cover one."
+	MsgCustodyRawMissing       = "The stored record carries a raw-record hash, but there is no raw record to check against it."
+	MsgCustodyRawNotChecked    = "Not checked: the stored record itself is not covered by the seal."
+	MsgCustodyRawMismatch      = "The raw record no longer matches the hash in the stored record. This is damage, or a record that could not be stored byte for byte."
+	MsgCustodyRawUnreadable    = "The raw record cannot be read from the case's payload store. This is damage."
+	MsgCustodyUnknownState     = "This build does not know the state %q, so it cannot say what was established."
+	MsgCustodyRedactedProps    = "The event's properties were removed on purpose at %s: %q. What is shown is not what was ingested."
+	MsgCustodyRedactedNode     = "The event was removed on purpose at %s: %q."
+	MsgCustodyRedactedOther    = "A removal of scope %q is recorded for this event at %s: %q."
+	MsgCustodyRedactionUnbound = "The removal is in the ledger but not yet bound into the seal, so someone given only the sealed image cannot tell it from an event that never existed."
+	MsgCustodyRedactionNoActor = "Who performed it is not recorded: this case keeps no analyst identity yet."
+	MsgCustodyRedactionUndone  = "The ledger records this event's content as removed, but the event still holds a record: the redaction did not finish, or something wrote the record back. Finish the redaction on the Maintenance page."
+
+	MsgCustodyPresenceRedactedContent = "The event's content was removed on purpose at %s: %q. The event and the relations an analyst drew stay; its record, raw record and parsed fields are gone. The fact, time and reason are recorded."
+	MsgCustodySealRedacted            = "The current seal holds the event as redacted: its content is gone from the image too."
+	MsgCustodySealStillHolds          = "The current seal still holds the event's content. Until the case is sealed again, the image keeps what the redaction removed."
+	MsgCustodyRemedySealRedaction     = "Seal the case to remove the content from the image."
+	MsgCustodyRecordRedacted          = "The stored record was removed by the redaction: nothing of it is left to check."
+	MsgCustodyRecordRedactionPending  = "Not checked: a redaction removed the raw record and did not finish, so the check stopped before comparing."
+	MsgCustodyRecordEmpty             = "The event holds no record, and the case records no redaction of it. This is damage."
+	MsgCustodyRawRedacted             = "The raw record and parsed fields were removed by the redaction: nothing of them is left to check."
+	MsgCustodyRawRedactionPending     = "The raw record was removed by a redaction that did not finish: the stored record is still here. Finish the redaction on the Maintenance page."
+	MsgCustodyRawNoRecord             = "Not checked: the event holds no record to check a raw record against."
+	MsgCustodyHistoryIntact           = "The case's image is the last seal rohy recorded."
+	MsgCustodyHistoryUnrecorded       = "The case's image follows the last recorded seal by one seal that was not recorded, for example after a crash between sealing and recording."
+	MsgCustodyHistoryRolledBack       = "The case's image is an earlier seal: %d later seals rohy recorded are missing. A backup may have been restored over the case."
+	MsgCustodyHistoryForked           = "The history shows the case was put back to an earlier seal and sealed again, leaving out %d recorded seals."
+	MsgCustodyHistoryDiverged         = "The case's image does not follow from the last seal rohy recorded: the database was replaced, restored, or sealed by another tool."
+	MsgCustodyHistoryEmpty            = "No seals are recorded for this case yet."
+	MsgCustodyHistoryNoImage          = "The case has no fingerprint to place in its history."
+	MsgCustodyHistoryNone             = "The case's history of seals was not available to this check."
+	MsgCustodyHistoryGaps             = "%d recorded seals do not follow the seal recorded before them. Histories from builds before v0.3.0 recorded only exported fingerprints, which leaves gaps like these."
+	MsgCustodyHistoryReset            = "The history started again (%s), so seals before then cannot be traced. The earlier history was kept at %s."
+	MsgCustodyChainHeld               = "The history could not be read, so this check could not consult it: %s"
+	MsgCustodyKeptNone                = "No fingerprint was supplied, so every check above compares the case against itself."
+	MsgCustodyKeptNoneExported        = "A copy of the current fingerprint has been exported. Paste it here to check the case against it."
+	MsgCustodyKeptNoneNever           = "No copy of the current fingerprint has been exported. Export it from the Maintenance page and keep it outside the case."
+	MsgCustodyKeptMatch               = "The case's image is the one whose fingerprint you kept."
+	MsgCustodyKeptMatchNotOut         = "rohy has no record of this fingerprint being exported. If it was copied from this case's own screens rather than from a copy kept elsewhere, the match proves nothing."
+	MsgCustodyKeptEventOutside        = "The event itself is not in that seal, so the fingerprint vouches for the image, not for this event."
+	MsgCustodyKeptAncestor            = "The fingerprint you kept is an earlier seal of this case: the current image descends from it through the recorded seals. That link is the case's own record, so it does not show the image is untouched since. Keep the current fingerprint to check this event."
+	MsgCustodyKeptRecordedOff         = "The fingerprint you kept is a seal this case recorded, but the current image does not descend from it: the case was rolled back, or put back and sealed again."
+	MsgCustodyKeptRecordedGaps        = "The fingerprint you kept is a seal this case recorded, but the current image cannot be traced back to it through the recorded seals: the history has gaps, or the case was rolled back."
+	MsgCustodyKeptUnknown             = "The case's image does not descend from the fingerprint you kept, and the case has no record of it. It may belong to another case, or this case's image and history were replaced."
+	MsgCustodyKeptNoImage             = "The case has no fingerprint at all, so its image cannot be the one you kept: the image was replaced, or the fingerprint belongs to another case."
+	MsgCustodyKeptHeld                = "The case's image is not the one whose fingerprint you kept, and the history could not be consulted to say whether it descends from it: %s"
 
 	MsgCustodyAttestationNone     = "Seals are not signed, so nothing records who produced them."
 	MsgCustodyAttestationUnkeyed  = "The seal is signed, but rohy holds no key to check the signature."

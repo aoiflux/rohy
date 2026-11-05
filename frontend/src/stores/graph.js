@@ -212,6 +212,23 @@ function create() {
     });
   }
 
+  // refreshEvents re-reads every event on the canvas and the active graph's edges, so a redaction
+  // leaves no copy of the content in a card, and no edge a rule made to it (plan §14.5).
+  async function refreshEvents() {
+    const ids = Object.keys(get(store).nodes).map(Number);
+    if (ids.length > 0) {
+      const events = (await api.getEvents(ids)) || [];
+      update((s) => {
+        const nodes = { ...s.nodes };
+        for (const e of events) {
+          if (e && nodes[e.id]) nodes[e.id] = { ...nodes[e.id], event: e };
+        }
+        return { ...s, nodes };
+      });
+    }
+    await loadRelations();
+  }
+
   // saveLayout persists the active graph's node positions + viewport. The node id set is
   // the graph's canvas membership, so placed-but-unlinked nodes survive reload (P15).
   async function saveLayout() {
@@ -257,6 +274,7 @@ function create() {
     focusEvent,
     clearCanvas,
     loadGraphs,
+    refreshEvents,
     setActive,
     createGraph,
     renameGraph,

@@ -28,6 +28,7 @@
     backfillFraction,
     ACTION,
   } from '../lib/maintenance/report.js';
+  import { pendingLine } from '../lib/maintenance/redaction.js';
 
   import AppBar from '../components/material/AppBar.svelte';
   import Button from '../components/material/Button.svelte';
@@ -55,6 +56,8 @@
     // forensic posture decides what every other number on this page can be taken to mean.
     maintenance.loadStatus();
     maintenance.loadForensics();
+    // Cheap: the journal is in memory. An unfinished redaction may still hold content.
+    maintenance.loadPending();
     unsubscribe = api.on(CHANNELS.MAINTENANCE_PROGRESS, (p) => maintenance.onProgress(p));
   });
   onDestroy(() => unsubscribe());
@@ -65,6 +68,7 @@
     if (action === ACTION.REBUILD) return maintenance.rebuild();
     if (action === ACTION.COMPACT) return maintenance.compact();
     if (action === ACTION.VERIFY_IMAGE) return maintenance.verify();
+    if (action === ACTION.FINISH_REDACTION) return maintenance.finishRedactions();
     return Promise.resolve(false);
   }
 
@@ -211,6 +215,24 @@
       {/if}
     {/if}
   </section>
+
+  <!-- Unfinished redactions (plan §14.5). Shown whenever there are any, before a check is run:
+       until they finish, content they were removing may still be in the case. -->
+  {#if $maintenance.pending && $maintenance.pending.length > 0}
+    <section class="card">
+      <h3>{UI.REDACT_PENDING_TITLE}</h3>
+      <ul class="findings">
+        {#each $maintenance.pending as e (e.id)}
+          <li class="warning"><p class="msg">{pendingLine(e)}</p></li>
+        {/each}
+      </ul>
+      <div class="fixes">
+        <Button variant="tonal" onclick={() => maintenance.finishRedactions()} disabled={busy}>
+          {UI.MAINT_ACTION.finish_redaction}
+        </Button>
+      </div>
+    </section>
+  {/if}
 
   <!-- The image check. Its own card because it is an action with a result, not a state. -->
   {#if forensics?.available && forensics.compacted}

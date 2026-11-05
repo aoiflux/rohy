@@ -193,26 +193,22 @@ type forensicOptions struct {
 }
 
 // diskOptions renders the posture as engine options.
+//
+// The redaction ledger is always on (item 40). It is not a posture an analyst chooses: without it
+// the engine refuses every attributed removal, and the only removal left is the unattributed
+// DeleteNode. Turning it on creates an empty ledger file and changes nothing else about how a case
+// loads — an absent ledger and an empty one read the same everywhere the engine reads one.
 func (o forensicOptions) diskOptions() disk.Options {
-	return disk.Options{VerifyOnOpen: o.verifyOnOpen}
-}
-
-// isDefault reports whether the posture asks for nothing beyond the engine's default open, so
-// the store can keep using the plain Open path and stay byte-for-byte the behaviour every
-// existing case already gets.
-func (o forensicOptions) isDefault() bool {
-	return !o.verifyOnOpen
+	return disk.Options{VerifyOnOpen: o.verifyOnOpen, Redaction: true}
 }
 
 // openGraph opens the disk-backed graph under this store's posture.
 //
-// 🔒 The default posture takes the plain Open, deliberately. It is not merely equivalent to
-// OpenWithOptions with a zero Options — it is the same call every existing case has always used,
-// and keeping it means adopting this file cannot change how an untouched case loads.
+// Until item 40 the default posture took the plain Open, so adopting forensics could not change how
+// an untouched case loaded. The ledger ends that: every case now opens with options. The engine's
+// plain Open is OpenWithOptions with zero options, and TestAnExistingCaseOpensUnchangedWithTheLedger
+// pins that a case written without the ledger loads to the same roots with it.
 func (s *Store) openGraph() (*graphene.Graph, error) {
-	if s.forensic.isDefault() {
-		return graphene.Open(s.dir)
-	}
 	return graphene.OpenWithOptions(s.dir, s.forensic.diskOptions())
 }
 
@@ -397,14 +393,15 @@ func (s *Store) ForensicStatus() ForensicStatus {
 	st := ForensicStatus{
 		Available:    true,
 		VerifyOnOpen: s.forensic.verifyOnOpen,
-		// The remaining postures arrive with §14.6/§14.5 and are reported as off rather than
-		// omitted, because "not configured" is the answer an analyst needs — an absent field
-		// reads as an unasked question.
+		// The remaining postures arrive with §14.6 and are reported as off rather than omitted,
+		// because "not configured" is the answer an analyst needs — an absent field reads as an
+		// unasked question.
 		Signed:        false,
 		RequireSigned: false,
 		Audit:         false,
 		Retention:     false,
-		Redaction:     false,
+		// Always on for a disk case (diskOptions, item 40).
+		Redaction: true,
 	}
 
 	// A roots read that fails is not allowed to present as "never compacted": the two are
@@ -534,6 +531,9 @@ type EventProof struct {
 //	raw_mismatch        the raw record no longer hashes to the value its stored record holds
 //	raw_unreadable      the raw record cannot be read from the payload store at all
 //	image_damaged       the sealed image does not check out: the proof does not resolve to its root
+//	raw_redacted        a redaction removed the raw record and has not finished (not damage)
+//	redacted            a recorded redaction removed the event's content (not damage)
+//	record_empty        the event holds no record and no redaction is recorded (damage)
 //	too_large           the document would exceed what any verifier reads
 //
 // The live record is read before the proof is built, and Assemble compares the two by hash, so a
@@ -560,6 +560,17 @@ func (s *Store) ProveEvent(id uint64) (EventProof, error) {
 	if !slices.Contains(n.Labels, consts.NodeEvent) {
 		return EventProof{}, fmt.Errorf(consts.MsgNotAnEvent, id)
 	}
+	// A redacted event keeps no record: nothing is left to prove, and the ledger record is what the
+	// case holds. Checked before anything decodes the empty record. Without a ledger record behind
+	// it, an empty record is damage — only a redaction produces one.
+	if isStrippedEvent(n) {
+		if _, ok, err := s.RedactionFor(id); err != nil {
+			return EventProof{}, err
+		} else if ok {
+			return EventProof{State: consts.EventProofRedacted}, nil
+		}
+		return EventProof{State: consts.EventProofRecordEmpty}, nil
+	}
 	e, err := eventFromNode(n)
 	if err != nil {
 		return EventProof{}, err
@@ -571,6 +582,11 @@ func (s *Store) ProveEvent(id uint64) (EventProof, error) {
 		return EventProof{State: consts.EventProofRawUnreadable}, nil
 	} else if err != nil {
 		return EventProof{}, err
+	}
+	// The raw record is gone but the stored record is not: a redaction that has not finished. A
+	// proof would bind a raw record that no longer exists, and a seal would not finish it.
+	if e.PayloadRedacted() {
+		return EventProof{State: consts.EventProofRawRedacted}, nil
 	}
 	hashed := e.HashRaw != ""
 	// The raw record travels only when the stored record carries its hash. Without one the seal
@@ -622,10 +638,14 @@ func (s *Store) ProveEvent(id uint64) (EventProof, error) {
 }
 
 // rawUnreadable reports whether a payload read failed because the raw record is not there to read:
-// the log is shorter than the reference, or the record does not decode.
+// the log is shorter than the reference, the record does not decode, or a tombstone stands where
+// it should be that is not this event's clean removal. A clean tombstone is not damage (hydrate).
 func rawUnreadable(err error) bool {
 	var short *payload.OutOfRangeError
 	var syntax *json.SyntaxError
 	var shape *json.UnmarshalTypeError
-	return errors.As(err, &short) || errors.As(err, &syntax) || errors.As(err, &shape)
+	var dirty *payload.TombstoneDirtyError
+	var other *payload.TombstoneOwnerError
+	return errors.As(err, &short) || errors.As(err, &syntax) || errors.As(err, &shape) ||
+		errors.As(err, &dirty) || errors.As(err, &other)
 }

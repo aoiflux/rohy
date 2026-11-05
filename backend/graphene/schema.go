@@ -6,6 +6,7 @@ package graphene
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -75,7 +76,21 @@ type Event struct {
 	// the truth.
 	CorrKeys       []string `json:"ck,omitempty"`
 	CorrKeyVersion int      `json:"ckv,omitempty"`
+
+	// Redacted says a redaction removed this event's content (plan §14.5): the node is all that is
+	// left. Set on read, never stored — omitted from an ordinary record, so encoding one is
+	// byte-for-byte what it was, and refused by toNode, so a redacted event is never written back.
+	Redacted bool `json:"redacted,omitempty"`
+	// payloadRedacted says the cold record Payload points at was removed by a redaction
+	// (payload.RedactedError): the event reads without it, and says so, rather than reading as
+	// damage. Unexported, so it can never be persisted in the node record; the binding carries it
+	// out explicitly (api.EventDetail).
+	payloadRedacted bool
 }
+
+// PayloadRedacted reports whether this event's raw record and parsed fields were removed by a
+// redaction. Set by hydrate; false for an event read without its cold fields.
+func (e *Event) PayloadRedacted() bool { return e.payloadRedacted }
 
 // payloadBlob is the encoded form of the fields held outside the node record.
 type payloadBlob struct {
@@ -311,6 +326,9 @@ func (e *Event) searchBlob() string {
 // JSON properties blob (opaque to the store); scalar fields are additionally
 // registered in the secondary index via indexValues.
 func (e *Event) toNode() (*store.Node, error) {
+	if e.Redacted {
+		return nil, fmt.Errorf(consts.MsgRedactNoWriteBack, e.ID)
+	}
 	blob, err := json.Marshal(e)
 	if err != nil {
 		return nil, err
@@ -347,6 +365,7 @@ func eventFromNode(n *store.Node) (*Event, error) {
 		}
 	}
 	e.ID = uint64(n.ID)
+	e.Redacted = isStrippedEvent(n)
 	// Legacy nodes persisted before the dedup field existed decode to 0; treat every
 	// event as at least one occurrence so counts stay meaningful across the upgrade.
 	if e.DeduplicationCount < consts.DefaultDeduplicationCount {

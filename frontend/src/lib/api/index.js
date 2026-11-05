@@ -591,6 +591,28 @@ export function eventCustody(id, kept) {
   return call(MAINTENANCE, 'EventCustody', id, kept);
 }
 
+// --- Redaction (plan §14.5) ---
+
+/** What redacting an event would remove and keep. Writes nothing. @param {number} id */
+export function previewRedaction(id) {
+  return call(MAINTENANCE, 'PreviewRedaction', id);
+}
+
+/** Removes an event's content. @param {{event:number, reason:string}} req */
+export function redactEvent(req) {
+  return call(MAINTENANCE, 'RedactEvent', req);
+}
+
+/** Redactions that did not finish. */
+export function pendingRedactions() {
+  return call(MAINTENANCE, 'PendingRedactions');
+}
+
+/** Runs a pending redaction's steps again. @param {number} entry */
+export function finishRedaction(entry) {
+  return call(MAINTENANCE, 'FinishRedaction', entry);
+}
+
 /** Stops an in-flight rule run; graphs already rebuilt are kept. */
 export function cancelRuleRun() {
   return call(BUILD, 'CancelRuleRun');

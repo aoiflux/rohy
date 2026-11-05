@@ -15,7 +15,7 @@ export function CountEvents(arg1:api.EventQuery):Promise<number>;
 
 export function EvaluateAccess(arg1:Array<string>):Promise<evtx.AccessDecision>;
 
-export function GetEvent(arg1:number):Promise<graphene.Event>;
+export function GetEvent(arg1:number):Promise<api.EventDetail>;
 
 export function IngestState():Promise<string>;
 

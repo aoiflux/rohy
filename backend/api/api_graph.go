@@ -194,6 +194,11 @@ func (a *GraphAPI) RenameGraph(req GraphRequest) (*graphreg.Graph, error) {
 // DeleteGraph removes a graph and cascades to its relations and layout — but never to
 // the underlying shared event nodes. Refuses to delete the last remaining graph.
 func (a *GraphAPI) DeleteGraph(id uint64) error {
+	release, busy := theCase.share(consts.CaseActivityGraphEdit)
+	if busy != nil {
+		return busy
+	}
+	defer release()
 	if a.registry == nil {
 		return nil
 	}
@@ -277,6 +282,11 @@ func (a *GraphAPI) GetGraphRelations(graphID uint64) ([]*graphene.Relation, erro
 // active graph when 0). The backend fills the relation type and provenance defaults and
 // stamps CreatedAt, so the frontend cannot forge provenance timestamps.
 func (a *GraphAPI) CreateRelation(req RelationRequest) (*graphene.Relation, error) {
+	release, busy := theCase.share(consts.CaseActivityGraphEdit)
+	if busy != nil {
+		return nil, busy
+	}
+	defer release()
 	rel := &graphene.Relation{
 		From:            req.From,
 		To:              req.To,
@@ -298,6 +308,11 @@ func (a *GraphAPI) CreateRelation(req RelationRequest) (*graphene.Relation, erro
 // UpdateRelation edits an existing relation's type and label (read-modify-write so
 // endpoints and provenance are preserved). Returns the updated relation.
 func (a *GraphAPI) UpdateRelation(req RelationUpdate) (*graphene.Relation, error) {
+	release, busy := theCase.share(consts.CaseActivityGraphEdit)
+	if busy != nil {
+		return nil, busy
+	}
+	defer release()
 	rel, err := a.store.GetRelation(req.ID)
 	if err != nil {
 		return nil, AsError(consts.ErrCodePersistence, err)
@@ -316,6 +331,11 @@ func (a *GraphAPI) UpdateRelation(req RelationUpdate) (*graphene.Relation, error
 // DeleteRelation removes a mapped relation from the graph DB. Deleting an already-gone
 // relation is treated as success (idempotent).
 func (a *GraphAPI) DeleteRelation(id uint64) error {
+	release, busy := theCase.share(consts.CaseActivityGraphEdit)
+	if busy != nil {
+		return busy
+	}
+	defer release()
 	if err := a.store.DeleteRelation(id); err != nil {
 		var nf *store.ErrNotFound
 		if errors.As(err, &nf) {
@@ -330,6 +350,11 @@ func (a *GraphAPI) DeleteRelation(id uint64) error {
 // destructive (forensic evidence is removed from the case DB); callers must confirm
 // intent in the UI. Idempotent on a missing id.
 func (a *GraphAPI) DeleteEvent(id uint64) error {
+	release, busy := theCase.share(consts.CaseActivityGraphEdit)
+	if busy != nil {
+		return busy
+	}
+	defer release()
 	if err := a.store.DeleteEvent(id); err != nil {
 		var nf *store.ErrNotFound
 		if errors.As(err, &nf) {

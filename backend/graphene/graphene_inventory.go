@@ -38,6 +38,10 @@ type Inventory struct {
 	// is written BEFORE the record that references it, so a crash between the two leaves bytes
 	// nothing points at (PERFORMANCE.md §14).
 	PayloadUsed uint64 `json:"payload_used"`
+	// Redacted is how many events had their content removed by a redaction (plan §14.5). They
+	// are counted in Events and in nothing else: an empty record is not undated, unprojected, or
+	// on any channel, and counting it as any of those would report work that can never be done.
+	Redacted int `json:"redacted"`
 }
 
 // inventoryView is the slice of a stored event this pass needs. Decoding into it rather than into
@@ -84,6 +88,10 @@ func (s *Store) Inventory() (Inventory, error) {
 			return out, err
 		}
 		for _, n := range nodes {
+			if isStrippedEvent(n) {
+				out.Redacted++
+				continue
+			}
 			var v inventoryView
 			if len(n.Properties) > 0 {
 				if err := json.Unmarshal(n.Properties, &v); err != nil {

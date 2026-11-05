@@ -28,6 +28,8 @@ export const ACTION = Object.freeze({
   COMPACT: 'compact',
   VERIFY_IMAGE: 'verify_image',
   RETAIN_ROOT: 'retain_root',
+  // Runs the steps an unfinished redaction did not complete (plan §14.5).
+  FINISH_REDACTION: 'finish_redaction',
 });
 
 /** Actions the app can actually perform. Everything else is advice, and is shown as advice. */
@@ -37,6 +39,7 @@ const RUNNABLE = new Set([
   ACTION.REBUILD,
   ACTION.COMPACT,
   ACTION.VERIFY_IMAGE,
+  ACTION.FINISH_REDACTION,
 ]);
 
 /**

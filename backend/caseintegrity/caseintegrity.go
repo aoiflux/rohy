@@ -177,6 +177,16 @@ type Deps struct {
 	// far the furthest referenced record extends. The difference is orphaned tail.
 	PayloadSize uint64
 	PayloadUsed uint64
+
+	// Redaction (plan §14.5). Redacted reports whether a finding's key names a redacted event; nil
+	// means none is. RedactedPayloadEnd is how far the furthest tombstoned payload record extends:
+	// a redacted event no longer references its record, so without it a tombstone at the end of
+	// the log reads as an interrupted ingest's tail. RedactionsPending counts redactions that did
+	// not finish; RedactionJournalErr is why the journal cannot be read, if it cannot.
+	Redacted            func(hashNormalized string) bool
+	RedactedPayloadEnd  uint64
+	RedactionsPending   int
+	RedactionJournalErr error
 }
 
 // Run performs the checks and returns the report.
@@ -197,6 +207,7 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 		func() { checkGraphs(&rep, deps) },
 		func() { checkLayouts(&rep, deps) },
 		func() { checkPayloadTail(&rep, deps) },
+		func() { checkRedactions(&rep, deps) },
 		func() { checkProjection(&rep, inv, ok) },
 		func() { checkRules(&rep, deps, inv, ok) },
 		func() { checkForensicPosture(&rep, deps, opts) },
@@ -307,9 +318,14 @@ func checkFindings(rep *Report, deps Deps) {
 	for _, h := range hashes {
 		live[h] = true
 	}
-	orphans := 0
+	orphans, redacted := 0, 0
 	for _, k := range keys {
-		if !live[k] {
+		switch {
+		case live[k]:
+		case deps.Redacted != nil && deps.Redacted(k):
+			// Not an orphan: an ingest would refuse the event, so "re-ingest" is the wrong advice.
+			redacted++
+		default:
 			orphans++
 		}
 	}
@@ -318,6 +334,32 @@ func checkFindings(rep *Report, deps Deps) {
 			Code: consts.IntegrityOrphanFindings, Severity: consts.IntegritySevWarn,
 			Message: fmt.Sprintf(consts.MsgIntegrityOrphanFinds, orphans),
 			Action:  consts.IntegrityActionIngest, Count: orphans,
+		})
+	}
+	if redacted > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityRedactedFindings, Severity: consts.IntegritySevInfo,
+			Message: fmt.Sprintf(consts.MsgIntegrityRedactedFinds, redacted),
+			Action:  consts.IntegrityActionReview, Count: redacted,
+		})
+	}
+}
+
+// checkRedactions reports a journal that cannot be read, and redactions that did not finish.
+func checkRedactions(rep *Report, deps Deps) {
+	if deps.RedactionJournalErr != nil {
+		// 🔒 An error, not a warning: until it is restored nothing can be ingested, and nothing it
+		// listed is being kept out.
+		rep.add(Finding{
+			Code: consts.IntegrityRedactionJournal, Severity: consts.IntegritySevError,
+			Message: deps.RedactionJournalErr.Error(), Action: consts.IntegrityActionReview,
+		})
+	}
+	if deps.RedactionsPending > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityRedactionPending, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityRedactPending, deps.RedactionsPending),
+			Action:  consts.IntegrityActionFinishRedaction, Count: deps.RedactionsPending,
 		})
 	}
 }
@@ -421,10 +463,11 @@ func checkLayouts(rep *Report, deps Deps) {
 }
 
 func checkPayloadTail(rep *Report, deps Deps) {
-	if deps.PayloadSize == 0 || deps.PayloadSize <= deps.PayloadUsed {
+	used := max(deps.PayloadUsed, deps.RedactedPayloadEnd)
+	if deps.PayloadSize == 0 || deps.PayloadSize <= used {
 		return
 	}
-	tail := deps.PayloadSize - deps.PayloadUsed
+	tail := deps.PayloadSize - used
 	// Waste, not damage: the payload log is written BEFORE the record that references it, so an
 	// interrupted ingest leaves bytes nothing points at. That ordering is deliberate — the
 	// reverse leaves a record pointing at a payload that was never written, which cannot be

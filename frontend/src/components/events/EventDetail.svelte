@@ -13,6 +13,7 @@
   import Skeleton from '../material/Skeleton.svelte';
   import TextField from '../material/TextField.svelte';
   import FindingEditor from './FindingEditor.svelte';
+  import RedactPanel from './RedactPanel.svelte';
 
   let {
     event = null,
@@ -54,18 +55,33 @@
       });
   });
 
+  // A redaction elsewhere, or from this drawer, changes what the event is: fetch it again.
+  let redactionsSeen = $maintenance.redactions;
+  $effect(() => {
+    const n = $maintenance.redactions;
+    if (n === redactionsSeen) return;
+    redactionsSeen = n;
+    payloadFor = null;
+  });
+
+  // 🔒 Once the case says the event was redacted, what is shown is what the case holds — not the
+  // list row the drawer was opened from, which still carries the content in memory.
+  const shown = $derived(payload && payload.redacted ? payload : event);
+
   const rawXml = $derived(payload ? payload.raw_xml : '');
+  // A redaction removed the cold fields: their absence says so rather than reading as "none".
+  const payloadRedacted = $derived(!!(payload && payload.payload_redacted));
   const parsedEntries = $derived(payload && payload.parsed_fields ? Object.entries(payload.parsed_fields) : []);
   const payloadLoading = $derived(event != null && payload == null);
 
   // Human-readable origin; legacy events (pre source-tracking) have no source_type.
   const sourceTypeLabel = $derived(
-    event && event.source_type ? SOURCE_TYPE_LABEL[event.source_type] || event.source_type : UI.DETAIL_SOURCE_UNKNOWN,
+    shown && shown.source_type ? SOURCE_TYPE_LABEL[shown.source_type] || shown.source_type : UI.DETAIL_SOURCE_UNKNOWN,
   );
 
   // Timeline / correlation participation (P23), stated explicitly rather than left to be
   // inferred from an empty timestamp field.
-  const onTimeline = $derived(!!(event && event.timestamp && new Date(event.timestamp).getTime() > 0));
+  const onTimeline = $derived(!!(shown && shown.timestamp && new Date(shown.timestamp).getTime() > 0));
   const correlated = $derived(!!(relation && relation.count));
   const participation = $derived(
     `${onTimeline ? UI.DETAIL_TIMELINE_YES : UI.DETAIL_TIMELINE_NO} · ` +
@@ -73,17 +89,17 @@
   );
 
   const meta = $derived(
-    event
+    shown
       ? [
-          ['id', event.id],
-          [UI.LABEL_EVENT_ID, event.event_id],
-          [UI.LABEL_TIMESTAMP, onTimeline ? event.timestamp : UI.UNDATED_TIMESTAMP],
+          ['id', shown.id],
+          [UI.LABEL_EVENT_ID, shown.event_id],
+          [UI.LABEL_TIMESTAMP, onTimeline ? shown.timestamp : UI.UNDATED_TIMESTAMP],
           [UI.LABEL_PARTICIPATION, participation],
-          [UI.LABEL_PROVIDER, event.provider],
-          [UI.LABEL_CHANNEL, event.channel],
-          [UI.LABEL_COMPUTER, event.computer],
-          [UI.LABEL_USER, event.user || '—'],
-          [UI.DETAIL_OCCURRENCES, event.deduplication_count || 1],
+          [UI.LABEL_PROVIDER, shown.provider],
+          [UI.LABEL_CHANNEL, shown.channel],
+          [UI.LABEL_COMPUTER, shown.computer],
+          [UI.LABEL_USER, shown.user || '—'],
+          [UI.DETAIL_OCCURRENCES, shown.deduplication_count || 1],
         ]
       : [],
   );
@@ -225,9 +241,9 @@
         <dl>
           <dt>{UI.DETAIL_SOURCE_TYPE}</dt>
           <dd>{sourceTypeLabel}</dd>
-          {#if event.source_identifier}
+          {#if shown.source_identifier}
             <dt>{UI.DETAIL_SOURCE_IDENTIFIER}</dt>
-            <dd class="mono">{event.source_identifier}</dd>
+            <dd class="mono">{shown.source_identifier}</dd>
           {/if}
         </dl>
       </section>
@@ -236,9 +252,9 @@
         <h3>{UI.DETAIL_HASHES}</h3>
         <dl>
           <dt>{UI.DETAIL_HASH_RAW}</dt>
-          <dd class="mono">{event.hash_raw}</dd>
+          <dd class="mono">{shown.hash_raw}</dd>
           <dt>{UI.DETAIL_HASH_NORM}</dt>
-          <dd class="mono">{event.hash_normalized}</dd>
+          <dd class="mono">{shown.hash_normalized}</dd>
         </dl>
       </section>
 
@@ -348,7 +364,9 @@
 
       <section>
         <h3>{UI.DETAIL_PARSED}</h3>
-        {#if parsedEntries.length === 0}
+        {#if payloadRedacted}
+          <p class="muted">{UI.DETAIL_RAW_REDACTED}</p>
+        {:else if parsedEntries.length === 0}
           <p class="muted">{UI.DETAIL_NONE}</p>
         {:else}
           <dl>
@@ -372,10 +390,14 @@
             <Skeleton width="95%" />
             <Skeleton width="60%" />
           </div>
+        {:else if payloadRedacted}
+          <p class="muted">{UI.DETAIL_RAW_REDACTED}</p>
         {:else}
           <pre class="raw">{prettyRaw(rawXml)}</pre>
         {/if}
       </section>
+
+      <RedactPanel {event} detail={payload} />
     </div>
 
     <footer>

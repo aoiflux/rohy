@@ -79,6 +79,11 @@ func (a *BuildAPI) RunRules(req BuildRequest) (graphbuild.Result, error) {
 		a.mu.Unlock()
 		return graphbuild.Result{}, AsError(consts.ErrCodeInternal, errRunInProgress)
 	}
+	release, err := theCase.share(consts.CaseActivityRuleRun)
+	if err != nil {
+		a.mu.Unlock()
+		return graphbuild.Result{}, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel
 	a.running = true
@@ -91,6 +96,7 @@ func (a *BuildAPI) RunRules(req BuildRequest) (graphbuild.Result, error) {
 		a.cancel = nil
 		a.mu.Unlock()
 		cancel()
+		release()
 	}()
 
 	emitter.Emit(consts.EventRulesStarted, len(req.RuleIDs))
@@ -133,6 +139,13 @@ func (a *BuildAPI) DryRunRule(source string, query EventQuery, samples int) (gra
 	if samples <= 0 || samples > consts.DryRunMaxSamples {
 		samples = consts.DryRunDefaultSamples
 	}
+	// It writes nothing, but its samples carry event content back to the editor, and a redaction
+	// is meant to leave no copy of it in rohy's hands.
+	release, err := theCase.share(consts.CaseActivityRuleTest)
+	if err != nil {
+		return graphbuild.DryRunResult{}, err
+	}
+	defer release()
 	res, err := a.builder.DryRun(graphbuild.DryRunRequest{
 		Source:  source,
 		Filter:  filter,

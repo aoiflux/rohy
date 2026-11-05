@@ -27,7 +27,25 @@ export const CHANNELS = Object.freeze({
   // fingerprint. Its own channel because it is a distinct step that can take seconds.
   CASE_SEALING: 'case:sealing',
   CASE_SEALED: 'case:sealed',
+  // A redaction ran (plan §14.5). Carries its outcome; every view holding the event drops it.
+  CASE_REDACTED: 'case:redacted',
 });
+
+// Redaction steps and their states (mirror backend consts.RedactStep*), in the order they run.
+export const REDACT_STEP = Object.freeze({
+  RELATIONS: 'relations',
+  RECORDS: 'records',
+  PAYLOADS: 'payloads',
+  SIDECARS: 'sidecars',
+  SEAL: 'seal',
+});
+export const REDACT_STEP_STATE = Object.freeze({
+  DONE: 'done',
+  FAILED: 'failed',
+  NOT_REACHED: 'not_reached',
+});
+// The longest reason kept, in UTF-8 bytes (mirror backend consts.MaxRedactionReasonLen).
+export const MAX_REDACTION_REASON_BYTES = 2048;
 
 // What a seal did, carried on case:sealed (mirror backend consts.SealState*). UNCHANGED means
 // nothing was written since the last seal, so nothing was compacted and the fingerprint did not
@@ -110,6 +128,8 @@ export const ERROR_CODES = Object.freeze({
   PERSISTENCE: 'persistence_error',
   CANCELLED: 'cancelled',
   INTERNAL: 'internal_error',
+  // Refused because the case lock is held (plan §14.5); the message names what is running.
+  BUSY: 'case_busy',
 });
 
 // --- Protected Windows channels (mirror backend consts.Channel*) ---
@@ -903,6 +923,7 @@ export const UI = Object.freeze({
     rebuild_indexes: 'Rebuild the indexes',
     compact: 'Seal the case',
     verify_image: 'Check the case has not changed',
+    finish_redaction: 'Finish the redactions',
   }),
   MAINT_ADVICE: Object.freeze({
     ingest: 'Ingest the missing logs to resolve this.',
@@ -919,12 +940,14 @@ export const UI = Object.freeze({
     rebuild: 'Rebuilding the indexes…',
     verify: 'Re-reading the whole case…',
     compact: 'Sealing the case…',
+    finish_redaction: 'Finishing the redactions…',
   }),
   MAINT_DONE: Object.freeze({
     backfill: 'Correlation fields filled in.',
     repair: 'Relation index repaired.',
     rebuild: 'Indexes rebuilt.',
     compact: 'Case sealed. It now has a fingerprint that covers everything in it.',
+    finish_redaction: 'Redactions finished.',
   }),
 
   // --- Forensic posture (Phase 8, plan §14) ---
@@ -1339,7 +1362,75 @@ export const UI = Object.freeze({
     image_damaged:
       'The sealed case does not check out: a proof built from it does not resolve to its own fingerprint. ' +
       'This is damage to the case. Run Verify image on the Maintenance page. No proof was saved.',
+    // 🔒 No seal button: a seal does not finish a redaction. Not damage either.
+    raw_redacted:
+      'A redaction removed this event’s raw record but did not finish: its stored record is still here. ' +
+      'Finish the redaction on the Maintenance page. No proof was saved.',
+    redacted:
+      'This event’s content was removed by a recorded redaction. Nothing of it is left to prove; the ' +
+      'redaction record is what the case holds.',
+    record_empty:
+      'This event holds no record, and the case records no redaction of it: damage. Run the integrity ' +
+      'check on the Maintenance page. No proof was saved.',
   }),
+  DETAIL_RAW_REDACTED: 'Removed by a redaction. The raw record and parsed fields are no longer in the case.',
+
+  // Redaction (plan §14.5, item 40).
+  // 🔒 The copy never says the content is gone from everywhere: it says where rohy removed it from,
+  // and names what it cannot reach. And the reason is never prefilled.
+  REDACT_TITLE: 'Redact',
+  REDACT_OPEN: 'Redact this event…',
+  REDACT_HINT:
+    'Removes this event’s content from the case for good, records that it was removed, when and why, ' +
+    'and keeps it from being ingested again. The event itself stays, marked as redacted.',
+  REDACT_LOADING: 'Working out what a redaction would remove…',
+  REDACT_GOES: 'Removed',
+  REDACT_STAYS: 'Kept',
+  REDACT_UNREACHED: 'Not reached by rohy',
+  REDACT_GOES_RECORD: 'The stored record: time, computer, user, IDs, hashes and correlation fields.',
+  REDACT_GOES_RAW: 'The raw record and parsed fields (%n payload record(s), copies included).',
+  REDACT_GOES_SIBLINGS: '%n other event(s) holding the same record, ingested from another path or twice.',
+  REDACT_GOES_RELATIONS: '%n relation(s) a rule made: their basis quotes this event’s values.',
+  REDACT_GOES_COPIES: 'The descriptions rohy copied into findings and snapshots.',
+  REDACT_STAYS_NODE: 'The event itself, marked as redacted, with the ledger’s record of when and why.',
+  REDACT_STAYS_RELATIONS: '%n relation(s) drawn by an analyst. Remove them yourself if they should go.',
+  REDACT_STAYS_FINDINGS: 'Your own flags, tags and notes on it. Edit them if a note repeats what is being removed:',
+  REDACT_STAYS_HASHES: 'Two hashes of the record, so it is not ingested again. They are not reversible, but they are not secret either.',
+  REDACT_UNREACHED_LIST: Object.freeze([
+    'Event proofs and exports already saved outside the case.',
+    'Copies the operating system kept: backups, shadow copies, freed disk blocks, the page file.',
+  ]),
+  REDACT_REASON_LABEL: 'Reason',
+  REDACT_REASON_HINT: 'Kept in plain text, permanently, with the redaction. Required.',
+  REDACT_REASON_EMPTY: 'A reason is required.',
+  REDACT_REASON_LONG: 'The reason is %n bytes; at most %m are kept.',
+  REDACT_CONFIRM: 'Redact permanently',
+  REDACT_CANCEL: 'Cancel',
+  REDACT_WORKING: 'Redacting…',
+  REDACT_DONE: 'Redacted. The content was removed from the case and the case was sealed.',
+  REDACT_UNFINISHED:
+    'The redaction stopped part way. What it did is listed below; finish it on the Maintenance page.',
+  REDACT_FAILED: 'The redaction did not start:',
+  REDACT_STEP_LABEL: Object.freeze({
+    relations: 'Rule-made relations',
+    records: 'Stored records',
+    payloads: 'Raw records',
+    sidecars: 'Findings and snapshots',
+    seal: 'Seal',
+  }),
+  REDACT_STEP_STATE_LABEL: Object.freeze({
+    done: 'done',
+    failed: 'failed',
+    not_reached: 'not reached',
+  }),
+  REDACT_STEP_UNKNOWN: 'unknown state “%s”',
+  REDACTED_BADGE: 'Redacted',
+  REDACTED_ON: 'Redacted %d: %r',
+  REDACTED_NO_LEDGER: 'Redacted. This case keeps no ledger, so when and why are not recorded.',
+  REDACT_PENDING_TITLE: 'Unfinished redactions',
+  REDACT_PENDING_NONE: 'None.',
+  REDACT_PENDING_ROW: 'Event %e, started %d: %r',
+  REDACT_FINISH: 'Finish',
 
   // Custody report (plan §14.4, item 39). The layer messages come from Go; these are the frame.
   // 🔒 Nothing here says custody is accounted for. The report is a list of gaps, and the counts

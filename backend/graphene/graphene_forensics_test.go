@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"rohy/backend/consts"
+
+	gr "github.com/aoiflux/graphene"
 )
 
 // Forensic integrity tests (§14.2).
@@ -303,8 +307,60 @@ func TestDefaultPostureClaimsNothingItHasNotGot(t *testing.T) {
 	if st.VerifyOnOpen {
 		t.Error("VerifyOnOpen is on by default — it is 🟡 gated on a measurement")
 	}
-	if st.Audit || st.Retention || st.Redaction {
-		t.Error("audit/retention/redaction reported on with nothing configured")
+	if st.Audit || st.Retention {
+		t.Error("audit/retention reported on with nothing configured")
+	}
+	// The redaction ledger is the one posture always on (item 40): without it the only removal left
+	// is the unattributed one.
+	if !st.Redaction {
+		t.Error("the redaction ledger is reported off")
+	}
+}
+
+// A case written before the ledger existed — opened by the engine's plain Open, as every case was
+// until item 40 — loads to the same image under the ledger, and gains only an empty ledger file.
+func TestAnExistingCaseOpensUnchangedWithTheLedger(t *testing.T) {
+	dir := t.TempDir()
+	g, err := gr.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := mkEvent("4624", "P", "Security", "alice", time.Now(), "pre40").toNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.AddNode(node); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	fs, _ := g.Forensics()
+	before, err := fs.SnapshotRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, consts.RedactionLedgerFile)); !os.IsNotExist(err) {
+		t.Fatalf("the plain open wrote a ledger: %v", err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	after, err := s.SnapshotRoots()
+	if err != nil || after == nil || after.Snapshot != hashHex(before.Snapshot) {
+		t.Fatalf("roots changed: %+v → %+v (%v)", before, after, err)
+	}
+	if check, err := s.VerifyImage(); err != nil || check.Digest != DigestMatch {
+		t.Fatalf("image check %+v, %v", check, err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, consts.RedactionLedgerFile)); err != nil || info.Size() != 0 {
+		t.Fatalf("ledger: %v, %v", info, err)
 	}
 }
 

@@ -115,6 +115,7 @@ describe('runnable', () => {
     expect(runnable(ACTION.BACKFILL)).toBe(true);
     expect(runnable(ACTION.REPAIR)).toBe(true);
     expect(runnable(ACTION.REBUILD)).toBe(true);
+    expect(runnable(ACTION.FINISH_REDACTION)).toBe(true);
     expect(runnable(ACTION.INGEST)).toBe(false);
     expect(runnable(ACTION.REVIEW)).toBe(false);
     expect(runnable(ACTION.NONE)).toBe(false);

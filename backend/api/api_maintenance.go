@@ -29,6 +29,8 @@ type MaintenanceAPI struct {
 	emitter Emitter
 	cancel  context.CancelFunc
 	running bool
+	// releaseCase gives back the case lock the running pass shares (begin, finish).
+	releaseCase func()
 	// integrity holds the sidecars the case checks read. Attached after construction (see
 	// WithIntegrity) so this binding keeps its narrow constructor.
 	integrity IntegrityDeps
@@ -83,21 +85,21 @@ func (a *MaintenanceAPI) CorrelationKeyStatus() (graphene.CorrelationKeyStatus, 
 // carries the recipe version it was projected under — so a cancelled run is continued simply by
 // running it again.
 func (a *MaintenanceAPI) BackfillCorrelationKeys() (graphene.BackfillResult, error) {
-	a.mu.Lock()
-	if a.running {
-		a.mu.Unlock()
-		return graphene.BackfillResult{}, AsError(consts.ErrCodeInternal, errMaintenanceRunning)
+	if err := a.begin(); err != nil {
+		return graphene.BackfillResult{}, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	a.cancel, a.running = cancel, true
+	a.mu.Lock()
+	a.cancel = cancel
 	emitter := a.emitter
 	a.mu.Unlock()
 
 	defer func() {
 		a.mu.Lock()
-		a.running, a.cancel = false, nil
+		a.cancel = nil
 		a.mu.Unlock()
 		cancel()
+		a.finish()
 	}()
 
 	res, err := a.store.BackfillCorrelationKeys(ctx, func(done, total int) {
@@ -117,22 +119,30 @@ func (a *MaintenanceAPI) BackfillCorrelationKeys() (graphene.BackfillResult, err
 }
 
 // begin claims the maintenance lock for a write-side pass. Two passes over one store at once is
-// the thing it exists to prevent.
+// the thing it exists to prevent. It also shares the case lock, so no pass runs beside a
+// redaction (plan §14.5). The error it returns is already coded for the binding.
 func (a *MaintenanceAPI) begin() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.running {
-		return errMaintenanceRunning
+		return AsError(consts.ErrCodeInternal, errMaintenanceRunning)
 	}
-	a.running = true
+	release, err := theCase.share(consts.CaseActivityMaintain)
+	if err != nil {
+		return err
+	}
+	a.running, a.releaseCase = true, release
 	return nil
 }
 
-// finish releases it.
+// finish releases both.
 func (a *MaintenanceAPI) finish() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.running = false
+	if a.releaseCase != nil {
+		a.releaseCase()
+	}
+	a.running, a.releaseCase = false, nil
 }
 
 // CancelMaintenance stops an in-flight pass. A no-op when nothing is running.

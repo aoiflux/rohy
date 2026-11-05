@@ -70,8 +70,31 @@ whole answer.
     a check: keep the current one. The field is never filled in from the case.
   - It does not establish who did anything, that the event is true, the parsed fields, or that the
     record is what the source file held: rohy records no hash of the source file at ingest.
+- **Redaction.** *Redact this event…* in the drawer removes an event's content from the case for
+  good, records that it was removed, when and why, and keeps it from being ingested again. Use it
+  for a lawful erasure request: the case can then tell it apart from evidence that was destroyed.
+  - **What goes:** the stored record, the raw record and parsed fields, every other event holding
+    the same record (ingested twice, or from another path), every unreferenced copy in the payload
+    log, the relations a rule made to it, and the descriptions rohy copied into findings and
+    snapshots. The case is then sealed, so its image no longer holds the content either.
+  - **What stays:** the event itself, marked *Redacted* with the date and reason; relations an
+    analyst drew; your own flags, tags and notes, which the dialog lists so you can edit a note that
+    repeats what is being removed; and two hashes of the record, which are how a re-ingest is
+    refused. They are not reversible, but they are not secret either.
+  - **What rohy cannot reach:** event proofs and exports already saved outside the case, and copies
+    the operating system kept (backups, shadow copies, freed disk blocks, the page file).
+  - **The reason is required** and is kept in plain text, permanently. Who redacted is not recorded
+    yet: this build keeps no analyst identity.
+  - A redaction that stops part way says which step failed. It is listed on the Maintenance page,
+    with **Finish the redactions**, and the integrity check reports it until it is finished.
+  - Refused on a case with no ledger (in memory), while anything else is writing the case (an
+    ingest, live capture, a rule run, a maintenance pass), and if its journal cannot be read.
 
 ### Fixed
+
+- **The event drawer showed no raw record and no parsed fields** (since v0.1.0). The binding
+  returned the stored record, which deliberately leaves both out, so the drawer never received
+  them. It now carries them beside it.
 
 - **Temporal chains with a repeated event ID were assembled wrongly.** When one event could
   satisfy several steps (`4625, 4625, 4625, 4624`), the chain was rebuilt from overwritten
@@ -91,6 +114,16 @@ whole answer.
   not prepared.
 
 ### Changed
+
+- **Every disk case now keeps a redaction ledger** (`graphene.redactions` in the case folder). A
+  case written by an earlier build opens unchanged, with the same fingerprint; the ledger is empty
+  until something is redacted.
+- **Writes to a case refuse while a redaction runs**, and a redaction refuses while anything else
+  writes: an ingest or live capture, a rule run or rule test, a maintenance pass, a snapshot, a
+  finding, annotation or graph edit. The refusal names what is running. A redaction takes a few
+  seconds; nothing ever waits behind one.
+- **An ingest refuses** if the redaction journal (`rohy-data/redactions/journal.json`) cannot be
+  read, and names the file. It lists what must not be ingested again, so it is never replaced.
 
 - **A raw record that cannot be read, or a damaged sealed image, is reported as damage.** *Save
   proof…* used to fail with a generic error in both cases. It now says which, the same way as a

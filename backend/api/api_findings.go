@@ -6,6 +6,7 @@ import (
 	"rohy/backend/consts"
 	"rohy/backend/findings"
 	"rohy/backend/graphene"
+	"rohy/backend/redaction"
 )
 
 // FindingsAPI is the Wails binding over the analyst findings sidecar (P25). It carries no
@@ -20,6 +21,21 @@ type FindingsAPI struct {
 	// events is needed only to reconcile findings against the events actually in the case
 	// (see AuditFindings). The findings package itself never learns what an event is.
 	events *graphene.Store
+	// redacted names the events a redaction removed (AttachFindingsRedactions). Nil: none.
+	redacted interface {
+		Suppressed(hashNormalized, hashRaw string) bool
+	}
+}
+
+// AttachFindingsRedactions gives the findings binding the redaction journal, so a finding written
+// on a redacted event keeps no descriptor (plan §14.5). A package function for the reason
+// AttachSealHistory is one.
+func AttachFindingsRedactions(f *FindingsAPI, j *redaction.Journal) *FindingsAPI {
+	// 🔒 Never a nil *Journal inside the interface.
+	if j != nil {
+		f.redacted = j
+	}
+	return f
 }
 
 // NewFindingsAPI constructs the binding over an open findings store and the event store it
@@ -52,7 +68,18 @@ func (a *FindingsAPI) GetFindings(keys []string) map[string]*findings.Finding {
 // SetFinding writes an annotation and returns the stored result — or null when the request
 // cleared the last of its content, in which case the finding is removed rather than kept as
 // an empty shell that would still count as annotated.
+//
+// A descriptor sent for a redacted event is replaced: whatever sent it was holding the event as it
+// was before the redaction, and storing it would put the content back.
 func (a *FindingsAPI) SetFinding(req FindingRequest) (*findings.Finding, error) {
+	release, busy := theCase.share(consts.CaseActivityFinding)
+	if busy != nil {
+		return nil, busy
+	}
+	defer release()
+	if a.redacted != nil && a.redacted.Suppressed(req.Key, "") {
+		req.Descriptor = consts.RedactedDescriptor
+	}
 	f, err := a.store.Set(findings.Finding{
 		Key:        req.Key,
 		Flagged:    req.Flagged,
@@ -68,6 +95,11 @@ func (a *FindingsAPI) SetFinding(req FindingRequest) (*findings.Finding, error) 
 
 // RemoveFinding deletes an event's annotation.
 func (a *FindingsAPI) RemoveFinding(key string) error {
+	release, busy := theCase.share(consts.CaseActivityFinding)
+	if busy != nil {
+		return busy
+	}
+	defer release()
 	if err := a.store.Remove(key); err != nil {
 		return AsError(consts.ErrCodePersistence, err)
 	}

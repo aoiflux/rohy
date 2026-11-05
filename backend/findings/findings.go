@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 const findingsFile = "findings.json"
@@ -139,6 +140,52 @@ func (s *Store) persist() error {
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(s.dir, findingsFile))
+}
+
+// ScrubDescriptors replaces the descriptor of each finding keyed by one of keys with replacement,
+// and returns the keys it changed (plan §14.5). A descriptor is a copy rohy made of an event's
+// content, so a redaction removes it; the flag, tags and note are the analyst's own words and are
+// left for the analyst.
+//
+// The write is durable: the redaction records this step as done, and a power cut must not bring
+// the descriptor back behind that record. A temporary copy left by an interrupted earlier write
+// holds the same text, and is removed.
+func (s *Store) ScrubDescriptors(keys []string, replacement string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var changed []string
+	next := make(map[string]*Finding, len(s.s.Findings))
+	for k, f := range s.s.Findings {
+		next[k] = f
+	}
+	for _, k := range keys {
+		f, ok := next[k]
+		if !ok || f.Descriptor == replacement {
+			continue
+		}
+		c := clone(f)
+		c.Descriptor = replacement
+		next[k] = c
+		changed = append(changed, k)
+	}
+	if len(changed) > 0 {
+		doc := s.s
+		doc.Findings = next
+		data, err := json.MarshalIndent(&doc, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		if err := durable.WriteFile(filepath.Join(s.dir, findingsFile), data); err != nil {
+			return nil, err
+		}
+		s.s = doc
+	}
+	stale := filepath.Join(s.dir, findingsFile+".tmp")
+	if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
+		return changed, err
+	}
+	sort.Strings(changed)
+	return changed, nil
 }
 
 // clone returns a defensive copy, including the tag slice, so callers cannot mutate stored
