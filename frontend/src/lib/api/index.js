@@ -8,6 +8,7 @@
 // no-op, so the UI degrades instead of throwing on load.
 
 import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
+import { decodeError } from './errors.js';
 
 const PKG = 'api';
 const EVENTS = 'EventsAPI';
@@ -19,6 +20,7 @@ const SYSTEM = 'SystemAPI';
 const MAINTENANCE = 'MaintenanceAPI';
 const SNAPSHOTS = 'SnapshotAPI';
 const ANNOTATE = 'AnnotateAPI';
+const QUERY = 'QueryAPI';
 
 function bound(struct, method) {
   const go = typeof window !== 'undefined' ? window.go : undefined;
@@ -26,12 +28,15 @@ function bound(struct, method) {
   return typeof fn === 'function' ? fn : null;
 }
 
+// call is the one door to the backend, so it is where a failure's code is decoded (errors.js).
 function call(struct, method, ...args) {
   const fn = bound(struct, method);
   if (!fn) {
     return Promise.reject(new Error(`backend unavailable: ${struct}.${method} (not running inside Wails)`));
   }
-  return fn(...args);
+  return Promise.resolve(fn(...args)).catch((e) => {
+    throw decodeError(e);
+  });
 }
 
 // isBackendAvailable lets the shell show a friendly notice in browser-only dev.
@@ -783,4 +788,16 @@ export function on(channel, handler) {
   if (typeof EventsOn !== 'function') return () => {};
   EventsOn(channel, handler);
   return () => EventsOff(channel);
+}
+
+// --- Query console (item 33): read-only, structured, no expression language ---
+
+/** describeQuery returns what a query may say: subjects, fields, operators, columns and caps. */
+export function describeQuery() {
+  return call(QUERY, 'Describe');
+}
+
+/** runQuery answers one spec ({subject, where, group_by, limit}). A refusal carries query_error. */
+export function runQuery(spec) {
+  return call(QUERY, 'Run', spec);
 }

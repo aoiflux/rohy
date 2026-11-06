@@ -40,6 +40,8 @@ func main() {
 		OnShutdown:       app.shutdown,
 		// Withholds a failed call from the log: a passphrase crosses a call as an argument (item 41).
 		Logger: api.NewSafeLogger(logger.NewDefaultLogger()),
+		// Sends a failed call's code with its message, as a string the frontend's call() decodes.
+		ErrorFormatter: api.FormatError,
 		Bind: []interface{}{
 			app.Events,
 			app.Graph,
@@ -50,6 +52,7 @@ func main() {
 			app.Maintenance,
 			app.Snapshots,
 			app.Annotate,
+			app.Query,
 		},
 	})
 

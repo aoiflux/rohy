@@ -16,6 +16,8 @@ import SnapshotPanel from './graph/SnapshotPanel.svelte';
 import GraphAnnotations from './graph/GraphAnnotations.svelte';
 import LayerPanel from './graph/LayerPanel.svelte';
 import MaintenanceView from '../routes/MaintenanceView.svelte';
+import QueryView from '../routes/QueryView.svelte';
+import QueryResult from './query/QueryResult.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 
@@ -524,5 +526,62 @@ describe('routes / MaintenanceView', () => {
     const out = render(MaintenanceView, {});
     expect(out.body).toContain('Check case');
     expect(out.body).toContain('Deep check');
+  });
+});
+
+// The query console (item 33). The view renders before its vocabulary has loaded (onMount does
+// not run here); the result table gets every shape a result can take.
+const QUERY_VOCAB = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../../backend/query/testdata/vocabulary-golden.json', import.meta.url)), 'utf8'),
+);
+const [EVENT_COLUMNS, RELATION_COLUMNS] = QUERY_VOCAB.subjects.map((s) => s.columns);
+
+describe('routes / QueryView', () => {
+  renders('renders before the vocabulary has loaded', QueryView, {});
+
+  it('says it is reading what the case can be asked', () => {
+    expect(render(QueryView, {}).body).toContain('Reading what the case can be asked');
+  });
+});
+
+describe('query / QueryResult', () => {
+  renders('renders nothing before a run', QueryResult, { result: null, columns: EVENT_COLUMNS });
+  renders('renders event rows, an undated one and a redacted one', QueryResult, {
+    columns: EVENT_COLUMNS,
+    result: {
+      subject: 'events', group_by: '', undated: 'include', total: 40, truncated: true, changed: true,
+      events: [
+        { id: 1, timestamp: '2026-01-01T00:00:00Z', event_id: '4624', user: 'alice', occurrences: 1 },
+        { id: 2, timestamp: '', event_id: '4625', user: 'bob', occurrences: 2 },
+        { id: 3, timestamp: '', event_id: '', user: '', occurrences: 1, redacted: true },
+      ],
+      relations: [], groups: [],
+    },
+  });
+  renders('renders relation rows with their provenance', QueryResult, {
+    columns: RELATION_COLUMNS,
+    result: {
+      subject: 'relations', group_by: '', total: 1, events: [], groups: [],
+      relations: [{ id: 9, from: 1, to: 2, rule_id: 'r', algorithm: 'sequence', confidence: 0.8, basis: ['Δt=4s'], match_id: 'm-1-2-0' }],
+    },
+  });
+  renders('renders an empty answer', QueryResult, {
+    columns: EVENT_COLUMNS,
+    result: { subject: 'events', group_by: '', total: 0, events: [], relations: [], groups: [] },
+  });
+
+  it('labels the blank and redacted groups rather than leaving them empty', () => {
+    const out = render(QueryResult, {
+      props: {
+        columns: EVENT_COLUMNS,
+        result: {
+          subject: 'events', group_by: 'user', undated: 'include', total: 6, distinct_groups: 3, events: [], relations: [],
+          groups: [{ value: 'alice', count: 4 }, { value: '', count: 1 }, { value: '', count: 1, redacted: true }],
+        },
+      },
+    });
+    expect(out.body).toContain('(blank)');
+    expect(out.body).toContain('(redacted: no value left)');
+    expect(out.body).toContain('Showing 3 of 3 values, counting 6.');
   });
 });

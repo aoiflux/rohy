@@ -1,0 +1,38 @@
+{
+  "_comment": "Shared by backend/query (Validate) and frontend/src/lib/query/spec.js (checkSpec): both must accept exactly the specs marked ok. A case added here is a rule both sides must keep.",
+  "cases": [
+    { "name": "every event", "ok": true, "spec": { "subject": "events", "where": [], "group_by": "", "limit": 0 } },
+    { "name": "every relation, the most rows", "ok": true, "spec": { "subject": "relations", "where": [], "group_by": "", "limit": 1000 } },
+    { "name": "one user", "ok": true, "spec": { "subject": "events", "where": [{ "field": "user", "op": "eq", "value": "alice" }], "group_by": "", "limit": 50 } },
+    { "name": "a time range", "ok": true, "spec": { "subject": "events", "where": [{ "field": "time", "op": "gte", "value": "2026-01-01T00:00:00Z" }, { "field": "time", "op": "lte", "value": "2026-01-02T00:00:00+01:00" }], "group_by": "", "limit": 0 } },
+    { "name": "a fractional second", "ok": true, "spec": { "subject": "events", "where": [{ "field": "time", "op": "gte", "value": "2026-01-01T00:00:00.123456Z" }], "group_by": "", "limit": 0 } },
+    { "name": "text search", "ok": true, "spec": { "subject": "events", "where": [{ "field": "text", "op": "contains", "value": "mimikatz" }], "group_by": "", "limit": 0 } },
+    { "name": "occurrences", "ok": true, "spec": { "subject": "events", "where": [{ "field": "occurrences", "op": "gte", "value": "2" }], "group_by": "", "limit": 0 } },
+    { "name": "undated only", "ok": true, "spec": { "subject": "events", "where": [{ "field": "undated", "op": "eq", "value": "only" }], "group_by": "", "limit": 0 } },
+    { "name": "count events by id", "ok": true, "spec": { "subject": "events", "where": [], "group_by": "event_id", "limit": 0 } },
+    { "name": "a rule's relations by algorithm", "ok": true, "spec": { "subject": "relations", "where": [{ "field": "rule_id", "op": "eq", "value": "process-ancestry" }], "group_by": "algorithm", "limit": 0 } },
+    { "name": "relations at an event", "ok": true, "spec": { "subject": "relations", "where": [{ "field": "event", "op": "eq", "value": "42" }, { "field": "created_by", "op": "eq", "value": "user" }], "group_by": "", "limit": 0 } },
+    { "name": "count relations by graph", "ok": true, "spec": { "subject": "relations", "where": [], "group_by": "graph_id", "limit": 0 } },
+
+    { "name": "no subject", "ok": false, "spec": { "subject": "", "where": [], "group_by": "", "limit": 0 } },
+    { "name": "an unknown subject", "ok": false, "spec": { "subject": "nodes", "where": [], "group_by": "", "limit": 0 } },
+    { "name": "an unknown field", "ok": false, "spec": { "subject": "events", "where": [{ "field": "raw_xml", "op": "eq", "value": "x" }], "group_by": "", "limit": 0 } },
+    { "name": "a relation field on events", "ok": false, "spec": { "subject": "events", "where": [{ "field": "rule_id", "op": "eq", "value": "x" }], "group_by": "", "limit": 0 } },
+    { "name": "an operator the field does not take", "ok": false, "spec": { "subject": "events", "where": [{ "field": "user", "op": "contains", "value": "a" }], "group_by": "", "limit": 0 } },
+    { "name": "an upper bound on occurrences", "ok": false, "spec": { "subject": "events", "where": [{ "field": "occurrences", "op": "lte", "value": "3" }], "group_by": "", "limit": 0 } },
+    { "name": "a field twice", "ok": false, "spec": { "subject": "events", "where": [{ "field": "user", "op": "eq", "value": "a" }, { "field": "user", "op": "eq", "value": "b" }], "group_by": "", "limit": 0 } },
+    { "name": "one end of a range twice", "ok": false, "spec": { "subject": "events", "where": [{ "field": "time", "op": "gte", "value": "2026-01-01T00:00:00Z" }, { "field": "time", "op": "gte", "value": "2026-01-02T00:00:00Z" }], "group_by": "", "limit": 0 } },
+    { "name": "an empty value", "ok": false, "spec": { "subject": "events", "where": [{ "field": "user", "op": "eq", "value": "" }], "group_by": "", "limit": 0 } },
+    { "name": "a value outside the enum", "ok": false, "spec": { "subject": "relations", "where": [{ "field": "created_by", "op": "eq", "value": "robot" }], "group_by": "", "limit": 0 } },
+    { "name": "a date without a time", "ok": false, "spec": { "subject": "events", "where": [{ "field": "time", "op": "gte", "value": "2026-01-01" }], "group_by": "", "limit": 0 } },
+    { "name": "a time without a zone", "ok": false, "spec": { "subject": "events", "where": [{ "field": "time", "op": "gte", "value": "2026-01-01T00:00:00" }], "group_by": "", "limit": 0 } },
+    { "name": "a negative number", "ok": false, "spec": { "subject": "relations", "where": [{ "field": "graph_id", "op": "eq", "value": "-1" }], "group_by": "", "limit": 0 } },
+    { "name": "a signed number", "ok": false, "spec": { "subject": "relations", "where": [{ "field": "event", "op": "eq", "value": "+7" }], "group_by": "", "limit": 0 } },
+    { "name": "a fraction", "ok": false, "spec": { "subject": "events", "where": [{ "field": "occurrences", "op": "gte", "value": "1.5" }], "group_by": "", "limit": 0 } },
+    { "name": "a backwards range", "ok": false, "spec": { "subject": "events", "where": [{ "field": "time", "op": "gte", "value": "2026-02-01T00:00:00Z" }, { "field": "time", "op": "lte", "value": "2026-01-01T00:00:00Z" }], "group_by": "", "limit": 0 } },
+    { "name": "count by a field that cannot be counted by", "ok": false, "spec": { "subject": "events", "where": [], "group_by": "time", "limit": 0 } },
+    { "name": "count relations by an event field", "ok": false, "spec": { "subject": "relations", "where": [], "group_by": "user", "limit": 0 } },
+    { "name": "a negative limit", "ok": false, "spec": { "subject": "events", "where": [], "group_by": "", "limit": -1 } },
+    { "name": "a limit over the cap", "ok": false, "spec": { "subject": "events", "where": [], "group_by": "", "limit": 1001 } }
+  ]
+}

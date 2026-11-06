@@ -23,6 +23,7 @@ import RulesView from './RulesView.svelte';
 import TimelineView from './TimelineView.svelte';
 import AlgorithmsView from './AlgorithmsView.svelte';
 import MaintenanceView from './MaintenanceView.svelte';
+import QueryView from './QueryView.svelte';
 
 /** @type {Readonly<Record<string, any>>} */
 export const ROUTE_VIEWS = Object.freeze({
@@ -35,6 +36,7 @@ export const ROUTE_VIEWS = Object.freeze({
   [ROUTES.TIMELINE]: TimelineView,
   [ROUTES.ALGORITHMS]: AlgorithmsView,
   [ROUTES.MAINTENANCE]: MaintenanceView,
+  [ROUTES.QUERY]: QueryView,
 });
 
 /**

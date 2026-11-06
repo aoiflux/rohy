@@ -139,8 +139,21 @@ whole answer.
   file, rule export and import into a second case, rebuilds, re-ingests, the correlation backfill,
   recovery from an interrupted build, and a build-side memory test. `go run ./tools/profile`
   writes CPU and heap profiles of ingest, build and open at chosen sizes.
+- **A query console.** The new Query page (Alt+8) asks the case about its events or relations:
+  - **Conditions** on event ID, provider, channel, computer, user, source, time, text, occurrences,
+    relations, rule, algorithm, who made a relation, graph, match or event.
+  - **Answers** list the matches or count them by a field.
+  - **Every answer says what it left out:**
+    - it shows at most 1000 rows or groups, and gives the full total beside them
+    - an events answer says whether undated events were counted
+    - an answer says when the case changed while it ran
+  - **Read-only, and structured:** there is no query language, and nothing on the page writes.
 
 ### Fixed
+
+- **Errors now say whose fault they are.** A failed call used to reach the screen as its message
+  alone, so a refused write, a busy case and a disk failure read alike. Each now carries its code,
+  and the Query page uses it to tell a refused query from a case that could not answer.
 
 - **The same file could give a different graph on each ingest.** Chunks were written in the order
   the parse workers finished, so the same file got different event ids each time, and the rule
@@ -444,7 +457,6 @@ the guided editor is built from. CI gates that it is current.
 Stated rather than left to be discovered:
 
 - The VS Code extension (the JSON Schema it will use ships here; the extension does not).
-- The read-only query console.
 - Snapshot thumbnails, and drawing regions or arrows directly on the canvas — both render, but only
   notes can be authored, from the layer panel.
 - Code signing and notarization. Windows SmartScreen and macOS Gatekeeper will still warn.

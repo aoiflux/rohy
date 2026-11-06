@@ -1,0 +1,322 @@
+{
+  "subjects": [
+    {
+      "key": "events",
+      "label": "Events",
+      "fields": [
+        {
+          "key": "event_id",
+          "label": "Event ID",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "provider",
+          "label": "Provider",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "channel",
+          "label": "Channel",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "computer",
+          "label": "Computer",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "user",
+          "label": "User",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "source_type",
+          "label": "Source type",
+          "kind": "enum",
+          "ops": [
+            "eq"
+          ],
+          "values": [
+            "single_evtx_file",
+            "multiple_evtx_files",
+            "live_system",
+            "sqlite_db",
+            "sqlite_message_db"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "source_identifier",
+          "label": "Source",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true,
+          "help": "The file path or channel the event was read from, exactly."
+        },
+        {
+          "key": "time",
+          "label": "Time",
+          "kind": "time",
+          "ops": [
+            "gte",
+            "lte"
+          ],
+          "groupable": false,
+          "help": "RFC 3339, for example 2026-01-31T09:00:00Z. Both ends are inclusive."
+        },
+        {
+          "key": "text",
+          "label": "Text",
+          "kind": "text",
+          "ops": [
+            "contains"
+          ],
+          "groupable": false,
+          "help": "Anywhere in the event's searchable text, ignoring case."
+        },
+        {
+          "key": "occurrences",
+          "label": "Occurrences",
+          "kind": "number",
+          "ops": [
+            "gte"
+          ],
+          "groupable": false,
+          "help": "How many copies of the event were collapsed into it."
+        },
+        {
+          "key": "relations",
+          "label": "Has relations",
+          "kind": "enum",
+          "ops": [
+            "eq"
+          ],
+          "values": [
+            "any",
+            "system",
+            "user"
+          ],
+          "groupable": false,
+          "help": "any: some relation; system: one a rule made; user: one an analyst drew."
+        },
+        {
+          "key": "undated",
+          "label": "Undated events",
+          "kind": "enum",
+          "ops": [
+            "eq"
+          ],
+          "values": [
+            "include",
+            "exclude",
+            "only"
+          ],
+          "default": "include",
+          "groupable": false,
+          "help": "Events with no timestamp, redacted ones among them. Included unless you say otherwise."
+        }
+      ],
+      "columns": [
+        {
+          "key": "id",
+          "label": "ID"
+        },
+        {
+          "key": "timestamp",
+          "label": "Time"
+        },
+        {
+          "key": "event_id",
+          "label": "Event ID"
+        },
+        {
+          "key": "provider",
+          "label": "Provider"
+        },
+        {
+          "key": "channel",
+          "label": "Channel"
+        },
+        {
+          "key": "computer",
+          "label": "Computer"
+        },
+        {
+          "key": "user",
+          "label": "User"
+        },
+        {
+          "key": "source_type",
+          "label": "Source type"
+        },
+        {
+          "key": "source_identifier",
+          "label": "Source"
+        },
+        {
+          "key": "occurrences",
+          "label": "Occurrences"
+        }
+      ]
+    },
+    {
+      "key": "relations",
+      "label": "Relations",
+      "fields": [
+        {
+          "key": "rule_id",
+          "label": "Rule",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true,
+          "help": "The rule's id, as the rule library shows it."
+        },
+        {
+          "key": "algorithm",
+          "label": "Algorithm",
+          "kind": "enum",
+          "ops": [
+            "eq"
+          ],
+          "values": [
+            "sequence",
+            "field",
+            "temporal",
+            "lineage"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "relation_type",
+          "label": "Type",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "created_by",
+          "label": "Made by",
+          "kind": "enum",
+          "ops": [
+            "eq"
+          ],
+          "values": [
+            "system",
+            "user"
+          ],
+          "groupable": true,
+          "help": "system: inferred by a rule; user: asserted by an analyst."
+        },
+        {
+          "key": "graph_id",
+          "label": "Graph",
+          "kind": "number",
+          "ops": [
+            "eq"
+          ],
+          "groupable": true
+        },
+        {
+          "key": "match_id",
+          "label": "Match",
+          "kind": "text",
+          "ops": [
+            "eq"
+          ],
+          "groupable": false,
+          "help": "Every edge one occurrence of a rule produced."
+        },
+        {
+          "key": "event",
+          "label": "Event",
+          "kind": "number",
+          "ops": [
+            "eq"
+          ],
+          "groupable": false,
+          "help": "An event's ID: relations at either end of it."
+        }
+      ],
+      "columns": [
+        {
+          "key": "id",
+          "label": "ID"
+        },
+        {
+          "key": "from",
+          "label": "From"
+        },
+        {
+          "key": "to",
+          "label": "To"
+        },
+        {
+          "key": "rule_id",
+          "label": "Rule"
+        },
+        {
+          "key": "algorithm",
+          "label": "Algorithm"
+        },
+        {
+          "key": "relation_type",
+          "label": "Type"
+        },
+        {
+          "key": "created_by",
+          "label": "Made by"
+        },
+        {
+          "key": "confidence",
+          "label": "Confidence"
+        },
+        {
+          "key": "graph_id",
+          "label": "Graph"
+        },
+        {
+          "key": "match_id",
+          "label": "Match"
+        },
+        {
+          "key": "step",
+          "label": "Step"
+        },
+        {
+          "key": "basis",
+          "label": "Basis"
+        }
+      ]
+    }
+  ],
+  "default_limit": 100,
+  "max_limit": 1000,
+  "max_conditions": 16,
+  "max_value_length": 512
+}

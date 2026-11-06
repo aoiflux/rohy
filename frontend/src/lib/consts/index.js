@@ -165,6 +165,11 @@ export const ERROR_CODES = Object.freeze({
   PERSISTENCE: 'persistence_error',
   CANCELLED: 'cancelled',
   INTERNAL: 'internal_error',
+  RULE: 'rule_error',
+  // A readable source that does not hold EVTX data in the expected shape (P17).
+  SCHEMA: 'schema_error',
+  // A query the console refused (item 33): the input is at fault, not the case.
+  QUERY: 'query_error',
   // Refused because the case lock is held (plan §14.5); the message names what is running.
   BUSY: 'case_busy',
   // Refused because this session cannot write the case (item 41); the message says why and how.
@@ -187,6 +192,7 @@ export const ROUTES = Object.freeze({
   TIMELINE: 'timeline',
   ALGORITHMS: 'algorithms',
   MAINTENANCE: 'maintenance',
+  QUERY: 'query',
 });
 
 // Labels and copy for the correlation-algorithms explainer.
@@ -472,6 +478,7 @@ export const UI = Object.freeze({
   NAV_TIMELINE: 'Timeline',
   NAV_ALGORITHMS: 'Algorithms',
   NAV_MAINTENANCE: 'Maintenance',
+  NAV_QUERY: 'Query',
 
   // Timeline page (P24)
   TIMELINE_DATED: 'on the timeline',
@@ -1134,6 +1141,55 @@ export const UI = Object.freeze({
     'same as a clean result.',
   MAINT_FAILED: 'That did not work:',
   MAINT_DISMISS: 'Dismiss',
+
+  // --- Query console (item 33) ---
+  QUERY_INTRO:
+    'Ask the case a question: pick events or relations, narrow them with conditions, and list them or count them by a field. Read-only: nothing here changes the case.',
+  QUERY_LOADING: 'Reading what the case can be asked…',
+  QUERY_SUBJECT: 'Query',
+  QUERY_WHERE: 'Where',
+  QUERY_NO_CONDITIONS: 'No conditions: everything matches.',
+  QUERY_ADD_CONDITION: 'Add condition',
+  QUERY_REMOVE_CONDITION: 'Remove condition',
+  QUERY_GROUP_BY: 'Count by',
+  QUERY_GROUP_NONE: 'Nothing (list them)',
+  QUERY_LIMIT: 'Show at most',
+  QUERY_RUN: 'Run',
+  QUERY_RUNNING: 'Running…',
+  QUERY_CLEAR: 'Clear',
+  QUERY_TIME_PLACEHOLDER: '2026-01-31T09:00:00Z',
+  QUERY_OPS: Object.freeze({ eq: 'is', contains: 'contains', gte: 'from', lte: 'to' }),
+  QUERY_FAULT_QUERY: 'The query was refused:',
+  QUERY_FAULT_CASE: 'The case could not answer:',
+  QUERY_DROPPED: 'A redaction ran, so the last result was cleared. Run the query again.',
+  QUERY_EMPTY: 'Nothing matched.',
+  QUERY_COUNT: 'Count',
+  QUERY_UNDATED: '(undated)',
+  QUERY_REDACTED: '(redacted)',
+  QUERY_REDACTED_GROUP: '(redacted: no value left)',
+  QUERY_BLANK: '(blank)',
+  QUERY_STATUS_ROWS: (n, total) => `Showing ${n} of ${total}.`,
+  QUERY_STATUS_GROUPS: (n, distinct, total) => `Showing ${n} of ${distinct} values, counting ${total}.`,
+  QUERY_STATUS_TRUNCATED: 'The list stops at the limit; the totals count everything that matched.',
+  QUERY_STATUS_UNDATED: Object.freeze({
+    include: 'Undated events are included.',
+    exclude: 'Undated events are left out.',
+    only: 'Only undated events are counted.',
+  }),
+  QUERY_STATUS_CHANGED: 'The case changed while this ran, so its numbers may not agree. Run it again.',
+  QUERY_PROBLEM_SUBJECT: 'Choose events or relations.',
+  QUERY_PROBLEM_TOO_MANY: (n) => `A query has at most ${n} conditions.`,
+  QUERY_PROBLEM_LIMIT: (n) => `Show 1 to ${n}.`,
+  QUERY_PROBLEM_GROUP: 'That field cannot be counted by.',
+  QUERY_PROBLEM_FIELD: 'Choose a field for every condition.',
+  QUERY_PROBLEM_OP: (f) => `${f} does not take that comparison.`,
+  QUERY_PROBLEM_TWICE: (f) => `${f} is used twice.`,
+  QUERY_PROBLEM_EMPTY: (f) => `${f} needs a value.`,
+  QUERY_PROBLEM_LONG: (f) => `The value for ${f} is too long.`,
+  QUERY_PROBLEM_ENUM: (f) => `Choose one of the values offered for ${f}.`,
+  QUERY_PROBLEM_NUMBER: (f) => `${f} needs a whole number.`,
+  QUERY_PROBLEM_TIME: (f) => `${f} needs a time like 2026-01-31T09:00:00Z.`,
+  QUERY_PROBLEM_RANGE: 'The time range ends before it starts.',
 
   // --- Annotations (P29) ---
   //

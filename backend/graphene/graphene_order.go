@@ -46,6 +46,10 @@ type eventSortView struct {
 	// HashNormalized is the event's content identity, which the findings filters match on
 	// (P25). Also a short scalar.
 	HashNormalized string `json:"hash_normalized"`
+	// EventID and SourceType complete the fields the query console counts by (item 33). Short
+	// scalars again, so the console's counts come from the same pass the list is ordered from.
+	EventID    string `json:"event_id"`
+	SourceType string `json:"source_type"`
 }
 
 // orderedIDs is a filter's matching event ids in presentation order.
@@ -124,7 +128,7 @@ func (f EventFilter) orderKey() string {
 			b.WriteByte(0x1f) // unit separator: keeps adjacent fields unambiguous
 		}
 	}
-	add(f.EventID, f.Provider, f.Channel, f.User, f.Search, f.SourceType, f.SourceIdentifier, f.RelationState, f.Undated)
+	add(f.EventID, f.Provider, f.Channel, f.User, f.Computer, f.Search, f.SourceType, f.SourceIdentifier, f.RelationState, f.Undated)
 	add(fmt.Sprint(f.MinDuplicateCount), fmt.Sprint(f.Descending))
 	if f.TimeFrom != nil {
 		add("from:" + f.TimeFrom.UTC().Format(time.RFC3339Nano))
@@ -180,6 +184,9 @@ type eventRow struct {
 	ts time.Time
 	// view is retained so the timeline can group into lanes without a second scan.
 	view eventSortView
+	// stripped says a redaction removed the record (isStrippedEvent): view is empty because there
+	// is nothing left, not because the event's fields were blank.
+	stripped bool
 }
 
 // EventHashes maps every event id in the case to its content identity (hash_normalized).
@@ -239,7 +246,7 @@ func (s *Store) matchingRows(f EventFilter) ([]eventRow, error) {
 		if !f.matchesUndated(v.Timestamp.IsZero()) {
 			continue
 		}
-		rows = append(rows, eventRow{id: id, ts: v.Timestamp, view: v})
+		rows = append(rows, eventRow{id: id, ts: v.Timestamp, view: v, stripped: isStrippedEvent(n)})
 	}
 	return rows, nil
 }

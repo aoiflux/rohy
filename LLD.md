@@ -82,7 +82,7 @@ flowchart TB
         bridge{{"Wails bridge<br/>method calls out · events back"}}
 
         subgraph be["Backend — Go"]
-            bind["backend/api<br/>6 bound structs, no business logic"]
+            bind["backend/api<br/>10 bound structs, no business logic"]
             work["Domain layer<br/>evtx · dbsource · rules · autograph · graphbuild"]
             persist["backend/graphene<br/>the only package that talks to the database"]
             side["Sidecars<br/>graphreg · layout · findings · capture"]
@@ -234,7 +234,7 @@ sequenceDiagram
     M->>A: NewApp()
     Note over A: Cheap only.<br/>OpenLazy() does NOT open the database.<br/>Sidecars just create their directories.
     A-->>M: bindings constructed
-    M->>W: wails.Run(options, Bind: 6 structs)
+    M->>W: wails.Run(options, Bind: 10 structs)
     W->>UI: window opens, Splash renders
     W->>A: OnStartup(ctx)
     A->>A: hand ctx to event-emitting bindings
@@ -1502,7 +1502,7 @@ outside the routed content so an ingest stays visible across navigation.
 
 ## 16. The Go ↔ JS contract
 
-### 16.1 Seven bound structs
+### 16.1 Ten bound structs
 
 | Struct           | Responsibility                                                              |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -1512,13 +1512,27 @@ outside the routed content so an ingest stays visible across navigation.
 | `BuildAPI`       | run correlation rules, report progress, dry-run a rule without persisting   |
 | `FindingsAPI`    | flags, tags, notes, tag list, stats, audit                                  |
 | `SystemAPI`      | build identity, init stages, window controls, elevation checks              |
-| `MaintenanceAPI` | opt-in work over the whole case — currently the correlation-key backfill    |
+| `MaintenanceAPI` | opt-in work over the whole case: integrity, backfill, seals, redaction, checkpoints |
+| `SnapshotAPI`    | named graph snapshots: save, list, restore, delete                          |
+| `AnnotateAPI`    | the analyst's layers and annotations on a graph                             |
+| `QueryAPI`       | the read-only query console: `Describe` and `Run`, nothing else (#33)       |
 
 `MaintenanceAPI` is separate from `SystemAPI` rather than folded into it because the two
 are different concerns: `SystemAPI` reports how the **application** is doing and never
 touches case data, while everything on `MaintenanceAPI` reads or rewrites the case itself
 and is proportional to how large it is. Nothing on it runs at startup — the same judgement
 `VerifyIndexes` already carries (§18).
+
+🔒 `QueryAPI` holds `query.Reader`, the read-only slice of the store, never `*graphene.Store`: a
+write is out of its reach at compile time. Reflection tests pin its methods to `Describe` and `Run`
+and the reader to known reads. `backend/query` checks every spec against its vocabulary before
+reading anything. The vocabulary is the one statement the Query page builds from, and two committed
+files hold the page to it (`backend/query/testdata/`). Results are capped at 1000 rows or groups,
+with the total always stated.
+
+The console takes no case lock, like every read: a result says when the case moved under it. A
+relation query on an indexed field finds what the index lists, so a relation a crash left
+half-indexed is missed until the next repair. The integrity check reports that gap.
 
 Note that `App` itself is **not** bound. It manages lifecycle and holds no
 business logic, so exposing it would be exposing nothing useful.
@@ -1552,6 +1566,18 @@ type ErrorEvent struct {
 A stable `code` lets the frontend branch on the *kind* of failure — a refused
 note is the caller's input being wrong, not the disk failing, and the two deserve
 different messages.
+
+**How a returned error crosses (#33).** Until #33 only the message did: Wails sends `err.Error()`
+unless an `ErrorFormatter` is set, and none was. `api.FormatError` is now that formatter.
+- 🔒 It returns a **string**, the JSON of the `ErrorEvent`. The runtime wraps whatever arrives in
+  `new Error(x)` unless it already is an Error, so an object would read "[object Object]".
+- `call()` in `frontend/src/lib/api/index.js`, the one door to the backend, decodes the string
+  into an `Error` with `.message` and `.code`. Anything it cannot decode is left as it was: Wails'
+  own argument-parse text, and "backend unavailable" outside Wails. `errorCode()` calls that
+  `internal_error`.
+- A wrapped error keeps its code and its full message. An uncoded one is `internal_error`. An empty
+  message becomes the code, because an empty error field makes the runtime resolve the call.
+- A vitest fails if a backend `ErrCode*` is missing from the frontend's `ERROR_CODES`.
 
 ### 16.3 The Emitter seam
 

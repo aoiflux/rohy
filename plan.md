@@ -34,10 +34,10 @@ P3 Pipeline/caching  ███████████████████�
 P4 Editor            ███████████████████░  94%  8½/9   #23 raw editor polish: only live duration check
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
-P7 Tooling           ████████████░░░░░░░░  60%  3/5    #34 ✅ (§15.11); #32b extension, #33 QueryAPI ⬜; #36 docs ½
+P7 Tooling           ████████████████░░░░  80%  4/5    #33 ✅ (§15.12), #34 ✅ (§15.11); #32b extension ⬜; #36 docs ½
 P8 Forensic          ████████████████████ 100%  7/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #42 ✅ (§15.10), #43 ✅ (§15.9)
 ───────────────────────────────────────────────────────
-Overall              ███████████████████░  96%  45/47
+Overall              ███████████████████░  98%  46/47
 Definition of done   ██████████████████░░  91%  10/11  the integration path: the suite exists (#34), CI does not run it (minimal CI); proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43 (+ the window, #42)
 ```
 
@@ -86,6 +86,12 @@ file gave a different graph on each ingest, because chunks were written in the o
 workers finished; a file is now written in its own order. It also found that a crash could hide a
 relation from its rule, out of the repair's reach. Both are fixed. The suite runs in the local gate,
 not in CI. **What is left:** P7's #32b, #33 and #36 ½, and P4's #23 ½.
+
+**#33 landed 2026-11-07** (§15.12): a Query page (Alt+8) asks the case about its events and
+relations, lists them or counts them by a field, and always says how much it left out. It reads only:
+its binding holds a read-only interface over the store. Building it found that no backend error code
+had ever reached the frontend; every failed call now carries its code. **What is left:** P7's #32b
+and #36 ½, and P4's #23 ½.
 
 ---
 
@@ -878,14 +884,15 @@ New/changed bindings, all argument-adapters with no logic:
 | `GraphAPI` | `ListLayers / SaveLayer / DeleteLayer / SaveAnnotation / DeleteAnnotation` | annotations ❌ |
 | `SystemAPI` | `CheckCaseIntegrity(deep bool)` | integrity report ❌ |
 | `SystemAPI` | `BackfillCorrelationKeys()` + `maintenance:progress` event | backfill ❌ |
-| `QueryAPI` | `Describe()`, `Run(spec QuerySpec)` | read-only console ❌ |
+| `QueryAPI` | `Describe()`, `Run(spec QuerySpec)` | read-only console ✅ (#33; `QuerySpec` is `query.Spec`) |
 
 New event channels (defined in `consts`, used on both sides): `maintenance:progress`,
 `maintenance:complete`, `build:dryrun` (if streaming is wanted; otherwise the call returns
 directly).
 
-🔒 `QueryAPI` holds `*graphene.Store` but exposes **only** read methods. No mutation binding is
-added to it, ever.
+🔒 `QueryAPI` holds a read-only interface over `*graphene.Store` (`query.Reader`) and exposes **only**
+read methods. No mutation binding is added to it, ever. (Tightened in #33: the draft said it held the
+store itself; holding the interface puts a write out of reach at compile time.)
 
 ### 4.8 Frontend
 
@@ -900,7 +907,7 @@ added to it, ever.
 | `stores/graph.js` | layout profiles, clusters, snapshots, layers, replay state |
 | `components/rules/` | `AlgorithmSelect.svelte`, `MatchFieldsPicker.svelte`, `WindowEditor.svelte`, `LineageEditor.svelte`, `TestbenchPanel.svelte` |
 | `components/graph/` | `RelationInspector.svelte`, `LayerPanel.svelte`, `SnapshotPanel.svelte`, `ReplayControls.svelte`, `HeatmapOverlay.svelte`, `ClusterHull.svelte` |
-| `routes/` | `MaintenanceView.svelte` (integrity + backfill + query console) |
+| `routes/` | `MaintenanceView.svelte` (integrity + backfill); `QueryView.svelte` (the query console, its own page — #33) |
 
 ---
 
@@ -2044,7 +2051,7 @@ matches and looks like a clean result.
 
 A `MaintenanceView` route: run integrity (quick / deep), the report grouped by severity, each
 finding with its suggested action, plus the backfill runner with progress on
-`maintenance:progress`, and the read-only query console (§13 / §4.7). Actions are always
+`maintenance:progress`. The read-only query console became its own page (#33, §15.12). Actions are always
 explicit buttons — 🔒 nothing runs on startup.
 
 **Built.** `lib/maintenance/report.js` (23 tests), `stores/maintenance.js` (12 tests),
@@ -2080,8 +2087,8 @@ Rendering any route that imports the theme store crashed. It now feature-detects
 wraps both read and write, which also covers a browser in private mode. This is the sixth defect
 this class of test has caught, and the first outside a component's own code.
 
-⬜ **Not built:** the read-only query console (§4.7), which is a Phase 7 item and belongs with the
-rest of the tooling work.
+✅ The read-only query console was built as its own page rather than a card here (#33, §15.12): a
+result table needs the width, and this page already holds nine cards.
 
 ---
 
@@ -2398,7 +2405,7 @@ console, which is a Phase 7 item and belongs with the rest of the tooling work.
     ⬜ **`tools/vscode-rohy` not built.** It is a separate npm project — extension manifest, a
     language client, `rohyctl` discovery with the schema as fallback, and its own test suite — and
     it is the one item in the plan whose value is entirely outside this repository's own build.
-33. `QueryAPI` read-only console (structured builder, **no expression language** 🔒).
+33. ✅ `QueryAPI` read-only console (structured builder, **no expression language** 🔒), §15.12.
 34. ✅ Integration suite; stress + profiling harness (§15.11). The benchmark smoke in CI is
     deferred with the rest of the CI additions.
 35. ⚠️ CI jobs: `rules-lint` ✅, `schema-drift` ✅, `extension` ⬜, CLI in the build matrix ⬜.
@@ -2504,7 +2511,7 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
 | R5 | Lineage guesses parents across PID reuse | 🔴 | Interval table + unresolved-parents counter; **no edge without a covering interval** 🔒 |
 | R6 | Validation drift Go / JS / VSCode | ⚠️ | Shared fixture is the first step of any change; extension shells out to `rohyctl` rather than reimplementing |
 | R7 | Edge index growth slows store open | ⚠️ | Only `rule_id` added (low cardinality); `BenchmarkStoreOpen` guards it 🟡 |
-| R8 | Scope creep in the query console | ⚠️ | Structured builder only; an expression language is explicitly deferred past v0.2.0 |
+| R8 | Scope creep in the query console | ✅ | Structured builder only (#33): no expression language, no saved queries, no export; an expression language stays deferred past v0.2.0 |
 | R9 | Snapshot restore corrupts a live graph | 🔴 | Hash-keyed endpoints, explicit preview, re-created edges marked `created_by: user` with a basis, unresolvable items reported |
 | R10 | A second edge type sneaks in | 🔴 | Design forbids it (§5.4); `EdgesOf(..., nil)` reasoning re-stated in the LLD sharp-edges list |
 | R11 | **A signing key stored in the case folder manufactures a false guarantee** | ✅ | Resolved by #41 (§15.8): `keyfile` refuses a key path inside the case's working folder — compared file by file, so a junction, a symlink or another letter case does not get one in — at creation and at every unlock. rohy REFUSES to write a key inside `rohy-data/` (§14.6). Whoever can rewrite the store can re-sign it, so a key beside the evidence proves nothing — and a green tick that means nothing is worse than no tick |
@@ -3722,3 +3729,65 @@ relation removed from the file.
 - the `.db` reader's row order is SQLite's
 - the integration and benchmark-smoke CI steps are deferred
 - the build's node-record decode is the first optimisation candidate; nothing was changed for it
+
+### 15.12 #33 query console, and error codes across the binding (2026-11-07)
+
+**Found while scoping it (Phase 0 and an independent review of the plan, verified):**
+
+| Finding | What held |
+|---|---|
+| 🔴 **No backend error code had ever reached the frontend** | `main.go` set no `ErrorFormatter`, so Wails v2.13.0 rejected every failed call with `err.Error()`: the message only. `ERROR_CODES` was defined in the frontend and used nowhere, and it lacked `rule_error` and `schema_error`. A refused write, a busy case and a store failure all read alike |
+| An object cannot cross | The shipped runtime does `error instanceof Error ? error : new Error(error)`, so a formatter returning `{code, message}` would have made every error on every screen read "[object Object]" |
+| Some failures never reach the formatter | Argument-parse failures go out as Wails' own text; a panic makes the dispatcher return nothing, the runtime cannot parse it, and the promise never settles; the obfuscated call path ignores the formatter (`build.sh` does not obfuscate) |
+| No result cap existed | `EventFilter.Limit <= 0` returns everything, and every relation read was unbounded |
+| Edge order is not id order | The disk engine returns delta edges before CSR edges, and a property lookup keeps its first key's order |
+| `computer` is indexed and could not be filtered on | `EventFilter` had no field for it |
+
+**Decisions (owner, 2026-11-07):**
+
+| Question | Decision |
+|---|---|
+| What the console queries | Events and relations: conditions, row lists, and counts by a field. |
+| Where it lives | Its own page, Query, Alt+8. |
+| Error codes | Fixed for every binding: the backend sends `{code, message}` as one JSON string, and `call()` decodes it. |
+
+Defaults chosen without asking:
+- rows or groups: 100 by default, 1000 at most, with the total and any truncation always stated; a
+  limit over the cap is refused, not clamped
+- undated events are included unless a condition says otherwise, and every events result says which
+- a new code, `query_error`, so a refused query reads as the input's fault, not the case's
+- no findings filters, row actions, export or saved queries (R8)
+- relations use the index where a condition allows, and each decoded relation is re-checked
+
+**As built:**
+- **The error boundary.** `api.FormatError` returns the JSON of an `ErrorEvent` as a string,
+  keeping a wrapped error's code and its full message; an uncoded error is `internal_error`, and an
+  empty message becomes the code, because an empty error would resolve the call. `call()` decodes it
+  (`lib/api/errors.js`), so every handler that read `.message` still does, and `.code` is new.
+  A vitest parses `backend/consts/consts.go` and fails if a backend code is missing from
+  `ERROR_CODES`.
+- **graphene.** `CountEventsBy` counts from the pass the list and the timeline already share,
+  with redacted events in their own bucket rather than the blank one. `ScanRelations` uses the index,
+  the event's adjacency or every edge, sorts the ids, and reads one edge at a time. An edge gone
+  mid-scan is counted, not fatal. `EventFilter` gains `Computer`, in the order cache's key too.
+- **`backend/query`.** `Describe` is the one statement of the vocabulary. `Run` refuses anything
+  outside it with a `RefusedError` (`query_error`). The result says when the case moved under the
+  read. `FuzzRun` ran 5.6M specs with no failure.
+- **`api.QueryAPI`.** It holds `query.Reader`. Reflection tests pin its methods to `Describe` and
+  `Run`, and the reader to known reads. A recovered panic becomes `internal_error`.
+- **The Query page.** It is built only from the vocabulary. Two committed files hold the page to the
+  backend: `testdata/vocabulary-golden.json`, and `testdata/spec-cases.json` (32 specs both sides must
+  accept or refuse alike). A redaction drops the shown result.
+- **Integration.** The console's counts by event id, by rule and by algorithm equal the golden
+  file's.
+
+**Shown failing first:**
+- the formatter, the decoder and the parity test, against stubs of the current behaviour
+- the relation scan and the event counts, against a naive scan
+- the computer filter, with the field unwired and again with it missing from the cache key
+
+**Still open:**
+- an indexed relation query misses a half-indexed relation until the next repair; the integrity
+  check reports it
+- no row opens its event, and nothing is exported
+- `wails dev` was not run by hand; the decoder is tested against the runtime's own rejection shape

@@ -1173,6 +1173,9 @@ const (
 	// ErrCodeSession marks a session step refused: a choice the case does not offer, a passphrase
 	// that did not unlock the key, a key that is not this case's.
 	ErrCodeSession = "session_error"
+	// ErrCodeQuery marks a query the console refused (item 33): an unknown field, a value of the
+	// wrong kind, a limit over the cap. The input is at fault, not the case, and the page says so.
+	ErrCodeQuery = "query_error"
 )
 
 // --- Case lock (plan §14.5, item 40) ---
@@ -2278,6 +2281,9 @@ var HeatmapGroups = []string{
 
 const MsgHeatmapUnknownGroup = "unknown heatmap grouping %q (expected one of: %s)"
 
+// MsgQueryGroupField refuses a count by a field the store does not count by (item 33).
+const MsgQueryGroupField = "cannot count events by %q"
+
 // LayoutAbsentLabel names the resource-profile column for events that do not carry the slot
 // being grouped by. Absent is not a value shared with other absences (see CorrelationAbsentValues),
 // so they are collected under one explicitly-named column rather than correlated with each other.
@@ -2786,4 +2792,55 @@ const (
 const (
 	XMLTimeLayoutPrimary  = "2006-01-02T15:04:05.999999999Z07:00" // RFC3339Nano
 	XMLTimeLayoutFallback = "2006-01-02T15:04:05Z07:00"           // RFC3339
+)
+
+// --- Query console (item 33) ---
+//
+// A structured builder, never an expression language (🔒 plan §13 item 33, risk R8): a subject, a
+// list of conditions ANDed together, an optional field to count by, and a limit. The vocabulary
+// (backend/query.Describe) is the one statement of it; the page builds itself from that.
+const (
+	QuerySubjectEvents    = "events"
+	QuerySubjectRelations = "relations"
+
+	QueryOpEq       = "eq"
+	QueryOpContains = "contains"
+	QueryOpGte      = "gte"
+	QueryOpLte      = "lte"
+
+	QueryKindText   = "text"
+	QueryKindEnum   = "enum"
+	QueryKindTime   = "time"
+	QueryKindNumber = "number"
+
+	// The console's undated words. UndatedExclude is "" in EventFilter, which a value cannot say.
+	QueryUndatedExclude = "exclude"
+	QueryUndatedInclude = "include"
+	QueryUndatedOnly    = "only"
+
+	// QueryDefaultLimit and QueryMaxLimit bound the rows or groups one result shows. The total is
+	// always reported beside them, so a capped result says it is capped (the DryRunMaxSamples rule).
+	QueryDefaultLimit = 100
+	QueryMaxLimit     = 1000
+	// QueryMaxConditions and QueryMaxValueLen bound one spec: the input crosses a trust boundary.
+	QueryMaxConditions = 16
+	QueryMaxValueLen   = 512
+)
+
+// Query refusals: the input is at fault, and the message says how (ErrCodeQuery).
+const (
+	MsgQuerySubject    = "unknown query subject %q (expected %s or %s)"
+	MsgQueryField      = "%s have no field %q"
+	MsgQueryOp         = "field %q does not take %q (it takes %s)"
+	MsgQueryRepeated   = "field %q is used twice"
+	MsgQueryTooMany    = "a query has at most %d conditions"
+	MsgQueryEmptyValue = "field %q needs a value"
+	MsgQueryLongValue  = "the value for %q is longer than %d bytes"
+	MsgQueryEnum       = "field %q is one of %s, not %q"
+	MsgQueryTime       = "field %q needs a time like 2026-01-31T09:00:00Z, not %q"
+	MsgQueryNumber     = "field %q needs a whole number, not %q"
+	MsgQueryRange      = "the time range ends before it starts"
+	MsgQueryGroupBy    = "%s cannot be counted by %q"
+	MsgQueryLimit      = "the limit is 1 to %d, not %d"
+	MsgQueryPanic      = "the query failed unexpectedly: %v"
 )

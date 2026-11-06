@@ -26,6 +26,7 @@ export const NAV_KEYS = Object.freeze({
   5: ROUTES.TIMELINE,
   6: ROUTES.ALGORITHMS,
   7: ROUTES.MAINTENANCE,
+  8: ROUTES.QUERY,
 });
 
 const NAV_LABELS = Object.freeze({
@@ -36,6 +37,7 @@ const NAV_LABELS = Object.freeze({
   [ROUTES.TIMELINE]: UI.NAV_TIMELINE,
   [ROUTES.ALGORITHMS]: UI.NAV_ALGORITHMS,
   [ROUTES.MAINTENANCE]: UI.NAV_MAINTENANCE,
+  [ROUTES.QUERY]: UI.NAV_QUERY,
 });
 
 /**
@@ -66,6 +68,7 @@ export const SHORTCUTS = Object.freeze([
   { keys: 'Alt+5', label: UI.NAV_TIMELINE, scope: SHORTCUT_SCOPE.GLOBAL },
   { keys: 'Alt+6', label: UI.NAV_ALGORITHMS, scope: SHORTCUT_SCOPE.GLOBAL },
   { keys: 'Alt+7', label: UI.NAV_MAINTENANCE, scope: SHORTCUT_SCOPE.GLOBAL },
+  { keys: 'Alt+8', label: UI.NAV_QUERY, scope: SHORTCUT_SCOPE.GLOBAL },
   { keys: 'Ctrl+F', label: UI.SEARCH_EXPAND, scope: SHORTCUT_SCOPE.EVENTS },
   { keys: 'Enter', label: UI.ACTION_APPLY_FILTERS, scope: SHORTCUT_SCOPE.EVENTS },
   { keys: 'C', label: UI.ACTION_CONNECT_MODE, scope: SHORTCUT_SCOPE.GRAPH },

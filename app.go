@@ -52,6 +52,9 @@ type App struct {
 	Snapshots *api.SnapshotAPI
 	// Annotate owns the analyst's own marks on a graph — layers, note pins, regions, arrows.
 	Annotate *api.AnnotateAPI
+	// Query is the read-only console (item 33). It holds the store as query.Reader, so it can read
+	// the case and nothing else.
+	Query *api.QueryAPI
 }
 
 // migrateGraphs guarantees a Default graph exists and folds any pre-P15 single-graph
@@ -173,6 +176,7 @@ func NewApp() (*App, error) {
 		}),
 		Snapshots: api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
 		Annotate:  api.NewAnnotateAPI(store, noteStore, registry),
+		Query:     api.NewQueryAPI(store),
 	}
 	api.AttachSession(session, app.System, app.Maintenance)
 	return app, nil

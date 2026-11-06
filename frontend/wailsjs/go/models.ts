@@ -2895,6 +2895,313 @@ export namespace payload {
 
 }
 
+export namespace query {
+	
+	export class Column {
+	    key: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Column(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	    }
+	}
+	export class Condition {
+	    field: string;
+	    op: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Condition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.field = source["field"];
+	        this.op = source["op"];
+	        this.value = source["value"];
+	    }
+	}
+	export class EventRow {
+	    id: number;
+	    timestamp: string;
+	    event_id: string;
+	    provider: string;
+	    channel: string;
+	    computer: string;
+	    user: string;
+	    source_type: string;
+	    source_identifier: string;
+	    occurrences: number;
+	    redacted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EventRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.timestamp = source["timestamp"];
+	        this.event_id = source["event_id"];
+	        this.provider = source["provider"];
+	        this.channel = source["channel"];
+	        this.computer = source["computer"];
+	        this.user = source["user"];
+	        this.source_type = source["source_type"];
+	        this.source_identifier = source["source_identifier"];
+	        this.occurrences = source["occurrences"];
+	        this.redacted = source["redacted"];
+	    }
+	}
+	export class Field {
+	    key: string;
+	    label: string;
+	    kind: string;
+	    ops: string[];
+	    values?: string[];
+	    default?: string;
+	    groupable: boolean;
+	    help?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Field(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.kind = source["kind"];
+	        this.ops = source["ops"];
+	        this.values = source["values"];
+	        this.default = source["default"];
+	        this.groupable = source["groupable"];
+	        this.help = source["help"];
+	    }
+	}
+	export class Group {
+	    value: string;
+	    count: number;
+	    redacted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Group(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.value = source["value"];
+	        this.count = source["count"];
+	        this.redacted = source["redacted"];
+	    }
+	}
+	export class RelationRow {
+	    id: number;
+	    from: number;
+	    to: number;
+	    rule_id: string;
+	    algorithm: string;
+	    relation_type: string;
+	    label: string;
+	    created_by: string;
+	    confidence: number;
+	    graph_id: number;
+	    match_id: string;
+	    step: number;
+	    basis: string[];
+	    rel_v: number;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelationRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.rule_id = source["rule_id"];
+	        this.algorithm = source["algorithm"];
+	        this.relation_type = source["relation_type"];
+	        this.label = source["label"];
+	        this.created_by = source["created_by"];
+	        this.confidence = source["confidence"];
+	        this.graph_id = source["graph_id"];
+	        this.match_id = source["match_id"];
+	        this.step = source["step"];
+	        this.basis = source["basis"];
+	        this.rel_v = source["rel_v"];
+	        this.created_at = source["created_at"];
+	    }
+	}
+	export class Result {
+	    subject: string;
+	    group_by: string;
+	    undated?: string;
+	    events: EventRow[];
+	    relations: RelationRow[];
+	    groups: Group[];
+	    total: number;
+	    distinct_groups: number;
+	    truncated: boolean;
+	    changed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.subject = source["subject"];
+	        this.group_by = source["group_by"];
+	        this.undated = source["undated"];
+	        this.events = this.convertValues(source["events"], EventRow);
+	        this.relations = this.convertValues(source["relations"], RelationRow);
+	        this.groups = this.convertValues(source["groups"], Group);
+	        this.total = source["total"];
+	        this.distinct_groups = source["distinct_groups"];
+	        this.truncated = source["truncated"];
+	        this.changed = source["changed"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Spec {
+	    subject: string;
+	    where: Condition[];
+	    group_by: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Spec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.subject = source["subject"];
+	        this.where = this.convertValues(source["where"], Condition);
+	        this.group_by = source["group_by"];
+	        this.limit = source["limit"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Subject {
+	    key: string;
+	    label: string;
+	    fields: Field[];
+	    columns: Column[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Subject(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.fields = this.convertValues(source["fields"], Field);
+	        this.columns = this.convertValues(source["columns"], Column);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Vocabulary {
+	    subjects: Subject[];
+	    default_limit: number;
+	    max_limit: number;
+	    max_conditions: number;
+	    max_value_length: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Vocabulary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.subjects = this.convertValues(source["subjects"], Subject);
+	        this.default_limit = source["default_limit"];
+	        this.max_limit = source["max_limit"];
+	        this.max_conditions = source["max_conditions"];
+	        this.max_value_length = source["max_value_length"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace redaction {
 	
 	export class Step {

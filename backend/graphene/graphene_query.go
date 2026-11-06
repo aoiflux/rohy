@@ -18,6 +18,7 @@ type EventFilter struct {
 	Provider   string
 	Channel    string
 	User       string
+	Computer   string // indexed equality on the computer property (the query console, item 33)
 	TimeFrom   *time.Time
 	TimeTo     *time.Time
 	Search     string
@@ -66,6 +67,9 @@ func (f EventFilter) propertyFilters() []store.PropertyFilter {
 	}
 	if f.User != "" {
 		pf = append(pf, store.PropertyFilter{Key: consts.PropUser, Op: store.PropertyOpEqual, Value: []byte(f.User)})
+	}
+	if f.Computer != "" {
+		pf = append(pf, store.PropertyFilter{Key: consts.PropComputer, Op: store.PropertyOpEqual, Value: []byte(f.Computer)})
 	}
 	if f.Search != "" {
 		pf = append(pf, store.PropertyFilter{Key: consts.PropSearchBlob, Op: store.PropertyOpContains, Value: []byte(strings.ToLower(f.Search))})
