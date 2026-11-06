@@ -697,6 +697,9 @@ export const UI = Object.freeze({
   RULE_EDITOR_COMPLETIONS: 'Suggestions',
   RULE_EDITOR_PRETTY: 'Pretty',
   RULE_EDITOR_MINIFY: 'Minify',
+  RULE_EDITOR_FORMAT_ON_SAVE: 'Format on save',
+  RULE_EDITOR_FORMAT_ON_SAVE_HINT:
+    'Lay the rule out in the house style as it is saved. Field order and fields this build does not read are kept.',
   RULE_EDITOR_IMPORT: 'Open file…',
   RULE_EDITOR_EXPORT: 'Save to file…',
   RULE_EDITOR_IMPORT_FAILED: 'That file could not be read.',
@@ -1801,6 +1804,7 @@ export const PREFS = Object.freeze({
   // the key discards the stale form instead of silently applying an obsolete default.
   KEY: 'rohy.prefs.v2',
   SEARCH_OPEN_DEFAULT: false,
+  FORMAT_ON_SAVE_DEFAULT: false,
 });
 
 // How long to wait after the last keystroke before querying from the graph picker's search

@@ -148,8 +148,19 @@ whole answer.
     - an events answer says whether undated events were counted
     - an answer says when the case changed while it ran
   - **Read-only, and structured:** there is no query language, and nothing on the page writes.
+- **The raw rule editor pairs brackets.** The bracket beside the caret and its partner are shaded,
+  and one with no partner is shaded red. Typing `{`, `[` or `"` closes it, typing the closer steps
+  over it, Backspace in an empty pair removes both halves, and Enter keeps the indent. None of it
+  applies inside a string.
+- **Format on save.** A checkbox in the rule editor lays the rule out in the house style as it is
+  saved. It is off unless you turn it on, a rule that fails its check is never rewritten, and field
+  order and fields this version does not read are kept.
 
 ### Fixed
+
+- **Tab now accepts a suggestion in the raw rule editor.** It used to insert two spaces instead.
+  Moving the caret out of the word being completed now closes the list, which used to stay open and
+  could write the suggestion where the caret had been.
 
 - **Errors now say whose fault they are.** A failed call used to reach the screen as its message
   alone, so a refused write, a busy case and a disk failure read alike. Each now carries its code,

@@ -234,7 +234,8 @@ You do not have to write the JSON by hand. _New rule_ on the Rules page opens an
 editor with two modes over the same file: a **guided** form generated from the
 rule format — every field carrying its own description, allowed values, and
 example, with each connection label edited between the two steps it joins — and
-a **raw** JSON view with highlighting, completion, and formatting. Switching
+a **raw** JSON view with highlighting, completion, bracket matching, and
+formatting, optionally on save. Switching
 between them is a change of view, not a conversion. A built-in cannot be edited
 in place, so _Duplicate_ opens an editable copy; a file that failed to load can
 be repaired with _Fix_ instead of leaving the application. The editor shows what

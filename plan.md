@@ -31,7 +31,7 @@ minimal for now) and are not counted: benchmark smoke (#34c), the `extension` jo
 P1 Foundations       ████████████████████ 100%  7/7    (#5 was ½ until D2 was fixed, §15)
 P2 Algorithms        ████████████████████ 100%  5/5    (#9 was ½ until D1 was fixed, §15)
 P3 Pipeline/caching  ████████████████████ 100%  3/3
-P4 Editor            ███████████████████░  94%  8½/9   #23 raw editor polish: only live duration check
+P4 Editor            ████████████████████ 100%  9/9    #23 ✅ (§15.13)
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████████████░░░░  80%  4/5    #33 ✅ (§15.12), #34 ✅ (§15.11); #32b extension ⬜; #36 docs ½
@@ -92,6 +92,12 @@ relations, lists them or counts them by a field, and always says how much it lef
 its binding holds a read-only interface over the store. Building it found that no backend error code
 had ever reached the frontend; every failed call now carries its code. **What is left:** P7's #32b
 and #36 ½, and P4's #23 ½.
+
+**#23 landed 2026-11-07** (§15.13): the raw editor matches brackets, closes them as they are typed,
+and can format a rule as it saves it. The bar above said only the live duration check was left;
+that check, the problems gutter and click-to-jump had in fact shipped, and bracket matching and
+format-on-save had not. The Overall line had rounded P4's half item up; 46/47 is now exact. **P4 is
+complete. What is left:** P7's #32b and #36 ½.
 
 ---
 
@@ -1451,11 +1457,14 @@ actually drawn.
 the one that indexes into the other must tolerate being briefly out of range.** Effects run after
 render, so "they are reset together" is never true for the frame in between.
 
-### 7.6 Raw editor improvements ⚠️
+### 7.6 Raw editor improvements ✅
 
 Small, since the base is solid: bracket matching + auto-close, a problems gutter with
 click-to-jump using the existing `line`/`col`, a format-on-save preference, and duration
 validation feedback for `window_within` as you type.
+
+Done 2026-11-07 (§15.13). The gutter, click-to-jump and the duration feedback had shipped with the
+editor; bracket matching, auto-close and format-on-save are new.
 
 ---
 
@@ -2276,8 +2285,7 @@ produce identical graphs. 🔒
     the whole point. `missing` is reported rather than omitted, so a bundle is never quietly
     short — that is a discovery best not left to the recipient.
 
-23. ⬜ Raw editor polish (bracket matching, problems gutter, format-on-save) — the last Phase 4
-    item, and the least consequential.
+23. ✅ Raw editor polish (bracket matching, problems gutter, format-on-save), §15.13.
 
 24. ✅ **Documentation catch-up.** Not a numbered plan item, taken before Phase 5 because the
     three long-lived documents had drifted far enough that they described an architecture that
@@ -3791,3 +3799,65 @@ Defaults chosen without asking:
   check reports it
 - no row opens its event, and nothing is exported
 - `wails dev` was not run by hand; the decoder is tested against the runtime's own rejection shape
+
+### 15.13 #23 raw editor polish (2026-11-07)
+
+**What was already there.** The plan's bar said only the live duration check was left. Reading the
+code said otherwise: `validate.js` checks `window_within` and `window_total` on every keystroke, the
+gutter marks each line with a problem, and the rail jumps to it. Bracket matching, auto-close and
+format-on-save did not exist.
+
+**Found while building it (fixed):**
+
+| Finding | What held |
+|---|---|
+| 🟡 **Tab never accepted a suggestion** | `CodeArea` handled Tab before the suggestion list heard the key, so Tab inserted two spaces and `RawEditorPanel`'s Tab branch could not run. Enter would have gone the same way once the editor handled it. The list now sees every key first |
+| 🟡 **A suggestion could be written in the wrong place** | The list stayed open when the caret left the text being completed (an arrow key, a click). Accepting then wrote the suggestion at the old position. A caret that leaves the range now closes it |
+| A save marked text typed during it as saved | `save()` set `original` to the buffer after the round trip, so the close guard would not ask about keystrokes made while it ran. `original` is now the text that was written |
+
+**Built:**
+- **`lib/rules/brackets.js`**, pure. Its own scanner rather than the highlighter's tokenizer,
+  because the tokenizer stops at the first thing that is not JSON and a half-typed buffer is the
+  normal state of an editor. It knows strings (escapes, and an unclosed string ending at its line)
+  and brackets, and reads to the end whatever it meets.
+  - **Matching:** the bracket beside the caret and its partner are shaded; a bracket with no
+    partner is shaded as an error. The caret is clamped, since it can be one edit behind the text.
+  - **Cost, measured.** It runs on every caret move. The first version built a map of every
+    bracket to answer for one: 55 ms per move on a 1 MiB rule, the loader's cap. It is now one pass
+    with an int stack that stops at the partner. On 1 MiB that is 15 ms at worst (the outer
+    bracket) and 0.01 ms away from a bracket. The existing highlighter costs 77 ms per keystroke on
+    the same file; a real rule is about 1 KB.
+  - **Auto-close:** `{` `[` and `"` insert their pair only where no value follows, never inside a
+    string, and a quote not straight after a word or another string.
+  - **Typing over:** a closer, or a string's closing quote, is stepped over. 🔒 A closer with no
+    partner is typed, so a missing one can always be added. A step changes no text and so is not
+    an edit: it records no undo step and drops no testbench result.
+  - **Backspace** in an empty pair deletes both halves. **Enter** keeps the line's indent, goes one
+    level deeper after an opener, and opens an empty pair onto its own lines.
+- **`CodeArea`** applies the edit to the element before telling its owner, so the suggestion list
+  reads the caret where it now is. The shading uses a background and an inset shadow only: anything
+  that takes space would push the highlight out of line with the textarea's text.
+- **Format on save**, a preference that is off by default and persists across restarts. 🔒 The rule
+  is formatted after it passes the check, so a refused rule is never rewritten. `Pretty` keeps field
+  order, unknown fields and number spelling, and the backend checks the formatted text again before
+  writing it. The formatted text enters the buffer as its own undo step, unless the author typed
+  during the round trip.
+
+**Tests:**
+- 35 bracket tests, including 20 000 seeded random buffers. They check that pairs are symmetric and
+  of one kind, that the caret lookup agrees with the full pass at every offset, that an edit touches
+  nothing outside itself, and that auto-close never unbalances a balanced buffer.
+- 6 save tests and 3 preference tests.
+- Smoke renders of `CodeArea` and `RawEditorPanel`, and a check that the underlay's text is the
+  textarea's character for character.
+- Shown failing first against the missing module and the missing preference. Five deliberate
+  breaks were each caught by a named test: the partner check, string skipping, the "no value
+  follows" rule, the typing-during-save guard and `original`.
+
+**Found, not fixed (outside #23):** the testbench reads `prefs.current().filters`, a key prefs does
+not have (the filter is `filterForm`). A dry run therefore always covers the whole case, whatever
+filter the events page holds. A one-word fix, but it changes what the testbench reports, so it is
+left for the owner.
+
+**Still open:** no DOM test environment exists, so the key handling is tested through the pure
+functions, and the component wiring was not exercised by hand (`wails dev` cannot be run here).

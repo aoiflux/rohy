@@ -12,6 +12,7 @@
   // away from the characters the caret is actually on. Everything in the style block below
   // that appears twice appears twice for that reason.
   import { segments } from '../../lib/rules/highlight.js';
+  import { bracketMarks, keystroke, markSegments, matchAt } from '../../lib/rules/brackets.js';
   import { UI } from '../../lib/consts/index.js';
 
   let {
@@ -22,14 +23,20 @@
     ariaLabel = UI.RULE_EDITOR_SOURCE_LABEL,
     oninput = undefined,
     onkeydown = undefined,
+    /** Called with the caret offset whenever it moves, or -1 when there is a selection. */
+    oncaret = undefined,
     element = $bindable(null),
   } = $props();
 
   let scroller = $state(null);
   let scrollTop = $state(0);
   let scrollLeft = $state(0);
+  /** The caret while the field has focus and nothing is selected; -1 otherwise. */
+  let caret = $state(-1);
 
-  const parts = $derived(segments(value));
+  // The bracket beside the caret and its partner are marked in the underlay. matchAt clamps,
+  // because the caret can be one edit behind the value for the frame in between.
+  const parts = $derived(markSegments(segments(value), bracketMarks(caret < 0 ? null : matchAt(value, caret))));
   // A trailing newline produces no visible line in the <pre>, so the last row of the gutter
   // would have nothing to sit beside. Counting from the split keeps the two in step.
   const lines = $derived(value.split('\n'));
@@ -40,29 +47,46 @@
     scrollLeft = e.currentTarget.scrollLeft;
   }
 
+  /** track records the caret. Typing does not report it: the owner hears of an edit through
+   *  oninput, and oncaret is for the moves that change no text. */
+  function track(el, report = true) {
+    caret = el.selectionStart === el.selectionEnd ? el.selectionStart : -1;
+    if (report) oncaret?.(caret);
+  }
+
   function handleInput(e) {
+    track(e.currentTarget, false);
     oninput?.(e.currentTarget.value, e);
   }
 
   /**
-   * Tab inserts two spaces rather than moving focus. In a code field that is what the key
-   * means — but it also traps keyboard users, so Escape is left free to leave the field and
+   * The owner sees the key first: an open suggestion list owns Enter, Tab and the arrows, and
+   * only a key it leaves alone is an edit. The edits themselves — pairs closed and typed over,
+   * an empty pair deleted whole, Enter keeping the indent, Tab as two spaces — are
+   * brackets.js's. Tab traps keyboard users, so Escape is left free to leave the field and
    * the hint below says so.
    */
   function handleKeydown(e) {
-    if (e.key === 'Tab' && !e.shiftKey && !readonly) {
-      e.preventDefault();
-      const el = e.currentTarget;
-      const { selectionStart: start, selectionEnd: end } = el;
-      const next = `${value.slice(0, start)}  ${value.slice(end)}`;
-      oninput?.(next, e);
-      // Restore the caret after Svelte writes the new value back into the element.
-      queueMicrotask(() => {
-        el.selectionStart = el.selectionEnd = start + 2;
-      });
-      return;
-    }
     onkeydown?.(e);
+    if (e.defaultPrevented || readonly || e.isComposing) return;
+    // AltGr arrives as Ctrl+Alt on Windows, and it is how much of Europe types { and [.
+    const altGr = e.getModifierState?.('AltGraph');
+    if (!altGr && (e.ctrlKey || e.metaKey || e.altKey)) return;
+    if (e.shiftKey && (e.key === 'Tab' || e.key === 'Enter')) return;
+    const el = e.currentTarget;
+    const next = keystroke(value, el.selectionStart, el.selectionEnd, e.key);
+    if (!next) return;
+    e.preventDefault();
+    // The element is written before the owner hears of it, so anything reading the caret on
+    // the input — the suggestion list does — reads where it now is. Svelte then writes the
+    // same text back, which leaves the caret alone. A step over a closer changes no text and
+    // is only a caret move: it must not reach oninput, which would record an undo step and
+    // drop a testbench result for an edit that did not happen.
+    const edited = next.text !== value;
+    if (edited) el.value = next.text;
+    el.selectionStart = el.selectionEnd = next.caret;
+    track(el, !edited);
+    if (edited) oninput?.(next.text, e);
   }
 
   /** focusLine puts the caret at the start of a 1-based line — how clicking a problem in the
@@ -72,6 +96,7 @@
     const offset = lines.slice(0, Math.max(0, line - 1)).reduce((n, l) => n + l.length + 1, 0);
     element.focus();
     element.selectionStart = element.selectionEnd = Math.min(offset, value.length);
+    track(element);
     // Put the target line near the middle rather than at the very top edge.
     const lineHeight = element.scrollHeight / Math.max(lines.length, 1);
     element.scrollTop = Math.max(0, (line - 1) * lineHeight - element.clientHeight / 2);
@@ -91,8 +116,10 @@
     <pre
       class="underlay"
       aria-hidden="true"
-      style:transform="translate({-scrollLeft}px, {-scrollTop}px)">{#each parts as part}{#if part.type}<span
-            class="t-{part.type}">{part.text}</span>{:else}{part.text}{/if}{/each}<span class="tail"> </span></pre>
+      style:transform="translate({-scrollLeft}px, {-scrollTop}px)">{#each parts as part}{#if part.type || part.mark}<span
+            class={part.type ? `t-${part.type}` : ''}
+            class:m-match={part.mark === 'match'}
+            class:m-unmatched={part.mark === 'unmatched'}>{part.text}</span>{:else}{part.text}{/if}{/each}<span class="tail"> </span></pre>
 
     <textarea
       bind:this={element}
@@ -108,6 +135,14 @@
       wrap="off"
       oninput={handleInput}
       onkeydown={handleKeydown}
+      onkeyup={(e) => track(e.currentTarget)}
+      onmouseup={(e) => track(e.currentTarget)}
+      onfocus={(e) => track(e.currentTarget)}
+      onselect={(e) => track(e.currentTarget)}
+      onblur={() => {
+        caret = -1;
+        oncaret?.(-1);
+      }}
       onscroll={sync}
     ></textarea>
   </div>
@@ -231,5 +266,18 @@
     color: var(--color-error);
     text-decoration: underline wavy var(--color-error);
     text-underline-offset: 3px;
+  }
+
+  /* The bracket pair beside the caret. Background and an inset shadow only: anything that
+     takes space (a border, padding, a heavier weight) would push the underlay out of line
+     with the textarea's characters. */
+  .m-match {
+    background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 60%, transparent);
+    border-radius: 2px;
+  }
+  .m-unmatched {
+    background: color-mix(in srgb, var(--color-error) 25%, transparent);
+    border-radius: 2px;
   }
 </style>

@@ -16,6 +16,9 @@ function defaults() {
     // survives navigation and restart (P24).
     timelineView: { start: 0, end: 1 },
     timelineGroupBy: '', // lane grouping; '' = no grouping
+    // The rule editor reformats a rule in the house style as it saves it (plan §7.6). Off
+    // by default: a rule is the author's text, and rewriting it unasked is not the editor's call.
+    formatOnSave: PREFS.FORMAT_ON_SAVE_DEFAULT,
   };
 }
 
@@ -32,6 +35,7 @@ function read() {
       filterForm: { ...base.filterForm, ...(saved.filterForm || {}) },
       timelineView: { ...base.timelineView, ...(saved.timelineView || {}) },
       timelineGroupBy: saved.timelineGroupBy ?? base.timelineGroupBy,
+      formatOnSave: typeof saved.formatOnSave === 'boolean' ? saved.formatOnSave : base.formatOnSave,
     };
   } catch (_) {
     return base;
@@ -63,6 +67,7 @@ function create() {
     set,
     setSearchOpen: (open) => set({ searchOpen: !!open }),
     setFilterForm: (form) => set({ filterForm: { ...emptyForm(), ...(form || {}) } }),
+    setFormatOnSave: (on) => set({ formatOnSave: !!on }),
     /** Synchronous read for callers that need the value before subscribing. */
     current: () => get(store),
     reset: () => set(defaults()),

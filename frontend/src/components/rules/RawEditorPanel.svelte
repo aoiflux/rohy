@@ -57,6 +57,12 @@
     queueMicrotask(refresh);
   }
 
+  /** A caret that leaves the text being completed closes the list: accepting a suggestion
+   *  after that would write it where the caret used to be. */
+  function handleCaret(at) {
+    if (open && (at < range.from || at > range.to)) close();
+  }
+
   function handleKeydown(e) {
     if (e.ctrlKey && e.code === 'Space') {
       e.preventDefault();
@@ -96,6 +102,7 @@
     {errorLines}
     oninput={handleInput}
     onkeydown={handleKeydown}
+    oncaret={handleCaret}
   />
 
   {#if open}

@@ -320,7 +320,17 @@ function create() {
    *
    * @returns {Promise<{rule:object, created:boolean, renamed:boolean, previous_id?:string}|null>}
    */
-  async function save() {
+  /**
+   * save validates, reformats when asked, and writes.
+   *
+   * The format comes after the check, so a refused rule is never rewritten: the author sees
+   * their own text beside its problems. Pretty keeps field order, unknown fields and number
+   * spelling, so the formatted rule is the one just accepted, and the backend checks it again
+   * before writing. It lands in the buffer as its own undo step, so what is saved is what is
+   * on screen — unless the author typed during the round trip, whose keystrokes are theirs.
+   * @param {{format?: boolean}} [opts]
+   */
+  async function save({ format: reformat = false } = {}) {
     const state = get(store);
     update((s) => ({ ...s, saving: true, error: null }));
     try {
@@ -329,16 +339,25 @@ function create() {
         update((s) => ({ ...s, saving: false, report }));
         return null;
       }
+      let source = state.doc.text;
+      if (reformat) {
+        source = await api.formatRule(source, false);
+        if (source !== state.doc.text && get(store).doc.text === state.doc.text) {
+          applyDoc(createDocument(source), { coalesce: false });
+        }
+      }
       const result = await api.saveRule({
         id: state.editingId,
-        source: state.doc.text,
+        source,
         replace_path: state.replacePath,
       });
       await rules.load();
       update((s) => ({
         ...s,
         saving: false,
-        original: s.doc.text,
+        // What was written, not what the buffer holds now: text typed during the save is
+        // unsaved, and the close guard must still say so.
+        original: source,
         editingId: result.rule.id,
         replacePath: '', // retired by the write; a second save must not try again
       }));

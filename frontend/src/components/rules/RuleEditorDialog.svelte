@@ -19,6 +19,7 @@
 
   import Dialog from '../material/Dialog.svelte';
   import Button from '../material/Button.svelte';
+  import Checkbox from '../material/Checkbox.svelte';
   import RawEditorPanel from './RawEditorPanel.svelte';
   import GuidedEditorPanel from './GuidedEditorPanel.svelte';
   import RulePreviewPane from './RulePreviewPane.svelte';
@@ -86,7 +87,7 @@
   }
 
   async function doSave(andRun) {
-    const result = await ruleEditor.save();
+    const result = await ruleEditor.save({ format: $prefs.formatOnSave });
     if (!result) {
       snackbar.error($ruleEditor.error || UI.RULE_EDITOR_SAVE_REFUSED);
       return;
@@ -181,6 +182,13 @@
             <Button variant="text" onclick={() => ruleEditor.format(false)}>{UI.RULE_EDITOR_PRETTY}</Button>
             <Button variant="text" onclick={() => ruleEditor.format(true)}>{UI.RULE_EDITOR_MINIFY}</Button>
           {/if}
+          <!-- Both modes: it applies to every save, whichever view made the edit. -->
+          <span class="fos" title={UI.RULE_EDITOR_FORMAT_ON_SAVE_HINT}>
+            <Checkbox
+              label={UI.RULE_EDITOR_FORMAT_ON_SAVE}
+              bind:checked={() => $prefs.formatOnSave, (on) => prefs.setFormatOnSave(on)}
+            />
+          </span>
           <Button variant="text" onclick={() => fileInput?.click()}>{UI.RULE_EDITOR_IMPORT}</Button>
           <Button variant="text" onclick={exportRule}>{UI.RULE_EDITOR_EXPORT}</Button>
           <input
@@ -383,6 +391,10 @@
     display: flex;
     align-items: center;
     gap: var(--space-1);
+  }
+  .fos {
+    display: inline-flex;
+    margin: 0 var(--space-2);
   }
   .hidden {
     display: none;

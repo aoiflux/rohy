@@ -20,6 +20,8 @@ import QueryView from '../routes/QueryView.svelte';
 import QueryResult from './query/QueryResult.svelte';
 import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
+import CodeArea from './rules/CodeArea.svelte';
+import RawEditorPanel from './rules/RawEditorPanel.svelte';
 
 import { SCENARIOS } from '../lib/learn/algorithms.js';
 import { readFileSync } from 'node:fs';
@@ -86,6 +88,30 @@ describe('rules / ListField', () => {
   renders('renders an empty list', ListField, {
     field: SCHEMA.fields.find((f) => f.name === 'channels'),
     items: [],
+  });
+});
+
+describe('rules / CodeArea and RawEditorPanel', () => {
+  const broken = '{"name": "x",\n  "sequence": [1}';
+  renders('renders a broken rule with a problem line', CodeArea, { value: broken, errorLines: [2] });
+  renders('renders an empty buffer', CodeArea, { value: '' });
+  renders('renders the raw panel without a schema', RawEditorPanel, { value: broken, schema: null });
+
+  it('draws the underlay character for character as the text', () => {
+    // The highlight sits under a transparent textarea, so any character the underlay adds or
+    // drops shows as colour drifting off the text the caret is on.
+    const value = '{"a": [1, "]<&"], x }\n';
+    const { body } = render(CodeArea, { props: { value } });
+    const pre = /<pre[^>]*>([\s\S]*?)<\/pre>/.exec(body)[1];
+    const text = pre
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
+    expect(text).toBe(value + ' ');
   });
 });
 
