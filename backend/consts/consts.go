@@ -2619,7 +2619,9 @@ const DefaultDeduplicationCount = 1
 //
 // These bound peak memory independent of input size (P2-L). ChunkQueueDepth caps
 // how many parsed-chunk batches may be in flight between the streaming reader and
-// the persistence sink, applying backpressure to the slowest stage. EventBatchSize
+// the persistence sink, applying backpressure to the slowest stage; a file ingest,
+// which hands chunks over in file order, may parse ChunkQueueDepth + ParseWorkerCount
+// chunks ahead of the oldest one the sink has not taken. EventBatchSize
 // caps the number of events per persistence write so no single write becomes a
 // large transaction. ParseWorkerCount bounds parse/normalize concurrency; each
 // worker uses its own file handle (concurrent seeks on one handle are unsafe).

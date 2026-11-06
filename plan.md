@@ -34,11 +34,11 @@ P3 Pipeline/caching  ███████████████████�
 P4 Editor            ███████████████████░  94%  8½/9   #23 raw editor polish: only live duration check
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
-P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
+P7 Tooling           ████████████░░░░░░░░  60%  3/5    #34 ✅ (§15.11); #32b extension, #33 QueryAPI ⬜; #36 docs ½
 P8 Forensic          ████████████████████ 100%  7/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #42 ✅ (§15.10), #43 ✅ (§15.9)
 ───────────────────────────────────────────────────────
-Overall              ███████████████████░  94%  44/47
-Definition of done   ██████████████████░░  91%  10/11  the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43 (+ the window, #42)
+Overall              ███████████████████░  96%  45/47
+Definition of done   ██████████████████░░  91%  10/11  the integration path: the suite exists (#34), CI does not run it (minimal CI); proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43 (+ the window, #42)
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
@@ -79,6 +79,13 @@ case's rewriter cannot reach; the receipt they get back is recorded beside the s
 integrity report states the window since the last checkpoint with a receipt, and a digest the
 reader holds is checked against the case — the one check rohy runs that does not rest on the case.
 **P8 is complete.** What is left is P7 (#32b, #33, #34, #36 ½) and P4's #23 ½.
+
+**#34 landed 2026-11-06** (§15.11): `backend/integration` runs the real pipeline on disk over the
+committed log, and `tools/profile` profiles ingest, build and open. Building it found that the same
+file gave a different graph on each ingest, because chunks were written in the order the parse
+workers finished; a file is now written in its own order. It also found that a crash could hide a
+relation from its rule, out of the repair's reach. Both are fixed. The suite runs in the local gate,
+not in CI. **What is left:** P7's #32b, #33 and #36 ½, and P4's #23 ½.
 
 ---
 
@@ -1822,10 +1829,12 @@ test rather than as an editor that accepts what the loader will refuse.
 4. Node/edge property-key golden: the indexed key sets, so a silent index change is caught.
 5. `corr_keys` positional golden: the slot vocabulary and its order. 🔒 Reordering must fail.
 
-### 10.3 Integration ❌
+### 10.3 Integration ✅ (#34, §15.11)
 
 `backend/integration`, build tag `integration`, running the real pipeline over the committed
-`backend/evtx/testdata/Security.evtx`:
+`backend/evtx/testdata/Security.evtx`. Built as specified, on the disk backend, plus a re-ingest
+test the spec did not have; "export → re-import" is the rule library's bundle, the only round trip
+the app offers. The CI step stays deferred (minimal CI); the local gate runs it.
 
 - ingest → query → run all built-in rules → assert graph counts → export → re-import → assert
   byte-identical;
@@ -1916,13 +1925,15 @@ type datasetCache struct {
 - Biggest win is the testbench: tuning a rule re-runs `Generate` over a prepared dataset instead
   of re-reading and re-sorting the case on every keystroke-triggered run.
 
-### 11.4 Memory profiling & stress ❌
+### 11.4 Memory profiling & stress ✅ (#34, §15.11)
 
-- `tools/profile/` — a harness capturing `pprof` heap and CPU for ingest, build and open at
-  10k/100k/1M events, writing profiles to a gitignored directory.
-- Extend `evtx/scale_test.go` with a **build-side** stress: 100k events × 20 mixed-algorithm
-  rules, asserting peak memory stays bounded (the ingest side already asserts this ✅).
-- A `graphene_memory_test.go` assertion on `corr_keys` cost, as above 🟡.
+- ✅ `tools/profile/` — a harness capturing `pprof` heap and CPU for ingest, build and open at
+  chosen sizes (`-events`, default 10k and 100k), writing profiles to the gitignored `profiles/`.
+- ✅ A **build-side** stress: 100k events × 20 mixed-algorithm rules, asserting peak memory stays
+  bounded. It lives in `backend/integration` (`TestTheBuildStaysBounded`), not
+  `evtx/scale_test.go`: CI runs the evtx package without `-short`, so it would have lengthened CI,
+  and evtx cannot import the build.
+- ✅ The `corr_keys` cost assertion already exists as `TestCorrelationProjectionBudget`.
 
 ---
 
@@ -2388,7 +2399,8 @@ console, which is a Phase 7 item and belongs with the rest of the tooling work.
     language client, `rohyctl` discovery with the schema as fallback, and its own test suite — and
     it is the one item in the plan whose value is entirely outside this repository's own build.
 33. `QueryAPI` read-only console (structured builder, **no expression language** 🔒).
-34. Integration suite; stress + profiling harness; benchmark smoke in CI.
+34. ✅ Integration suite; stress + profiling harness (§15.11). The benchmark smoke in CI is
+    deferred with the rest of the CI additions.
 35. ⚠️ CI jobs: `rules-lint` ✅, `schema-drift` ✅, `extension` ⬜, CLI in the build matrix ⬜.
 
     `go vet` and `go test` now cover `./cmd/...` and `./tools/...` as well as `./backend/...`, so
@@ -2512,8 +2524,9 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
 - ✅ A rebuild is still byte-identical and idempotent, including `match_id`.
 - ✅ An analyst can tell "no matching events", "events but no pattern", and "blocked on
   correlation keys" apart without reading source.
-- ⚠️ CI gates schema drift and rule formatting — **not the integration path**: there is no
-  `backend/integration` suite yet (#34), and CI stays minimal for now (2026-11-03 audit).
+- ⚠️ CI gates schema drift and rule formatting — **not the integration path**. The
+  `backend/integration` suite exists (#34, §15.11) and the local gate runs it, but CI does not:
+  CI stays minimal for now (owner, 2026-11-03).
 - ✅ Nothing auto-deletes, nothing auto-runs at startup, nothing silently truncates.
 - ✅ **A third party holding only an exported proof and an externally retained root can check
   that a named event was in the case — without access to `rohy-data/` and without rohy** (§14).
@@ -3640,3 +3653,72 @@ entries; a publish takes ~17–22 ms (two syncs). Neither depends on the number 
   store of its own.
 - Everything after the last checkpoint rests on the case's own word, as §14.7 says; the report
   states the window rather than closing it.
+
+### 15.11 #34 integration suite, stress and profiling (2026-11-06)
+
+**Found while scoping it, before any of the suite existed (Phase 0, verified):**
+
+| Finding | What held |
+|---|---|
+| 🔴 **The same file gave a different graph on each ingest** | File ingest parsed chunks on 4 workers and handed them to the sink as each finished, so node ids changed on every ingest: six ingests of `Security.evtx` gave 111–652 of its 739 events another id. The rule engine orders events at one instant by node id. A probe with two events at one timestamp and a `4625 → 4624` rule wrote 1 relation when they were inserted one way and 0 the other. The fixture has no tied timestamps, so its graph happened to hold still, but `match_id`, built from node ids, did not. An idempotent ingest also kept whichever copy of a duplicate arrived first |
+| 🔴 **A crash could hide a relation from its rule** | The engine registers a relation's four index entries one write-ahead record per key, in map order. `RepairRelationIndex` and `CountUnindexedRelations` asked only whether `graph_id` listed each edge, so an edge its graph listed and its rule did not was never counted or repaired |
+| `Store.Close` twice failed | `wal closed`: nothing recorded that the store was closed |
+| An open failure counted as a chunk | A worker that could not open the file sent a result with no chunk, so `ChunksParsed` could exceed `ChunksTotal`, and a run whose workers all failed reported "Completed" with nothing read |
+| Lineage reads correlation keys too | On a case without keys, the build writes 16 relations, not 26: the field rule loses 1 and `process-ancestry` 9 |
+| The `.db` reader has no `ORDER BY` | Ordered in practice for rowid tables; SQLite does not promise it. Recorded, not changed |
+
+**Decisions (owner, 2026-11-06):**
+
+| Question | Decision |
+|---|---|
+| The ingest-order defect | Write chunks in file order, through a bounded window. |
+| The fixture's counts | A golden file, refreshed with `-update`. |
+| The profiling harness | Now, configured by flags only. |
+
+Defaults chosen without asking:
+- no content tie-break in the engine: an event's identity includes its source path, so tie order
+  would change with the folder, and the graph would order ties differently from the timeline
+- the suite runs in the local gate, never in CI, and the build scripts are not touched
+
+**As built:**
+- **File order** (`evtx.runFileChunks`). Each chunk gets a future its worker fills once; the producer
+  queues the futures in file order, and an adapter forwards them. At most `ChunkQueueDepth + workers`
+  chunks are parsed ahead of the oldest one the sink has not taken. The validating handle is the first
+  worker's; every handle is closed before `Ingest` returns. Tests force out-of-order completion:
+  the oldest chunk finishing last, the window with it stuck, cancel and pause with it stuck, errors
+  in order, four workers against one on the fixture, and cancel-then-resume giving a full ingest's
+  order.
+- **The repair** checks every index key, and the integrity count is the same walk
+  (`relationIndexGaps`). Test hook: `InsertRelationPartlyIndexedForTesting`.
+- **`backend/synth`**: the synthetic EVTX the scale test already used, distinct synthetic events
+  with ties, and a 20-rule mixed set. Nothing in normal operation imports it.
+- **`backend/integration`** (tag `integration`), on disk:
+  - the app's own bindings end to end against `testdata/security-golden.json` (739 events, 35 rule
+    outcomes, 26 relations), then the rule library exported and imported byte for byte into a second
+    case that builds the same graph
+  - rebuilds identical before and after a reopen and a compaction
+  - three fresh ingests with the same ids and relations, and a re-ingest that adds nothing
+  - a case without keys that says so, then backfills to the golden graph and the same keys
+  - an interrupted build, recovered by the repair and by the next build, including the half-indexed
+    edge
+  - the build stress test
+- **`tools/profile`**: ingest, build and open, CPU and heap profiles and a `summary.json`.
+
+**Shown failing first:** the order tests and the extended cancel-then-resume test against the
+arrival-order pipeline; the re-ingest test against it too, by swapping the old pipeline back in for
+one run; the half-indexed and double-close tests before their fixes; the golden check with one
+relation removed from the file.
+
+**Measured** (PERFORMANCE.md §20):
+- ingest's peak heap moved 18→17 and 23→25 MiB with the ordering
+- a 20-rule build over 100k events peaks at about 110 MiB, 1.25× its heaviest rule, and 4.1× the
+  25k build
+- the repair costs about 20–40% more over 50k relations
+- the profiler puts about 40% of a build in decoding node records
+
+**Still open:**
+- several files are written in the order the analyst ingests them, so the same files in another
+  order can resolve a cross-file tie differently (LLD §11.4)
+- the `.db` reader's row order is SQLite's
+- the integration and benchmark-smoke CI steps are deferred
+- the build's node-record decode is the first optimisation candidate; nothing was changed for it

@@ -609,7 +609,8 @@ flowchart LR
         P["walk chunk offsets<br/>in the .evtx file"]
     end
 
-    OC(["offsetCh<br/>buffered, depth 8"])
+    OQ(["order<br/>one future per chunk, in file order<br/>depth 8 + workers"])
+    JC(["jobs<br/>unbuffered"])
 
     subgraph workers["4 goroutines — worker pool"]
         W1["parse chunk<br/>→ normalize<br/>→ hash"]
@@ -617,7 +618,11 @@ flowchart LR
         W3["…"]
     end
 
-    RC(["resultCh<br/>buffered, depth 8"])
+    subgraph adapter["1 goroutine — the adapter"]
+        A["wait on the oldest future<br/>→ forward its result"]
+    end
+
+    RC(["resultCh<br/>unbuffered"])
 
     subgraph sink["1 goroutine — the sink"]
         S["dedup → batch → persist<br/>→ count → report"]
@@ -625,10 +630,14 @@ flowchart LR
 
     DB[("graphene.Store")]
 
-    P --> OC --> W1 --> RC
-    OC --> W2 --> RC
-    OC --> W3 --> RC
-    RC --> S --> DB
+    P --> OQ --> A
+    P --> JC --> W1
+    JC --> W2
+    JC --> W3
+    W1 -. "fills its chunk's future" .-> A
+    W2 -.-> A
+    W3 -.-> A
+    A --> RC --> S --> DB
 ```
 
 Why this shape:
@@ -639,18 +648,37 @@ Why this shape:
   the counters and the `Reporter` need **no synchronisation at all**. That is not
   laziness — it is a deliberate trade of a little throughput for the complete
   absence of a class of bug.
-- **Both channels are bounded (depth 8).** When the sink falls behind, the
-  workers block; when the workers fall behind, the producer blocks. This is
-  backpressure, and it is what makes **peak memory independent of input size**:
-  at most 4 chunks (64 KB each) plus 8 queued batches are resident, whether the
-  file is 5 MB or 5 GB.
+- **Chunks reach the sink in file order** 🔒, whichever worker finishes first.
+  Node ids are assigned in the order events reach the store, and the rule engine
+  orders events at the same instant by node id (§11.4). Handed over as workers
+  finished, the same file got different ids on every ingest, so two events at one
+  instant could be joined on one ingest and not the next, and an idempotent
+  ingest kept whichever copy of a duplicate arrived first. Each chunk gets a
+  *future*, a channel of capacity one its worker fills exactly once; the producer
+  queues the futures in file order before handing the chunk out, and the adapter
+  forwards their results in that order. A worker never waits on anything but its
+  next job, so the oldest chunk always finishes and nothing deadlocks behind it.
+  The `.db` reader is one ordered producer already; live capture interleaves its
+  channels as records arrive, which is inherent.
+- **The window is bounded.** A chunk is handed out only once its future has a
+  place in `order`, so at most `ChunkQueueDepth + workers` (12) chunks are parsed
+  ahead of the oldest one the sink has not taken. When the sink falls behind or is
+  paused, the adapter blocks, `order` fills and the producer stops. This is
+  backpressure, and it is what makes **peak memory independent of input size**,
+  whether the file is 5 MB or 5 GB (`TestBoundedMemoryStreaming`, and
+  `TestTheReorderWindowBoundsWhatIsParsedAhead` with the oldest chunk stuck).
+- **The evidence handles are closed before `Ingest` returns**, on every path,
+  cancel and failure included: on Windows an open handle keeps the file from being
+  moved or deleted. The handle that validated the file is the first worker's, so a
+  run always has one; an extra handle that cannot be opened is reported and the
+  run goes on with fewer workers.
 
 Tuning constants ([consts.go](backend/consts/consts.go)):
 
 | Constant           | Value | Role                                                  |
 | ------------------ | ----- | ----------------------------------------------------- |
 | `ParseWorkerCount` | 4     | parse/normalize concurrency                           |
-| `ChunkQueueDepth`  | 8     | channel buffer depth on both channels                 |
+| `ChunkQueueDepth`  | 8     | with the worker count, the reorder window             |
 | `EventBatchSize`   | 512   | events per durable write                              |
 | `ProgressInterval` | 2000  | records between progress emissions                    |
 
@@ -1117,6 +1145,17 @@ Implementations must be **pure and deterministic**: same inputs, same output,
 independent of map iteration order or the wall clock. Hence sorted scope names
 and id tie-breaks everywhere.
 
+The id tie-break makes node ids an input, so they must be deterministic too. A
+file ingest writes its chunks in file order (§7.1), so the same file read into a
+fresh case gets the same ids, and therefore the same graph and the same match
+ids (`TestTheSameFileGivesTheSameCaseEveryTime` in `backend/integration`). Within
+one file, ties then follow the order the log recorded them. Across **several**
+files, ids follow the order the analyst ingested them: the same files ingested in
+another order can resolve a tie between two files differently. A tie-break on
+content was rejected: an event's identity includes its source path, so the order
+would change with the folder the evidence was read from, and the graph would
+order ties differently from the timeline, which pages by id.
+
 `AutoGraphMaxMatches = 100000` caps completed matches. On hitting it, the scan
 **keeps going** — but only to count how many more it is dropping, so the result
 reports `Truncated: true` and an exact `Dropped` figure. Silent truncation is
@@ -1276,7 +1315,10 @@ to graph-scoped queries (those resolve through the `graph_id` index). Structural
 verification cannot catch this — the edge and its adjacency agree, so nothing is
 *damaged*; a caller-encoded value simply was never written. Only `graphene`
 knows how a relation encodes its own index entries, so repair lives there and is
-called here.
+called here. The engine registers a relation's entries one write-ahead record per
+key, so a crash can also leave an edge its graph lists and its rule does not; the
+repair, and the integrity count beside it, check **every** key a relation is
+indexed under, not only `graph_id`.
 
 **Empty graphs are discarded.** Keeping them would fill the graph picker with one
 empty entry per rule that did not fire, and an empty graph looks exactly like one
@@ -1563,7 +1605,7 @@ corrupted case.
 | Crash mid-ingest                                     | Everything flushed before the crash        | Re-run the ingest; hash idempotency collapses the overlap to occurrence counts     |
 | Crash between payload write and event commit         | Orphan bytes in `payloads.log`             | Harmless waste; reclaimed by re-ingesting                                          |
 | Crash between event commit and index registration    | The event exists but is not findable        | `RebuildIndexes` restores structure; re-running the write restores property entries |
-| Crash between edge commit and index registration     | The edge exists but belongs to no graph     | `RepairRelationIndex` — and every rule build calls it first                         |
+| Crash between edge commit and index registration     | The edge exists but its graph or its rule does not list it | `RepairRelationIndex`, over every index key — and every rule build calls it first |
 | Crash during live capture                            | The bookmark trails the durable write       | Next run re-reads a little; dedup collapses it. **It can never skip.**              |
 | Uncompacted close (kill, power loss)                 | The WAL                                    | Replayed automatically on next open                                                 |
 | Corrupt capture sidecar                              | —                                          | Treated as "no positions": costs a re-read, not a failed startup                     |

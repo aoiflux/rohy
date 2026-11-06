@@ -2,9 +2,11 @@ package graphene
 
 import (
 	"encoding/json"
+	"sort"
 
 	"rohy/backend/consts"
 
+	"github.com/aoiflux/graphene"
 	"github.com/aoiflux/graphene/store"
 )
 
@@ -137,57 +139,102 @@ func (s *Store) PayloadSize() uint64 {
 // every timestamp only to ask whether it is set.
 const zeroTimestamp = "0001-01-01T00:00:00Z"
 
-// CountUnindexedRelations reports how many relation edges are missing their index entries,
+// CountUnindexedRelations reports how many relation edges are missing any of their index entries,
 // WITHOUT repairing them.
 //
 // It exists because integrity reads and reports; repairing is a separate, explicit act. Running
 // the repair to find out whether one is needed would mean the report could not be run without
-// changing the thing it reports on.
+// changing the thing it reports on. It counts exactly what RepairRelationIndex would repair.
 func (s *Store) CountUnindexedRelations() (int, error) {
 	g, err := s.graph()
 	if err != nil {
 		return 0, err
 	}
-	// Walk the edges directly: that is the authoritative set, derived from adjacency rather than
-	// from the index whose truthfulness is in question.
-	edgeIDs, err := g.EdgesByType(consts.EdgeRelation)
-	if err != nil {
-		return 0, err
-	}
-	if len(edgeIDs) == 0 {
-		return 0, nil
-	}
+	gaps, err := relationIndexGaps(g)
+	return len(gaps), err
+}
 
-	byGraph := map[uint64][]uint64{}
+// indexGap is one relation edge and the index entries it lacks.
+type indexGap struct {
+	id      store.EdgeID
+	missing map[string][]byte
+}
+
+// relationIndexKeys are the keys every relation is indexed under, in a fixed order.
+var relationIndexKeys = func() []string {
+	keys := make([]string, 0, 4)
+	for k := range (&Relation{}).indexValues() {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}()
+
+// relationIndexGaps lists, in edge id order, every relation edge that some index entry of its own
+// does not list, with the entries it lacks.
+//
+// 🔒 Every key, not only graph_id. The engine registers a relation's entries one write-ahead record
+// per key, in map order, so a crash between two of them leaves an edge graph_id finds and rule_id
+// does not — missing from "this rule's edges" while every graph-scoped check reads it as healthy.
+//
+// It walks the edges directly, which is the authoritative set: it is derived from adjacency rather
+// than from the index whose truthfulness is in question. Then, one key at a time so that only one
+// key's postings are held at once, it asks the index which edges each value lists.
+func relationIndexGaps(g *graphene.Graph) ([]indexGap, error) {
+	edgeIDs, err := g.EdgesByType(consts.EdgeRelation)
+	if err != nil || len(edgeIDs) == 0 {
+		return nil, err
+	}
+	type indexed struct {
+		id   store.EdgeID
+		vals map[string][]byte
+	}
+	rels := make([]indexed, 0, len(edgeIDs))
 	for _, id := range edgeIDs {
 		ed, err := g.GetEdge(id)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		r, err := relationFromEdge(ed)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		byGraph[r.GraphID] = append(byGraph[r.GraphID], r.ID)
+		rels = append(rels, indexed{id: id, vals: r.indexValues()})
 	}
 
-	missing := 0
-	for graphID, want := range byGraph {
-		indexed, err := s.RelationsByGraph(graphID)
-		if err != nil {
-			return 0, err
+	missing := map[store.EdgeID]map[string][]byte{}
+	for _, key := range relationIndexKeys {
+		byValue := map[string][]int{}
+		for i, r := range rels {
+			v := string(r.vals[key])
+			byValue[v] = append(byValue[v], i)
 		}
-		have := make(map[uint64]bool, len(indexed))
-		for _, r := range indexed {
-			have[r.ID] = true
-		}
-		for _, id := range want {
-			if !have[id] {
-				missing++
+		for v, members := range byValue {
+			listed, err := g.EdgesByProperties(map[string][]byte{key: []byte(v)})
+			if err != nil {
+				return nil, err
+			}
+			has := make(map[store.EdgeID]bool, len(listed))
+			for _, id := range listed {
+				has[id] = true
+			}
+			for _, i := range members {
+				if id := rels[i].id; !has[id] {
+					if missing[id] == nil {
+						missing[id] = map[string][]byte{}
+					}
+					missing[id][key] = rels[i].vals[key]
+				}
 			}
 		}
 	}
-	return missing, nil
+
+	gaps := make([]indexGap, 0, len(missing))
+	for id, m := range missing {
+		gaps = append(gaps, indexGap{id: id, missing: m})
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i].id < gaps[j].id })
+	return gaps, nil
 }
 
 // DanglingRelations returns relations whose endpoints no longer resolve to an event.

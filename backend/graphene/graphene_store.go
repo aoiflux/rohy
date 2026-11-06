@@ -33,6 +33,7 @@ type Store struct {
 	openMu    sync.Mutex
 	ready     atomic.Bool
 	attempted bool
+	closed    bool // set by Close, under openMu
 	openErr   error
 	awaiting  bool
 	session   chan struct{} // closed once a session has opened the store
@@ -240,9 +241,12 @@ func (s *Store) Close() error {
 	// Holding openMu means a session's open cannot be half way through while this closes.
 	s.openMu.Lock()
 	defer s.openMu.Unlock()
-	if !s.ready.Load() {
+	// A second Close finds nothing to close. ready is not cleared: a closed store must never look
+	// unopened, or the next accessor would open it again behind the caller's back.
+	if !s.ready.Load() || s.closed {
 		return nil
 	}
+	s.closed = true
 	// Close the payload log first: it is written before the events that reference it, so it
 	// is flushed before them too.
 	if s.payloads != nil {
@@ -340,8 +344,9 @@ func (s *Store) RebuildIndexes() error {
 // caller-encoded value it never saw. Repair therefore has to come from this package, which
 // is the only thing that knows how a relation encodes its own index entries.
 //
-// It works by walking edges, which does not depend on the index being correct, and
-// comparing what it finds against what the index reports for each graph. It is idempotent:
+// It works by walking edges, which does not depend on the index being correct, and comparing
+// what it finds against what the index lists under EVERY key a relation is indexed by — see
+// relationIndexGaps for why graph_id alone is not enough. It is idempotent:
 // on a healthy store it registers nothing and returns zero, which is what makes it safe to
 // offer as a maintenance action rather than a last resort.
 func (s *Store) RepairRelationIndex() (int, error) {
@@ -349,50 +354,20 @@ func (s *Store) RepairRelationIndex() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// Walk every relation edge directly. This is the authoritative set: it is derived from
-	// adjacency, not from the property index whose truthfulness is in question.
-	edgeIDs, err := g.EdgesByType(consts.EdgeRelation)
+	gaps, err := relationIndexGaps(g)
 	if err != nil {
 		return 0, err
 	}
-	if len(edgeIDs) == 0 {
-		return 0, nil
-	}
-
-	byGraph := make(map[uint64][]*Relation)
-	for _, id := range edgeIDs {
-		ed, err := g.GetEdge(id)
-		if err != nil {
-			return 0, err
-		}
-		r, err := relationFromEdge(ed)
-		if err != nil {
-			return 0, err
-		}
-		byGraph[r.GraphID] = append(byGraph[r.GraphID], r)
-	}
-
 	repaired := 0
-	for graphID, rels := range byGraph {
-		// What the index currently believes belongs to this graph.
-		indexed, err := g.EdgesWithProperties(map[string][]byte{consts.PropGraphID: graphIDValue(graphID)})
-		if err != nil {
+	for _, gap := range gaps {
+		// Only the entries that are missing: the rest are already listed.
+		if err := g.IndexEdgeProperties(gap.id, gap.missing); err != nil {
+			if repaired > 0 {
+				s.bumpVersion()
+			}
 			return repaired, err
 		}
-		known := make(map[uint64]bool, len(indexed))
-		for _, ed := range indexed {
-			known[uint64(ed.ID)] = true
-		}
-		for _, r := range rels {
-			if known[r.ID] {
-				continue
-			}
-			if err := g.IndexEdgeProperties(store.EdgeID(r.ID), r.indexValues()); err != nil {
-				return repaired, err
-			}
-			repaired++
-		}
+		repaired++
 	}
 	if repaired > 0 {
 		s.bumpVersion() // relations became visible; any cached ordering is now stale

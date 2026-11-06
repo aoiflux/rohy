@@ -1,0 +1,234 @@
+{
+  "events": 739,
+  "by_event_id": {
+    "1101": 1,
+    "1102": 1,
+    "4608": 1,
+    "4616": 3,
+    "4624": 197,
+    "4625": 15,
+    "4627": 194,
+    "4634": 8,
+    "4648": 12,
+    "4672": 184,
+    "4688": 11,
+    "4696": 1,
+    "4719": 14,
+    "4776": 23,
+    "4798": 11,
+    "4799": 44,
+    "4826": 1,
+    "4902": 1,
+    "5024": 1,
+    "5033": 1,
+    "5038": 1,
+    "5058": 5,
+    "5059": 4,
+    "5061": 5
+  },
+  "rules": {
+    "account-created-then-added-to-domain-group": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "account-created-then-added-to-group": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "account-created-then-deleted": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "account-enabled-then-added-to-group": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "account-lockout-then-account-unlocked": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "audit-policy-changed-then-security-log-cleared": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "defender-protection-disabled-then-service-installed": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "explicit-credential-logon-then-share-accessed": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "failed-logon-burst-then-success-within-five-minutes": {
+      "matches": 2,
+      "relations": 6,
+      "truncated": false
+    },
+    "failed-logons-then-account-lockout": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "failed-logons-then-logon-then-account-created": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "failed-logons-then-successful-logon": {
+      "matches": 3,
+      "relations": 9,
+      "truncated": false
+    },
+    "firewall-exception-added-then-logon": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "group-member-added-then-removed": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "kerberos-pre-authentication-failures-then-logon": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "log-cleared-then-system-time-changed": {
+      "matches": 1,
+      "relations": 1,
+      "truncated": false
+    },
+    "logon-then-process-creation-same-session": {
+      "matches": 1,
+      "relations": 1,
+      "truncated": false
+    },
+    "logon-then-security-log-cleared": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "malware-detected-then-security-log-cleared": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "password-reset-then-added-to-group": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "password-reset-then-logon": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "password-reset-then-logon-same-account": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "powershell-script-block-then-scheduled-task-created": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "privileged-logon-then-scheduled-task-created": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "privileged-logon-then-service-installed": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "privileged-logon-then-wmi-persistence-registered": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "process-ancestry": {
+      "matches": 9,
+      "relations": 9,
+      "truncated": false
+    },
+    "rdp-authentication-then-logon": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "scheduled-task-created-then-deleted": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "security-log-cleared-then-another-log-cleared": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "service-installed-then-security-log-cleared": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "service-installed-then-security-log-cleared-within-an-hour": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "service-installed-then-start-type-changed": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "service-terminated-then-new-service-installed": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    },
+    "share-accessed-then-scheduled-task-created": {
+      "matches": 0,
+      "relations": 0,
+      "truncated": false
+    }
+  },
+  "relations": [
+    "failed-logon-burst-then-success-within-five-minutes|temporal|correlation|then succeeds|1|system|a00cba7433cffb06|d9e2cca956a5e908|2|max Δt=4.605015s ≤ 5m0s|m-55d773c7d15ed7eb-d9e2cca956a5e908-4|1",
+    "failed-logon-burst-then-success-within-five-minutes|temporal|correlation|then succeeds|1|system|ea51c0d58ee2dc91|5a9348d27504c246|2|max Δt=5.853662s ≤ 5m0s|m-5360efd0710600c9-5a9348d27504c246-4|1",
+    "failed-logon-burst-then-success-within-five-minutes|temporal|correlation||1|system|5360efd0710600c9|8156148b7aee6ec4|0|max Δt=5.853662s ≤ 5m0s|m-5360efd0710600c9-5a9348d27504c246-4|1",
+    "failed-logon-burst-then-success-within-five-minutes|temporal|correlation||1|system|55d773c7d15ed7eb|692df5eebcca938f|0|max Δt=4.605015s ≤ 5m0s|m-55d773c7d15ed7eb-d9e2cca956a5e908-4|1",
+    "failed-logon-burst-then-success-within-five-minutes|temporal|correlation||1|system|692df5eebcca938f|a00cba7433cffb06|1|max Δt=4.605015s ≤ 5m0s|m-55d773c7d15ed7eb-d9e2cca956a5e908-4|1",
+    "failed-logon-burst-then-success-within-five-minutes|temporal|correlation||1|system|8156148b7aee6ec4|ea51c0d58ee2dc91|1|max Δt=5.853662s ≤ 5m0s|m-5360efd0710600c9-5a9348d27504c246-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation|then succeeds|1|system|5360efd0710600c9|5a9348d27504c246|2||m-ab7d5ee4d690ad16-5a9348d27504c246-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation|then succeeds|1|system|6a4025a1a222f449|7596c2abacb54949|2||m-122c08e7c61a9cf8-7596c2abacb54949-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation|then succeeds|1|system|c709e914db0661e6|d9e2cca956a5e908|2||m-f2a8461a0fc45f8b-d9e2cca956a5e908-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation||1|system|122c08e7c61a9cf8|90a57dc01c5f785c|0||m-122c08e7c61a9cf8-7596c2abacb54949-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation||1|system|90a57dc01c5f785c|6a4025a1a222f449|1||m-122c08e7c61a9cf8-7596c2abacb54949-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation||1|system|ab7d5ee4d690ad16|bcaf5eec3d6329df|0||m-ab7d5ee4d690ad16-5a9348d27504c246-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation||1|system|bcaf5eec3d6329df|5360efd0710600c9|1||m-ab7d5ee4d690ad16-5a9348d27504c246-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation||1|system|ec8de7739aa84958|c709e914db0661e6|1||m-f2a8461a0fc45f8b-d9e2cca956a5e908-4|1",
+    "failed-logons-then-successful-logon|sequence|correlation||1|system|f2a8461a0fc45f8b|ec8de7739aa84958|0||m-f2a8461a0fc45f8b-d9e2cca956a5e908-4|1",
+    "log-cleared-then-system-time-changed|sequence|correlation|then changes system time|1|system|95bf6fe5a818a141|14afb13cbc4f8673|0||m-95bf6fe5a818a141-14afb13cbc4f8673-2|1",
+    "logon-then-process-creation-same-session|field|correlation|then runs|1|system|8f61a339ce71ebae|d684322eafcb6a0e|0|logon_id=0x3e7|m-8f61a339ce71ebae-d684322eafcb6a0e-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|1169a03830097c94|0e84e21dc99c2985|0|ppid=0x1c4;image=csrss.exe;parent=smss.exe|m-1169a03830097c94-0e84e21dc99c2985-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|1169a03830097c94|a6b874502477f75b|0|ppid=0x1c4;image=wininit.exe;parent=smss.exe|m-1169a03830097c94-a6b874502477f75b-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|267be4bc4942b225|1169a03830097c94|0|ppid=0x170;image=smss.exe;parent=smss.exe|m-267be4bc4942b225-1169a03830097c94-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|267be4bc4942b225|9ab350e5ff24acc8|0|ppid=0x170;image=autochk.exe;parent=smss.exe|m-267be4bc4942b225-9ab350e5ff24acc8-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|267be4bc4942b225|ee3bc672c8d282f1|0|ppid=0x170;image=smss.exe;parent=smss.exe|m-267be4bc4942b225-ee3bc672c8d282f1-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|a6b874502477f75b|8914921cfe1457b9|0|ppid=0x218;image=services.exe;parent=wininit.exe|m-a6b874502477f75b-8914921cfe1457b9-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|a6b874502477f75b|d44514dd08b453a8|0|ppid=0x218;image=lsass.exe;parent=wininit.exe|m-a6b874502477f75b-d44514dd08b453a8-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|ee3bc672c8d282f1|c1fe79bdf9ace0ec|0|ppid=0x210;image=csrss.exe;parent=smss.exe|m-ee3bc672c8d282f1-c1fe79bdf9ace0ec-2|1",
+    "process-ancestry|lineage|correlation|spawned|1|system|ee3bc672c8d282f1|ea99f1115bef2c58|0|ppid=0x210;image=winlogon.exe;parent=smss.exe|m-ee3bc672c8d282f1-ea99f1115bef2c58-2|1"
+  ]
+}

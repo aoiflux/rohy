@@ -29,3 +29,6 @@ build/darwin/*
 # Python bytecode from tools/
 __pycache__/
 *.pyc
+
+# tools/profile output (go run ./tools/profile)
+/profiles/

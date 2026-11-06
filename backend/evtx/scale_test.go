@@ -2,61 +2,35 @@ package evtx
 
 import (
 	"context"
-	"encoding/binary"
-	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
+	"rohy/backend/synth"
 )
 
 // evtxChunkSize is fixed by the EVTX on-disk format (64 KiB per chunk). It lives here
 // as a documented test constant only; production code never assumes it (it walks
 // chunk offsets via the parser).
-const evtxChunkSize = 65536
+const evtxChunkSize = synth.ChunkSize
 
-// synthEVTX writes a synthetic EVTX file at dst by replicating the chunk region of
-// src `repeat` times after its header block. GetChunks walks the result as
-// repeat×(source chunks), letting a memory/throughput test scale dataset size far
-// beyond the committed fixtures without a real 100 GB file. Replicated records share
-// content (and hashes), which is fine for streaming/backpressure/batching tests
-// (idempotency off); tests needing distinct records use the real fixture instead.
+// synthEVTX writes a synthetic EVTX file at dst by replicating src's chunks `repeat` times
+// (synth.EVTX). Replicated records share content (and hashes), which is fine for
+// streaming/backpressure/batching tests (idempotency off); tests needing distinct records use the
+// real fixture instead.
 func synthEVTX(t *testing.T, src, dst string, repeat int) (chunks int) {
 	t.Helper()
-	data, err := os.ReadFile(src)
+	chunks, err := synth.EVTX(src, dst, repeat)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// HeaderBlockSize is a uint16 at byte offset 40 of the EVTX file header.
-	headerBlock := int(binary.LittleEndian.Uint16(data[40:42]))
-	if headerBlock <= 0 || headerBlock >= len(data) {
-		t.Fatalf("bad header block size %d", headerBlock)
-	}
-	srcChunks := (len(data) - headerBlock) / evtxChunkSize
-	if srcChunks <= 0 {
-		t.Fatalf("source has no whole chunks (len=%d, header=%d)", len(data), headerBlock)
-	}
-	region := data[headerBlock : headerBlock+srcChunks*evtxChunkSize]
-
-	f, err := os.Create(dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.Write(data[:headerBlock]); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < repeat; i++ {
-		if _, err := f.Write(region); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return srcChunks * repeat
+	return chunks
 }
 
 // countingSink records counts and the largest batch it ever received, retaining NO
@@ -252,7 +226,7 @@ func TestCancelThenResumeNoLossNoDup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref.Close()
+	defer ref.Close()
 	total := fullSum.RecordsPersisted
 	if total < 100 {
 		t.Fatalf("fixture too small for a meaningful cancel test: %d", total)
@@ -283,6 +257,11 @@ func TestCancelThenResumeNoLossNoDup(t *testing.T) {
 	}
 	if resumeSum.RecordsDuplicate == 0 {
 		t.Error("resume reported no duplicates; idempotency did not engage")
+	}
+	// 🔒 The interrupted run wrote a prefix of the file, and the resume wrote the rest after it, so
+	// the case holds the events in the order a single full ingest gives them.
+	if !slices.Equal(eventsByID(t, store), eventsByID(t, ref)) {
+		t.Error("cancel and resume gave the events another order than a full ingest")
 	}
 	t.Logf("total=%d partial=%d resumed(dup=%d) final=%d", total, partial, resumeSum.RecordsDuplicate, final)
 }

@@ -134,8 +134,25 @@ whole answer.
   - **Check a digest you hold** compares the case with a digest taken from where it was published.
     It is the one check rohy runs that does not rest on the case. The event drawer's "fingerprint
     you kept" accepts a checkpoint digest too.
+- **An integration suite.** `go test -tags=integration ./backend/integration/` runs the real
+  pipeline on the disk backend over the committed log: ingest, every built-in rule against a golden
+  file, rule export and import into a second case, rebuilds, re-ingests, the correlation backfill,
+  recovery from an interrupted build, and a build-side memory test. `go run ./tools/profile`
+  writes CPU and heap profiles of ingest, build and open at chosen sizes.
 
 ### Fixed
+
+- **The same file could give a different graph on each ingest.** Chunks were written in the order
+  the parse workers finished, so the same file got different event ids each time, and the rule
+  engine orders events at the same instant by id. Two such events could be joined on one ingest
+  and not on the next, and a duplicate's kept copy changed with them. A file is now written in its
+  own order: the same file gives the same ids, the same graph and the same match ids. Several
+  files are still written in the order you ingest them.
+- **A crash during a build could hide relations from their rule.** A relation's index entries are
+  written one at a time; the repair checked only the one that lists it under its graph. A relation
+  that its graph listed and its rule did not was never repaired, and the integrity check did not
+  count it. Both now check every entry.
+- Closing a case twice no longer fails with `wal closed`.
 
 - **The event drawer showed no raw record and no parsed fields** (since v0.1.0). The binding
   returned the stored record, which deliberately leaves both out, so the drawer never received

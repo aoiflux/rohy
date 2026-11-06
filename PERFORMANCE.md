@@ -1076,3 +1076,64 @@ A publish on a case with unsealed changes seals first, and then costs what a sea
 ```
 go test ./backend/graphene/ -run XXX -bench 'Histories|PublishCheckpoint' -benchtime 20x
 ```
+
+## 20. The integration path: ordering, the build's memory, repair (item 34)
+
+**Writing chunks in file order cost nothing measurable.** A file ingest now hands its chunks to
+the sink in file order through a bounded window (LLD §7.1). `TestBoundedMemoryStreaming` measured
+the live heap of the same two synthetic files before and after:
+
+| | 44,340 records | 177,360 records |
+|---|---|---|
+| Before (handed over as workers finished) | 18 MiB | 23 MiB |
+| After (in file order) | 17 MiB | 25 MiB |
+
+The ceiling is 96 MiB, and the large file stays within 2× the small one. While the oldest chunk
+is stuck, at most 12 chunks are parsed ahead of it (`TestTheReorderWindowBoundsWhatIsParsedAhead`);
+before, all of them were.
+
+**A build's memory grows with the case, not with its rules.** `TestTheBuildStaysBounded` builds
+the 20 synthetic rules (12 sequence, 4 field, 3 temporal, 1 lineage) over distinct synthetic
+events, on disk, with GOGC pinned at 10. Three runs:
+
+| | Peak live heap | Relations | Build |
+|---|---|---|---|
+| 25,000 events, 20 rules | 26.6–27.0 MiB | 5,621 | 0.5 s |
+| 100,000 events, heaviest single rule | 87.9–89.1 MiB | 500–1,000 | 1.3 s |
+| 100,000 events, 20 rules | 106.6–111.8 MiB | 22,499 | 2.2 s |
+
+Twenty rules cost about 1.25× the heaviest one, because the dataset is prepared once and shared.
+Four times the events cost about 4.1× the memory: linear, as the dataset holds every matching
+event. The test fails above 2× the heaviest rule, above 6× between the sizes, or above 224 MiB,
+which is twice the worst run.
+
+**The repair now checks every index key.** `RepairRelationIndex` runs before every build. It used to
+ask only whether `graph_id` listed each relation; it now asks of all four keys, so a relation
+missing from its rule's index is found (LLD §12). On a healthy in-memory case:
+
+| | 10,000 relations | 50,000 relations |
+|---|---|---|
+| Before, `graph_id` only | 25–26 ms, 3.6 MB | 122–130 ms, 17 MB |
+| After, every key | 26–32 ms, 10 MB | 143–194 ms, 50 MB |
+
+It is a step of a build, and a build writing 22,000 relations takes 2.2 s, so the increase is not
+worth a cleverer walk. The memory is transient and goes when the repair returns.
+
+**Where a build's time goes.** `go run ./tools/profile -events 100000` on this machine:
+
+| Phase | Time | Peak `HeapAlloc` |
+|---|---|---|
+| ingest, 100,504 records, not deduplicated | 6.9 s | 271 MiB |
+| build, 20 rules | 1.9 s | 316 MiB |
+| open, up to the first query | 1.3 s | 231 MiB |
+
+The peaks include garbage not yet collected: the GC is not pinned here. In the build's CPU profile,
+about 40% is decoding the node records the dataset is read from (`encoding/json`), and 15% is file
+I/O. That decode is the first place to look if a build is ever too slow; nothing is changed for it
+here.
+
+```
+go test -tags=integration ./backend/integration/ -run TestTheBuildStaysBounded -count=1 -v
+go test ./backend/graphene/ -run XXX -bench RepairRelationIndexHealthy -benchtime 10x
+go run ./tools/profile -events 100000 && go tool pprof -top profiles/cpu-build-100000.pprof
+```

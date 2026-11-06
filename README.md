@@ -93,6 +93,19 @@ from scratch, then stamp version/commit/date into the binary. The clean-frontend
 step is deliberate: the Go binary embeds whatever is in `dist`, so reusing a
 stale build ships an old UI behind a new backend.
 
+Two more checks sit outside the build, because they are slower:
+
+```bash
+go test -tags=integration ./backend/integration/ -count=1   # the real pipeline, on disk, end to end
+go run ./tools/profile -events 100000                        # CPU and heap profiles into profiles/
+```
+
+The integration suite ingests the committed `Security.evtx`, runs every built-in rule against
+a golden file, round-trips the rule library through export and import, rebuilds, re-ingests,
+backfills, recovers an interrupted build, and checks that a build's memory grows with the case
+and not with the number of rules. `-update` rewrites the golden file; review the diff before
+keeping it.
+
 ### Application icon
 
 The icon is **derived**, never hand-drawn. `frontend/src/assets/logo.svg` is the

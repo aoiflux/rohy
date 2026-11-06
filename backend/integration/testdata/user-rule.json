@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "Explicit Credentials Then Logon",
+  "description": "A logon with explicit credentials (4648) followed by a logon (4624) on the same computer. The integration suite adds it to a case so that a rule export carries a rule the receiving case does not already have built in.",
+  "relation_type": "correlation",
+  "channels": ["Security"],
+  "sequence": ["4648", "4624"],
+  "labels": ["then logs on"]
+}

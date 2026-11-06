@@ -162,8 +162,9 @@ type chunkResult struct {
 // Ingest runs one ingestion to completion (or cancellation). It streams the source,
 // normalizes and hashes every record, persists in bounded batches, and reports
 // progress/errors/lifecycle through reporter. Peak memory is bounded independent of
-// input size: at most Options.Workers chunks (64 KB each) and ChunkQueueDepth
-// batches are resident at once.
+// input size: a file ingest parses at most reorderWindow(Workers) chunks (64 KB each)
+// ahead of the oldest one the sink has not taken, and the other sources queue at most
+// ChunkQueueDepth batches.
 func Ingest(ctx context.Context, opts Options, sink EventSink, reporter Reporter) (Summary, error) {
 	opts = opts.normalized()
 	if reporter == nil {
@@ -201,6 +202,16 @@ func Ingest(ctx context.Context, opts Options, sink EventSink, reporter Reporter
 	}
 }
 
+// chunkParser parses one chunk into events. Production passes parseAndNormalize; the ordering
+// tests pass one that controls when each chunk finishes, which is the only way to make a worker
+// pool finish out of order on demand.
+type chunkParser func(r io.ReadSeeker, offset int64, minRecordID uint64) chunkResult
+
+// reorderWindow is how many chunks may be parsed ahead of the oldest one the sink has not yet
+// taken. It is the bound the pipeline had before results were put in order: the queue depth
+// plus one chunk in each worker's hands.
+func reorderWindow(workers int) int { return consts.ChunkQueueDepth + workers }
+
 // ingestFile drives the file pipeline: producer (offsets) -> worker pool
 // (parse+normalize) -> sink (dedup, batch, persist, report).
 func ingestFile(ctx context.Context, opts Options, sink EventSink, reporter Reporter) (Summary, error) {
@@ -208,62 +219,116 @@ func ingestFile(ctx context.Context, opts Options, sink EventSink, reporter Repo
 	if err != nil {
 		return Summary{}, err
 	}
-	fd.Close() // workers open their own handles; this one only validated the file
 
 	reporter.Started(consts.SourceFile, len(offsets))
 
-	offsetCh := make(chan int64, consts.ChunkQueueDepth)
-	resultCh := make(chan chunkResult, consts.ChunkQueueDepth)
+	// Each worker owns a private handle (parsing seeks the handle, so a shared one would race).
+	// The handle that validated the file is the first of them, so a run always has one: a run
+	// whose workers all failed to open the file would otherwise read nothing and report
+	// "Completed". An extra handle that cannot be opened is reported, and the run goes on with
+	// fewer workers.
+	handles := []io.ReadSeekCloser{fd}
+	for len(handles) < opts.Workers {
+		h, err := os.Open(opts.Path)
+		if err != nil {
+			reporter.RecordError(consts.ErrCodeIO, fmt.Sprintf(consts.MsgOpenFailed, opts.Path, err))
+			break
+		}
+		handles = append(handles, h)
+	}
+	return runFileChunks(ctx, opts, handles, offsets, parseAndNormalize, sink, reporter)
+}
 
-	// Producer: feed chunk offsets, honoring cancellation and applying backpressure
-	// (blocks when the bounded offsetCh is full).
-	go func() {
-		defer close(offsetCh)
+// runFileChunks parses the chunks at offsets on one worker per handle and hands the results to
+// the sink in FILE order, whichever worker finishes first.
+//
+// 🔒 The order is the point. Node ids are assigned in the order events reach the store, the rule
+// engine breaks timestamp ties on node id, and an idempotent ingest keeps the first copy of a
+// duplicate it sees. Handing chunks over as workers finished gave the same file different ids on
+// every ingest, so two events at one instant could be joined on one ingest and not the next, and
+// a duplicate's kept copy changed with the scheduler.
+//
+// Each chunk gets a future, a channel of capacity one that its worker fills exactly once. The
+// producer queues the futures in file order on `order`, whose capacity is the window: a chunk is
+// handed to a worker only after its future has a place in the queue, so at most reorderWindow
+// chunks are parsed ahead of the oldest one the sink has not taken. A worker never waits on
+// anything but its next job, so the head chunk always finishes and nothing can deadlock behind it.
+// The adapter forwards the futures' results to the sink in queue order. A pause stops the sink,
+// which stops the adapter, which fills the queue and stops the producer.
+//
+// It owns the handles: every one is closed before it returns, whatever ended the run, because on
+// Windows an open handle keeps the evidence file from being moved or deleted.
+func runFileChunks(ctx context.Context, opts Options, handles []io.ReadSeekCloser, offsets []int64, parse chunkParser, sink EventSink, reporter Reporter) (Summary, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type job struct {
+		offset int64
+		out    chan<- chunkResult
+	}
+	jobs := make(chan job)
+	order := make(chan chan chunkResult, reorderWindow(len(handles)))
+	resultCh := make(chan chunkResult)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { // producer
+		defer wg.Done()
+		defer close(order)
+		defer close(jobs)
 		for _, off := range offsets {
+			out := make(chan chunkResult, 1)
 			select {
+			case order <- out:
 			case <-ctx.Done():
 				return
-			case offsetCh <- off:
+			}
+			select {
+			case jobs <- job{offset: off, out: out}:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
 
-	// Worker pool: each worker owns a private file handle (parsing seeks the handle,
-	// so a shared one would race).
-	var wg sync.WaitGroup
-	for i := 0; i < opts.Workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			wfd, err := os.Open(opts.Path)
-			if err != nil {
-				select {
-				case resultCh <- chunkResult{parseErr: fmt.Sprintf(consts.MsgOpenFailed, opts.Path, err)}:
-				case <-ctx.Done():
-				}
-				return
-			}
-			defer wfd.Close()
-			for off := range offsetCh {
+	var workers sync.WaitGroup
+	for _, h := range handles {
+		workers.Add(1)
+		go func(h io.ReadSeekCloser) {
+			defer workers.Done()
+			defer h.Close()
+			for j := range jobs {
 				if ctx.Err() != nil {
 					return
 				}
-				res := parseAndNormalize(wfd, off, opts.Resume.LastRecordID)
+				j.out <- parse(h, j.offset, opts.Resume.LastRecordID) // capacity one: never blocks
+			}
+		}(h)
+	}
+
+	wg.Add(1)
+	go func() { // adapter
+		defer wg.Done()
+		defer close(resultCh)
+		defer workers.Wait()
+		for out := range order {
+			select {
+			case res := <-out:
 				select {
 				case resultCh <- res:
 				case <-ctx.Done():
 					return
 				}
+			case <-ctx.Done():
+				return
 			}
-		}()
-	}
-
-	go func() {
-		wg.Wait()
-		close(resultCh)
+		}
 	}()
 
-	return runSink(ctx, opts, sink, reporter, resultCh, len(offsets))
+	sum, err := runSink(ctx, opts, sink, reporter, resultCh, len(offsets))
+	cancel()
+	wg.Wait()
+	return sum, err
 }
 
 // guardRecord runs one record's normalization and turns a panic into an error for that record.
