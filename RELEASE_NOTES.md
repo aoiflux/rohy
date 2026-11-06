@@ -108,6 +108,19 @@ whole answer.
     proof export and signing change. It holds ids, counts and the reasons you gave — never event
     content or file paths.
   - Several analysts can work on one case, each with their own key: *Add my key* on opening it.
+- **The integrity check says what the case can prove about who did what.**
+  - **Who signs the case:** whether its seals are signed, and if not, how many of the recorded seals
+    are unsigned. A signed case gets the same verdict on its current seal as the custody report.
+    A case that stopped signing says when, by whom and why.
+  - **This session:** read-only, recovery, an audit log that is off, or actions it could not
+    record. In a read-only session the check offers no action that would be refused, and the
+    Maintenance page disables those buttons.
+  - **Removal records:** whether the redaction ledger holds together, and whether each record is
+    signed by a key the case lists. A record written without a signature while the case was
+    signing is an error.
+  - **Checkpoints:** none has been published, so anyone able to rewrite the case's files can rewrite
+    its whole history consistently. A fingerprint you keep elsewhere covers the seal, not the rest.
+  - Anything the check could not read is listed as not checked, never as fine.
 
 ### Fixed
 

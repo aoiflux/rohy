@@ -295,8 +295,8 @@ func TestVerifyFailureIsNotedRatherThanSkipped(t *testing.T) {
 	}
 }
 
-// The unsigned posture is a WARNING with no action, because there is nothing to press: signing
-// cannot be applied to writes that already happened.
+// With no signing posture to read, the unsigned finding is a WARNING with no action: rohy cannot
+// tell whether signing can be asked for. With one, the remedy is advice (caseintegrity_signing_test.go).
 func TestUnsignedCommitsIsAWarningWithNoAction(t *testing.T) {
 	rep := Run(context.Background(), Deps{Forensics: compactedAndClean()}, Options{Deep: true})
 

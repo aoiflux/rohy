@@ -1761,6 +1761,23 @@ The invariants, each a test:
 - **No secret reaches the log.** Passphrases cross one struct argument; the key bindings recover
   their own panics; `api.SafeLogger` withholds the call Wails would log on a failed one.
 
+**What the integrity report says about it (#43).** `caseintegrity` reads three more values, gathered
+by `MaintenanceAPI.readPosture` under `sealMu`:
+
+| Dep | From | Detector |
+|---|---|---|
+| `Signing *SigningPosture` | the session's notes (gaps, the log it did or did not accept), the register, `custody.SealCounts`, `custody.SealVerdict` | 14, and the session's own posture |
+| `Ledger *graphene.LedgerState` | `Store.LedgerState(keyring)`: the keyless chain check, then each signature under the bound keys | 16 |
+| `Checkpoints *graphene.CheckpointState` | `InspectCheckpoints`: graphene's local chain, a torn tail included | 17 |
+
+- **Lock order is the session's lock, then `sealMu`.** `Begin` and `Close` take them in that order,
+  so `readPosture` reads the session's notes before it takes `sealMu`.
+- **An unsigned ledger record is judged by its interval** (`Document.SignedAtLedgerSeq`): the
+  ledger's chain does not cover signatures.
+- **A nil dep is a note, never a clean line.** With the register unreadable, the keyring is nil
+  and the ledger's signatures are `unchecked`, not failing.
+- **A read-only session's report carries no write action** (`withholdWrites`).
+
 ---
 
 ## 19. Performance decisions ledger

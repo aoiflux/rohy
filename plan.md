@@ -35,10 +35,10 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          ████████████████░░░░  79%  5½/7   #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8); #43 ½ (detectors 16/17 missing); #42 ⬜
+P8 Forensic          █████████████████░░░  86%  6/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #43 ✅ (§15.9); #42 ⬜
 ───────────────────────────────────────────────────────
-Overall              ██████████████████░░  89%  42/47
-Definition of done   █████████████████░░░  86%  9½/11  the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40; postures ½: signing via #41, detectors #43
+Overall              ██████████████████░░  91%  43/47
+Definition of done   ██████████████████░░  91%  10/11  the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
@@ -67,6 +67,11 @@ from being ingested again.
 names the analyst; each seal is signed with the analyst's key, kept outside the case; a
 hash-chained audit log records seals, redactions and rohy's own actions. A signed case whose key
 is locked opens read-only. **Next:** #43 forensic detectors (§14.8), then #42 anchoring.
+
+**#43 landed 2026-11-06** (§15.9): the integrity report states who signs the case, what this
+session cannot do, what the redaction ledger's records can show about who made them, and that no
+checkpoint has been published. A read-only session is offered no action it would be refused.
+**Next:** #42 anchoring (§14.7).
 
 ---
 
@@ -2407,7 +2412,7 @@ the event that was ingested.
       `VerifyOnOpen` is `VerifyImage` run at open and nothing else — +617 ms and +449 MB on a
       100k case, matching the standalone cost to three significant figures. On demand is the
       route; the option is off by default **permanently**.
-    - ✅ Detectors 12/13/14/15/18 in `caseintegrity` (16 and 17 do not exist yet — #43) + `MaintenanceAPI.ForensicStatus` /
+    - ✅ Detectors 12/13/14/15/18 in `caseintegrity` (16 and 17 landed with #43, §15.9) + `MaintenanceAPI.ForensicStatus` /
       `VerifyImage` / `CompactCase` + the Maintenance page cards. 11 + 10 tests.
     - ✅ 🟡 **Compaction on the ingest boundary, and the gate answered the placement.** Measured
       (PERFORMANCE.md §18): adding **500 events** to a 100k case costs the same ~1.3 s / 566 MB to
@@ -2446,7 +2451,9 @@ the event that was ingested.
     case folder, `RequireSignedCommits`, `Audit`, analyst actor identity. `Retention` stays off:
     a retained segment keeps what a redaction removed.
 42. **Anchoring** (§14.7) — checkpoint digest out, receipt in. 🔒 rohy ships no anchor.
-43. **Forensic detectors** in `caseintegrity` (§14.8) + the Maintenance page surface.
+43. ✅ **Forensic detectors** in `caseintegrity` (§14.8) + the Maintenance page surface — landed
+    2026-11-06 (§15.9): detector 14 reworked over #41, 16 and 17 built, the session's own posture
+    reported, and a read-only session offered no write.
 
 **Gate:** a case ingested by this build can have any single event proven to a third party who
 holds only the exported proof and a root the analyst kept elsewhere — with no access to
@@ -2503,11 +2510,12 @@ rules v2 ─► schema descriptor ─► algorithm selector (Ph4) ─► gensche
   that a named event was in the case — without access to `rohy-data/` and without rohy** (§14).
   `rohyctl verify-proof` needs neither; and the check covers the event's content, not only its
   presence (§15.4). Shipping `rohyctl` to recipients is the deferred release item (#35c).
-- ½ **Every integrity posture rohy is not in is stated.** Unsigned commits, an unverified
+- ✅ **Every integrity posture rohy is not in is stated.** Unsigned commits, an unverified
   image, a case never compacted, a root never exported, a ledger that cannot be verified — all
   reported, none of them silent (§14.8). The signing half landed with #41 (§15.8): the session's
   mode, signing state, audit and retention are reported, and the custody report's signing layer
-  says what the engine does not check. The detectors themselves are #43.
+  says what the engine does not check. The detectors landed with #43 (§15.9); a posture rohy
+  could not read is a note that marks the report incomplete, never a clean line.
 - ✅ **A redaction removes the content everywhere rohy put it**, including the payload cold
   store, or it is not offered at all (§14.5.1).
 
@@ -2862,6 +2870,12 @@ they surface.
 accusation. "Unsigned" is the honest default state of an existing case, not a problem the
 analyst created. §12.4's rule holds: an all-clear is a claim, and it gets qualified.
 
+**Correction (#43, §15.9).** Detector 14 counts **seals**, not commits: graphene's log inspection
+cannot see a commit's signature, and each seal folds the log into the image anyway. Detector 16's
+faults are a broken chain, a signature that does not check out, and an unsigned record inside a
+signed interval. A record written while the case did not sign is the posture. Detector 17 reports
+"absent" for every case until #42 publishes checkpoints. The stale window comes with #42.
+
 ### 14.9 New package and dependency direction
 
 ```
@@ -2877,6 +2891,7 @@ backend/api/api_redact.go                Preview/Redact/Pending/Finish on Mainte
 backend/api/api_caselock.go              the case lock: writes shared, redaction alone    ✅ (#40, §15.7); write gate (#41)
 backend/keyfile                          passphrase-sealed Ed25519 key, outside the case  ✅ (#41, §15.8)
 backend/analyst                          profile (per user) + register (per case)          ✅ (#41, §15.8)
+backend/graphene/graphene_posture.go     ledger signatures + checkpoint chain, read only   ✅ (#43, §15.9)
 backend/graphene/graphene_signing.go     key slot, posture, audit framing, seal signature ✅ (#41, §15.8)
 backend/custody/signing.go               the signing layer: what the engine does not ask  ✅ (#41, §15.8)
 backend/api/api_session.go               the session step, before the case opens          ✅ (#41, §15.8)
@@ -3447,3 +3462,50 @@ transaction's copy). A seal of a 10k-event case is unchanged by the audit log an
   authorises it.
 - An unlocked key cannot be reliably wiped from memory in Go.
 - Sign this case takes effect at the next start: graphene takes the signer at open.
+
+### 15.9 #43 forensic detectors (2026-11-06)
+
+**What §14.8 assumed, measured against #41.** The table was written before signing existed, and
+three of its rows had to change.
+
+| Row | §14.8 said | What holds |
+|---|---|---|
+| 14 Unsigned commits | "how many" | graphene's `InspectWAL` cannot see a commit's signature, and each seal folds the log into the image. The count is **seals**: how many recorded seals carry no signature (`custody.SealCounts`) |
+| 14 copy | "nothing can be attributed" | Wrong since #41: every write names its analyst. What an unsigned case lacks is anything that **checks** the name |
+| 16 Ledger unverifiable | "no key to check the chain against" | The chain is checked without a key. The ledger's signatures sit outside its hash, so a record whose signature was removed still chains. An unsigned record is judged by the **interval** it was written in |
+| 17 Checkpoint stale / absent | the rewritable window | rohy publishes no checkpoint before #42, so every case reports **absent**. The window comes with #42 |
+
+**As built:**
+
+- **Detector 14**, reworked: unsigned (with the seal count and *Sign this case…* as advice),
+  requested, stopped (when, by whom, why), unknown when the register cannot be read (never
+  "unsigned"), and, for a signed case, the custody report's own verdict on the current seal
+  (`custody.SealVerdict`, so the two never disagree). A broken seal is an error.
+- **The session**, reported because it limits everything else: read-only (info), recovery (warning,
+  not also read-only), audit off, audit gaps, a changed log not accepted, an accepted log with its
+  reason, keys whose binding fails.
+- **Detector 16** (`graphene.LedgerState`): the keyless chain check, then each signature under the
+  case's bound keys. Faults: a broken chain, a signature that does not check out (bad, or by a key
+  the case does not list), an unsigned record inside a signed interval. Posture: unsigned records
+  written while the case did not sign. A fully signed ledger is info that sends the reader to the
+  key fingerprints. With the register unreadable, signatures are left **unchecked** and noted.
+- **Detector 17** (`graphene.InspectCheckpoints`): absent; or recorded but unconfirmed (no receipt);
+  or a broken chain. A torn tail, which the engine drops without saying so, counts as broken.
+- 🔒 **A read-only session is offered no write.** Every action that would be refused is withheld
+  from the report, and the page disables the matching buttons.
+- 🔒 **A posture rohy could not read is a note**, so the report reads as incomplete rather than
+  clean: no signing posture, an unreadable seal signature, an unread ledger or checkpoint chain.
+- UI: the forensic card's signing line now follows the session (signs, does not sign, cannot
+  write) instead of claiming writes are unattributed.
+
+**Found while building:** a lock-order inversion. The session takes its own lock and then
+`sealMu` (`Begin`, `Close`). The first version of the posture read took them the other way round,
+so a check run while the window closed could deadlock. The session's own notes are now read
+before `sealMu` is taken.
+
+**Still open:**
+
+- The stale window, receipts and the anchor audit are #42.
+- What rohy reads from inside the case stays best-effort (§15.8). Whoever can rewrite the case and
+  the profile can make every detector here pass; only a fingerprint kept elsewhere, and after #42
+  an anchor, does not depend on the case.

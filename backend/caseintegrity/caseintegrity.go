@@ -187,6 +187,55 @@ type Deps struct {
 	RedactedPayloadEnd  uint64
 	RedactionsPending   int
 	RedactionJournalErr error
+
+	// Signing is what the case records about who signs it, and what this session did about it
+	// (item 41). Ledger is the redaction ledger read under the case's keys, Checkpoints the case's
+	// local checkpoint chain (plan §14.8, detectors 16 and 17). 🔒 Each nil is reported as not read,
+	// never as fine; LedgerErr and CheckpointErr say why one could not be read.
+	Signing       *SigningPosture
+	Ledger        *graphene.LedgerState
+	LedgerErr     error
+	Checkpoints   *graphene.CheckpointState
+	CheckpointErr error
+}
+
+// SigningPosture is what the case records about its own signing, reduced to what the findings say.
+// The API gathers it from the session and the case's analyst register; this package needs neither.
+type SigningPosture struct {
+	// State is the register's signing state (consts.Signing*). Empty when the register cannot be
+	// read, and RegisterErr then says why.
+	State       string
+	RegisterErr string
+	// Seal is the verdict on the current image's signature, decided by the custody report's rules so
+	// the two never disagree. Read only when State is signed. SealErr is why the seal's signature
+	// could not be read: the seal is then not judged, and the report says it did not look.
+	Seal    SealVerdict
+	SealErr string
+	// Seals and UnsignedSeals count the seals the fingerprint history records, and how many carry no
+	// signature. Both zero when there is no history to count.
+	Seals, UnsignedSeals int
+	// For a case that stopped signing: when, by whom, and why.
+	StoppedAt     time.Time
+	StoppedBy     string
+	StoppedReason string
+	// UnboundKeys counts keys the case lists whose own signature over their analyst fails.
+	UnboundKeys int
+	// LogFlagged is set when the case's log changed after its analyst last closed it, and LogAccepted
+	// holds the reason this session gave for signing over it.
+	LogFlagged  bool
+	LogAccepted string
+	// AuditGaps are rohy's actions this session that could not be written to the audit log.
+	AuditGaps []string
+	// SignedAtLedgerSeq reports whether a ledger record with that sequence was written while the
+	// case signed. Nil when no interval is known.
+	SignedAtLedgerSeq func(seq uint64) bool
+}
+
+// SealVerdict is the custody report's verdict on the current seal's signature.
+type SealVerdict struct {
+	// State is consts.CustodyEstablished, CustodyNotEstablished or CustodyBroken.
+	State   string
+	Message string
 }
 
 // Run performs the checks and returns the report.
@@ -199,6 +248,7 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 
 	inv, ok := gatherInventory(&rep, deps)
 
+	var readOnly string
 	steps := []func(){
 		func() { checkIndexes(&rep, deps, opts) },
 		func() { checkUnindexedRelations(&rep, deps) },
@@ -210,7 +260,7 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 		func() { checkRedactions(&rep, deps) },
 		func() { checkProjection(&rep, inv, ok) },
 		func() { checkRules(&rep, deps, inv, ok) },
-		func() { checkForensicPosture(&rep, deps, opts) },
+		func() { readOnly = checkForensicPosture(&rep, deps, opts) },
 	}
 	for _, step := range steps {
 		if ctx != nil && ctx.Err() != nil {
@@ -218,6 +268,9 @@ func Run(ctx context.Context, deps Deps, opts Options) Report {
 			break
 		}
 		step()
+	}
+	if readOnly != "" {
+		withholdWrites(&rep)
 	}
 
 	sortFindings(rep.Findings)
@@ -653,10 +706,13 @@ func (r *Report) note(msg string) { r.Errors = append(r.Errors, msg) }
 // 🔒 A posture that could not be READ is reported as unknown, never as fine. That is the rule the
 // whole package is built on, and it matters most here: a forensic all-clear from a check that did
 // not look is the most damaging thing this report could produce.
-func checkForensicPosture(rep *Report, deps Deps, opts Options) {
+//
+// It returns why this session cannot write, empty when it can, so the run can withhold every action
+// that would be refused.
+func checkForensicPosture(rep *Report, deps Deps, opts Options) (readOnly string) {
 	if deps.Forensics == nil {
 		rep.note("the case's integrity posture could not be read, so nothing here reports on it")
-		return
+		return ""
 	}
 
 	st := deps.Forensics.ForensicStatus()
@@ -667,13 +723,16 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) {
 			Code: consts.IntegrityForensicsAbsent, Severity: consts.IntegritySevInfo,
 			Message: fmt.Sprintf(consts.MsgIntegrityForensicsAbsent, st.Reason),
 		})
-		return
+		return ""
 	}
 
 	// The history's own findings — a reset, a rollback that was sealed again, a gap — do not depend
 	// on the image, so they are reported before the returns below rather than lost behind them.
-	// Without an image the current-image placement simply has nothing to place.
+	// Without an image the current-image placement simply has nothing to place. The session and the
+	// ledger are not about the image either.
 	checkRootChain(rep, deps, st)
+	checkSession(rep, deps, st)
+	checkLedger(rep, deps)
 
 	// An unreadable fingerprint comes before "never compacted" and must not present as it: that
 	// one is normal and offers compaction, which would write a fresh image over whatever made the
@@ -683,32 +742,258 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) {
 			Code: consts.IntegrityRootsUnreadable, Severity: consts.IntegritySevError,
 			Message: fmt.Sprintf(consts.MsgIntegrityRootsUnreadable, st.RootsError),
 		})
-		return
+		return st.ReadOnly
 	}
 
 	// Never compacted comes first and returns: with no image, every check below it is asking
-	// about a file that does not exist, and answering them would produce three findings for one
+	// about a file that does not exist, and answering them would produce several findings for one
 	// situation.
 	if !st.Compacted {
 		rep.add(Finding{
 			Code: consts.IntegrityNeverCompacted, Severity: consts.IntegritySevWarn,
 			Message: consts.MsgIntegrityNeverCompacted, Action: consts.IntegrityActionCompact,
 		})
-		return
+		return st.ReadOnly
 	}
 
-	if !st.Signed {
-		rep.add(Finding{
-			Code: consts.IntegrityUnsignedCommits, Severity: consts.IntegritySevWarn,
-			Message: consts.MsgIntegrityUnsignedCommits,
-			// No action: there is nothing to press. Signing is a decision about key custody made
-			// when a case is created, and offering a button here would imply the existing writes
-			// could be attributed retrospectively. They cannot.
-		})
-	}
-
+	checkSigning(rep, deps, st)
+	checkCheckpoints(rep, deps)
 	checkRetainedRoot(rep, deps, st)
 	checkImage(rep, deps, opts)
+	return st.ReadOnly
+}
+
+// checkSession reports how this session opened the case: what it cannot do, and what it did not
+// record (item 41). None of it is about the image.
+func checkSession(rep *Report, deps Deps, st graphene.ForensicStatus) {
+	switch {
+	case st.Mode == consts.CaseModeRecovery:
+		rep.add(Finding{
+			Code: consts.IntegrityRecoverySession, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityRecoverySession, st.ReadOnly),
+		})
+	case st.ReadOnly != "":
+		rep.add(Finding{
+			Code: consts.IntegritySessionReadOnly, Severity: consts.IntegritySevInfo,
+			Message: fmt.Sprintf(consts.MsgIntegritySessionReadOnly, st.ReadOnly),
+		})
+	}
+	if !st.Audit {
+		rep.add(Finding{Code: consts.IntegrityAuditOff, Severity: consts.IntegritySevWarn, Message: consts.MsgIntegrityAuditOff})
+	}
+
+	sp := deps.Signing
+	if sp == nil {
+		rep.note(consts.MsgIntegrityNoSigning)
+		return
+	}
+	if n := len(sp.AuditGaps); n > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityAuditGap, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityAuditGap, n, sp.AuditGaps[0]), Count: n,
+		})
+	}
+	switch {
+	case sp.LogAccepted != "":
+		rep.add(Finding{
+			Code: consts.IntegrityLogAccepted, Severity: consts.IntegritySevInfo,
+			Message: fmt.Sprintf(consts.MsgIntegrityLogAccepted, sp.LogAccepted),
+		})
+	case sp.LogFlagged:
+		rep.add(Finding{Code: consts.IntegrityLogChanged, Severity: consts.IntegritySevWarn, Message: consts.MsgIntegrityLogChanged})
+	}
+	if sp.UnboundKeys > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityKeyUnbound, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityKeyUnbound, sp.UnboundKeys), Count: sp.UnboundKeys,
+		})
+	}
+}
+
+// checkSigning reports who signs the case's seals (detector 14).
+//
+// 🔒 What a signed seal establishes is stated no wider than the custody report states it: signed by a
+// key THIS CASE lists. Whoever can rewrite the case can rewrite the list, which is why the satisfied
+// state is info that sends the reader to a fingerprint they kept, never a tick.
+func checkSigning(rep *Report, deps Deps, st graphene.ForensicStatus) {
+	sp := deps.Signing
+	if sp == nil {
+		// No posture to read: the engine's own flag is all there is, and its absence of a count or a
+		// remedy is the honest consequence.
+		if !st.Signed {
+			rep.add(Finding{Code: consts.IntegrityUnsignedCommits, Severity: consts.IntegritySevWarn, Message: consts.MsgIntegrityUnsignedCommits})
+		}
+		return
+	}
+	switch sp.State {
+	case "":
+		// 🔒 Unknown, never "unsigned": a case that signs would otherwise be offered signing over the top.
+		rep.add(Finding{
+			Code: consts.IntegritySigningUnknown, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegritySigningUnknown, sp.RegisterErr),
+		})
+	case consts.SigningUnsigned:
+		f := Finding{
+			Code: consts.IntegrityUnsignedCommits, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityUnsignedCommits, Action: consts.IntegrityActionSignCase,
+		}
+		if sp.Seals > 0 {
+			f.Message, f.Count = fmt.Sprintf(consts.MsgIntegrityUnsignedSeals, sp.UnsignedSeals, sp.Seals), sp.UnsignedSeals
+		}
+		rep.add(f)
+	case consts.SigningRequested:
+		rep.add(Finding{Code: consts.IntegritySigningRequested, Severity: consts.IntegritySevInfo, Message: consts.MsgIntegritySigningRequested})
+	case consts.SigningUnsignedAfterSigned:
+		rep.add(Finding{
+			Code: consts.IntegritySigningStopped, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegritySigningStopped, sp.StoppedAt.Format(time.RFC3339), sp.StoppedBy, sp.StoppedReason),
+			Action:  consts.IntegrityActionSignCase,
+		})
+	case consts.SigningSigned:
+		if sp.SealErr != "" {
+			rep.note(fmt.Sprintf(consts.MsgIntegritySealUnread, sp.SealErr))
+			return
+		}
+		if sp.Seal.State == consts.CustodyBroken {
+			rep.add(Finding{
+				Code: consts.IntegritySealBroken, Severity: consts.IntegritySevError,
+				Message: sp.Seal.Message, Action: consts.IntegrityActionReview,
+			})
+			return
+		}
+		rep.add(Finding{Code: consts.IntegritySealSigned, Severity: consts.IntegritySevInfo, Message: sp.Seal.Message})
+	default:
+		rep.add(Finding{
+			Code: consts.IntegritySigningUnknown, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegritySigningUnknown, sp.State),
+		})
+	}
+}
+
+// checkLedger reports what the redaction ledger's records can show about who made them (detector 16).
+//
+// 🔒 graphene's ledger chain does not cover signatures (plan §15.8), so a record whose signature was
+// removed still chains. An unsigned record is therefore judged by the interval it was written in:
+// inside a signed one it is a fault, outside it a posture.
+func checkLedger(rep *Report, deps Deps) {
+	switch {
+	case deps.LedgerErr != nil:
+		rep.note(fmt.Sprintf(consts.MsgIntegrityLedgerUnread, deps.LedgerErr))
+		return
+	case deps.Ledger == nil:
+		rep.note(consts.MsgIntegrityNoLedger)
+		return
+	}
+	l := deps.Ledger
+	if l.ChainErr != "" {
+		rep.add(Finding{
+			Code: consts.IntegrityLedgerBroken, Severity: consts.IntegritySevError,
+			Message: fmt.Sprintf(consts.MsgIntegrityLedgerBroken, l.ChainErr), Action: consts.IntegrityActionReview,
+		})
+	}
+	var signedAt func(uint64) bool
+	if deps.Signing != nil {
+		signedAt = deps.Signing.SignedAtLedgerSeq
+	}
+	var valid, bad, stripped, unsigned, unchecked int
+	for _, e := range l.Entries {
+		switch e.Signature {
+		case consts.LedgerSigValid:
+			valid++
+		case consts.LedgerSigBad, consts.LedgerSigUnknownKey:
+			bad++
+		case consts.LedgerSigUnchecked:
+			unchecked++
+		default:
+			if signedAt != nil && signedAt(e.Seq) {
+				stripped++
+			} else {
+				unsigned++
+			}
+		}
+	}
+	for _, c := range []struct {
+		n             int
+		code, sev, ms string
+	}{
+		{bad, consts.IntegrityLedgerBadSignature, consts.IntegritySevError, consts.MsgIntegrityLedgerBadSig},
+		{stripped, consts.IntegrityLedgerStripped, consts.IntegritySevError, consts.MsgIntegrityLedgerStripped},
+		{unsigned, consts.IntegrityLedgerUnverifiable, consts.IntegritySevWarn, consts.MsgIntegrityLedgerUnverifiable},
+	} {
+		if c.n > 0 {
+			rep.add(Finding{Code: c.code, Severity: c.sev, Message: fmt.Sprintf(c.ms, c.n), Count: c.n, Action: actionIf(c.sev == consts.IntegritySevError)})
+		}
+	}
+	if unchecked > 0 {
+		rep.note(fmt.Sprintf(consts.MsgIntegrityLedgerUnchecked, unchecked))
+	}
+	if n := len(l.Entries); n > 0 && valid == n && l.ChainErr == "" {
+		rep.add(Finding{
+			Code: consts.IntegrityLedgerSigned, Severity: consts.IntegritySevInfo,
+			Message: fmt.Sprintf(consts.MsgIntegrityLedgerSigned, n), Count: n,
+		})
+	}
+}
+
+// actionIf is the review action for a fault, none for a posture.
+func actionIf(fault bool) string {
+	if fault {
+		return consts.IntegrityActionReview
+	}
+	return consts.IntegrityActionNone
+}
+
+// checkCheckpoints reports how much of the case's history nothing outside it vouches for (detector 17).
+//
+// rohy publishes no checkpoint before item 42, so absent is every case's state; a chain found here was
+// written by something else, and without a receipt it is the case vouching for itself.
+func checkCheckpoints(rep *Report, deps Deps) {
+	switch {
+	case deps.CheckpointErr != nil:
+		rep.note(fmt.Sprintf(consts.MsgIntegrityCheckpointUnread, deps.CheckpointErr))
+		return
+	case deps.Checkpoints == nil:
+		rep.note(consts.MsgIntegrityNoCheckpoints)
+		return
+	}
+	c := deps.Checkpoints
+	switch {
+	case c.ChainErr != "":
+		rep.add(Finding{
+			Code: consts.IntegrityCheckpointBroken, Severity: consts.IntegritySevError,
+			Message: fmt.Sprintf(consts.MsgIntegrityCheckpointBroken, c.ChainErr), Action: consts.IntegrityActionReview,
+		})
+	case c.Count == 0:
+		rep.add(Finding{Code: consts.IntegrityCheckpointAbsent, Severity: consts.IntegritySevWarn, Message: consts.MsgIntegrityCheckpointAbsent})
+	default:
+		rep.add(Finding{
+			Code: consts.IntegrityCheckpointUnconfirmed, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityCheckpointUnconfirmed, c.Count, c.Last.Format(time.RFC3339)), Count: c.Count,
+		})
+	}
+}
+
+// writeActions are the actions a session that cannot write would be refused.
+var writeActions = map[string]bool{
+	consts.IntegrityActionBackfill:        true,
+	consts.IntegrityActionRepair:          true,
+	consts.IntegrityActionRebuild:         true,
+	consts.IntegrityActionIngest:          true,
+	consts.IntegrityActionCompact:         true,
+	consts.IntegrityActionFinishRedaction: true,
+	consts.IntegrityActionSignCase:        true,
+}
+
+func writes(action string) bool { return writeActions[action] }
+
+// withholdWrites drops every action a read-only session would be refused. 🔒 A button that is refused
+// teaches the analyst to ignore the report; the session-read-only finding says why they are gone.
+func withholdWrites(rep *Report) {
+	for i := range rep.Findings {
+		if writes(rep.Findings[i].Action) {
+			rep.Findings[i].Action = consts.IntegrityActionNone
+		}
+	}
 }
 
 // checkRootChain places the current image against the history of seals (plan §15.5).

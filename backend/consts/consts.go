@@ -954,6 +954,11 @@ const (
 	// AuditRecordFixed is the size of an audit entry's fixed fields: seq, time, actor, kind, detail
 	// length, and two hashes.
 	AuditRecordFixed = 8 + 8 + 8 + 2 + 4 + 32 + 32
+
+	// CheckpointFile is graphene's local checkpoint chain in the database directory (item 43). rohy
+	// writes none before item 42; it reads the file so that one it did not write is reported.
+	CheckpointFile    = "graphene.checkpoints"
+	MsgCheckpointTorn = "the checkpoint file ends in %d byte(s) that are not a whole checkpoint, which the engine drops without saying so"
 )
 
 const (
@@ -1515,6 +1520,44 @@ const (
 	IntegrityRedactedFindings = "redacted_findings"
 	IntegrityRedactionPending = "redaction_pending"
 	IntegrityRedactionJournal = "redaction_journal"
+
+	// Who signs the case, and this session (plan §14.8 detector 14, item 43, over item 41).
+	IntegritySigningUnknown   = "signing_unknown"
+	IntegritySigningRequested = "signing_requested"
+	IntegritySigningStopped   = "signing_stopped"
+	IntegritySealSigned       = "seal_signed"
+	IntegritySealBroken       = "seal_signature_broken"
+	IntegrityKeyUnbound       = "key_unbound"
+	IntegritySessionReadOnly  = "session_read_only"
+	IntegrityRecoverySession  = "recovery_session"
+	IntegrityAuditOff         = "audit_off"
+	IntegrityAuditGap         = "audit_gap"
+	IntegrityLogChanged       = "log_changed"
+	IntegrityLogAccepted      = "log_accepted"
+
+	// The redaction ledger (detector 16). Broken, a bad signature and an unsigned record inside a
+	// signed interval are faults; an unsigned record written while the case did not sign is a posture.
+	IntegrityLedgerBroken       = "ledger_broken"
+	IntegrityLedgerBadSignature = "ledger_signature_bad"
+	IntegrityLedgerStripped     = "ledger_unsigned_in_signed"
+	IntegrityLedgerUnverifiable = "ledger_unverifiable"
+	IntegrityLedgerSigned       = "ledger_signed"
+
+	// Checkpoints (detector 17). rohy publishes none before item 42, so absent is every case's state.
+	IntegrityCheckpointAbsent      = "checkpoint_absent"
+	IntegrityCheckpointUnconfirmed = "checkpoint_unconfirmed"
+	IntegrityCheckpointBroken      = "checkpoint_chain_broken"
+)
+
+// A redaction-ledger record's signature, as checked under the keys the case lists (item 43).
+const (
+	LedgerSigNone       = "none"
+	LedgerSigValid      = "valid"
+	LedgerSigUnknownKey = "unknown_key"
+	LedgerSigBad        = "bad"
+	// LedgerSigUnchecked is a signed record whose signature was not checked, because the case's keys
+	// could not be read. Never reported as failing: nothing was compared.
+	LedgerSigUnchecked = "unchecked"
 )
 
 // Suggested actions a finding can carry, so the UI offers the fix rather than describing it.
@@ -1538,6 +1581,9 @@ const (
 	IntegrityActionRetainRoot = "retain_root"
 	// IntegrityActionFinishRedaction runs the steps an unfinished redaction did not complete.
 	IntegrityActionFinishRedaction = "finish_redaction"
+	// IntegrityActionSignCase points at "Sign this case…" on the Signing card. Advice, not a button:
+	// signing starts at the next open and cannot reach what is already written.
+	IntegrityActionSignCase = "sign_case"
 )
 
 const (
@@ -1573,7 +1619,11 @@ const (
 	MsgIntegrityNeverCompacted  = "this case has never been compacted, so nothing in it can be proven yet. Every event is recorded but unaccounted for — which is not the same as missing."
 	MsgIntegrityRootsUnreadable = "this case's fingerprint could not be read, so whether it was ever sealed is unknown: %s. Compacting would write a new one over whatever caused this, so find the cause first."
 	MsgIntegrityImageUncovered  = "this case's image predates integrity digests, so there is nothing covering its contents. Compacting rewrites it with one."
-	MsgIntegrityUnsignedCommits = "writes to this case are not signed, so nothing in it can be attributed to anyone. This cannot be applied retrospectively: what is already written stays unattributed."
+	// Since item 41 every write names its analyst; what an unsigned case lacks is anything that
+	// checks the name. The count is of seals, not commits: graphene's log inspection cannot see a
+	// commit's signature, and every seal folds the log into the image anyway.
+	MsgIntegrityUnsignedCommits = "this case does not sign its seals. Writes name the analyst who made them, but that name is the case's own record, which anyone able to change the case can change. Signing cannot be added afterwards to what is already written."
+	MsgIntegrityUnsignedSeals   = "this case does not sign its seals: %d of the %d seals recorded for it are unsigned. Writes name the analyst who made them, but that name is the case's own record, which anyone able to change the case can change. Signing cannot be added afterwards to a seal already made."
 	MsgIntegrityNoRootRetained  = "no copy of this case's fingerprint has been taken out of the app. Every check rohy can run compares the case against itself, which cannot distinguish an intact case from an altered one."
 	MsgIntegrityForensicsAbsent = "this case has no integrity machinery: %s"
 	// 🔒 Even the satisfied state stays informational and says what rohy cannot see. The value of
@@ -1591,6 +1641,41 @@ const (
 	MsgIntegrityRootsHistoryKept = "the fingerprint history could not be used when the case opened (%s). It was kept at %s, not written over, and a new history was started — seals and exports recorded before then are only in that file."
 	MsgIntegrityRootsHistoryHeld = "the fingerprint history could not be used when the case opened (%s). It was left in place, and rohy is not recording seals this session rather than write over it."
 	MsgIntegrityRootsForked      = "a seal recorded after %s was made from that older image, so the %d seal(s) recorded between them are not in what followed. The case was rolled back and then sealed again — a database restored from a backup and written to looks like this."
+
+	// Who signs the case, and this session (item 43). The seal's own verdict is the custody
+	// report's wording, so the two never disagree.
+	MsgIntegritySigningUnknown   = "whether this case signs its seals is unknown: its analyst register could not be read (%s)."
+	MsgIntegritySigningRequested = "signing was asked for and starts the next time the case is opened with the key. Seals until then are not signed."
+	MsgIntegritySigningStopped   = "this case signed its seals until %s, when %s continued it unsigned: %q. Seals since then are not signed."
+	MsgIntegrityKeyUnbound       = "%d key(s) this case lists carry no valid signature binding them to their analyst, so none of them is used to check a seal or a removal record."
+	MsgIntegritySessionReadOnly  = "this session cannot write: %s. Findings here that would need a write offer no action until it can."
+	MsgIntegrityRecoverySession  = "this session opened the case to read it after an open that failed: signatures are not checked while it lasts, and nothing can be written (%s)."
+	MsgIntegrityAuditOff         = "this session is not keeping the case's audit log, so nothing it does is recorded there."
+	MsgIntegrityAuditGap         = "%d of rohy's actions this session could not be written to the audit log. Each action happened; the log does not say so. First cause: %s"
+	MsgIntegrityLogChanged       = "this case's log changed after its analyst last closed it — a crash or an edit — and has not been accepted, so this session signs nothing over it."
+	MsgIntegrityLogAccepted      = "this session signs over a log that changed after its analyst last closed the case, accepted with the reason %q. The next seal's signature covers what changed; it does not say who wrote it."
+
+	// The redaction ledger (detector 16). 🔒 graphene's ledger chain does not cover signatures
+	// (plan §15.8), so an unsigned record is judged by the interval it was written in.
+	MsgIntegrityLedgerBroken       = "the redaction ledger does not hold together: %s. A removal record was edited, removed or reordered after it was written."
+	MsgIntegrityLedgerBadSig       = "%d removal record(s) carry a signature that does not check out under the keys this case lists."
+	MsgIntegrityLedgerStripped     = "%d removal record(s) written while this case signed its work carry no signature. The ledger's chain does not cover signatures, so a signature removed afterwards looks exactly like this."
+	MsgIntegrityLedgerUnverifiable = "%d removal record(s) were written while this case did not sign, so who made them rests on the case's own record. Their chain holds, which shows none was edited on its own; it cannot show the whole ledger was not rewritten."
+	MsgIntegrityLedgerSigned       = "all %d removal record(s) are signed by keys this case lists. The list is part of the case, so compare those keys' fingerprints with ones you kept."
+
+	// Checkpoints (detector 17). rohy publishes none before item 42.
+	MsgIntegrityCheckpointAbsent      = "no checkpoint of this case has been published outside it. Until one is, anyone able to rewrite this case's files can rewrite its whole history — the seals, the removal records and the audit log — so that every check here still passes. A fingerprint you keep elsewhere covers the seal, not the rest."
+	MsgIntegrityCheckpointUnconfirmed = "%d checkpoint(s) are recorded in this case, the last on %s, and rohy holds no receipt showing any of them reached somewhere outside it. A checkpoint only the case holds is the case vouching for itself."
+	MsgIntegrityCheckpointBroken      = "the case's checkpoint record does not hold together: %s."
+
+	// Notes for a posture that was not read: reported, never skipped.
+	MsgIntegrityNoSigning        = "the case's signing posture could not be read, so nothing here reports on who signs it"
+	MsgIntegritySealUnread       = "could not read the current seal's signature, so it was not checked: %s"
+	MsgIntegrityLedgerUnread     = "could not read the redaction ledger: %v"
+	MsgIntegrityNoLedger         = "the redaction ledger was not read, so nothing here reports on its signatures"
+	MsgIntegrityLedgerUnchecked  = "%d removal record signature(s) were not checked: the case's keys could not be read"
+	MsgIntegrityCheckpointUnread = "could not read the case's checkpoints: %v"
+	MsgIntegrityNoCheckpoints    = "the case's checkpoints were not read, so nothing here reports on them"
 )
 
 // Case fingerprint history (plan §14.2).

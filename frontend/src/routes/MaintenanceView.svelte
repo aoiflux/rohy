@@ -26,6 +26,8 @@
     duration,
     ranAt,
     backfillFraction,
+    sessionSigning,
+    writesRefused,
     ACTION,
   } from '../lib/maintenance/report.js';
   import { pendingLine } from '../lib/maintenance/redaction.js';
@@ -45,6 +47,14 @@
   const stale = $derived($maintenance.status?.stale ?? 0);
   const forensics = $derived($maintenance.forensics);
   const image = $derived($maintenance.image);
+  // A session that cannot write is not offered a button it would refuse (item 43).
+  const noWrites = $derived(writesRefused(forensics));
+  const signingNow = $derived(sessionSigning(forensics));
+  const SIGNING_LINE = {
+    read_only: UI.MAINT_FORENSIC_READ_ONLY,
+    signed: UI.MAINT_FORENSIC_SIGNED,
+    unsigned: UI.MAINT_FORENSIC_UNSIGNED,
+  };
 
   let copied = $state(false);
   let exported = $state(false);
@@ -154,7 +164,7 @@
       <p class="hint">{UI.MAINT_PROJECTION_OK}</p>
     {:else}
       <p class="warn"><b>{stale}</b> {UI.MAINT_PROJECTION_STALE}</p>
-      <Button variant="tonal" onclick={() => maintenance.backfill()} disabled={busy}>
+      <Button variant="tonal" onclick={() => maintenance.backfill()} disabled={busy || noWrites}>
         {UI.MAINT_ACTION.backfill}
       </Button>
     {/if}
@@ -187,14 +197,14 @@
       {:else}
         <p class="warn">{UI.MAINT_FORENSIC_UNSEALED}</p>
         <div class="fixes">
-          <Button variant="tonal" onclick={() => maintenance.compact()} disabled={busy}>
+          <Button variant="tonal" onclick={() => maintenance.compact()} disabled={busy || noWrites}>
             {UI.MAINT_ACTION.compact}
           </Button>
         </div>
       {/if}
 
-      <p class:hint={forensics.signed} class:warn={!forensics.signed}>
-        {forensics.signed ? UI.MAINT_FORENSIC_SIGNED : UI.MAINT_FORENSIC_UNSIGNED}
+      <p class:hint={signingNow === 'signed'} class:warn={signingNow !== 'signed'}>
+        {SIGNING_LINE[signingNow]}
       </p>
 
       {#if forensics.roots?.snapshot}
@@ -232,7 +242,7 @@
         {/each}
       </ul>
       <div class="fixes">
-        <Button variant="tonal" onclick={() => maintenance.finishRedactions()} disabled={busy}>
+        <Button variant="tonal" onclick={() => maintenance.finishRedactions()} disabled={busy || noWrites}>
           {UI.MAINT_ACTION.finish_redaction}
         </Button>
       </div>

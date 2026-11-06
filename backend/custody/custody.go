@@ -338,6 +338,20 @@ func (s *Store) History() []Record {
 	return out
 }
 
+// SealCounts counts the seals the history records, and how many of them carry no signature (item
+// 43). A seal recorded by a build before signing carries none, which is what it was.
+func (s *Store) SealCounts() (seals, unsigned int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.doc.Records {
+		seals++
+		if r.Attestation == "" {
+			unsigned++
+		}
+	}
+	return seals, unsigned
+}
+
 // indexOf locates a fingerprint. Callers hold s.mu.
 func (s *Store) indexOf(snapshot string) int {
 	for i := range s.doc.Records {

@@ -29,6 +29,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 
 	"rohy/backend/analyst"
+	"rohy/backend/caseintegrity"
 	"rohy/backend/consts"
 	"rohy/backend/custody"
 	"rohy/backend/graphene"
@@ -120,7 +121,9 @@ type Session struct {
 	slot     *graphene.KeySlot
 	flagged  bool
 	accepted bool
-	gaps     []string
+	// acceptReason is the reason given for signing over a flagged log, for the integrity report.
+	acceptReason string
+	gaps         []string
 }
 
 // NewSession returns a session that has not begun.
@@ -501,6 +504,9 @@ func (s *Session) beginLocked(req SessionRequest) (SessionView, error) {
 	s.openErr = nil
 	s.began, s.slot = true, posture.Slot
 	s.flagged, s.accepted = d.flagged, req.AcceptLog
+	if d.flagged && req.AcceptLog {
+		s.acceptReason = reason
+	}
 	close(s.begun)
 	theCase.setGate(s.d.Store.Writable)
 
@@ -767,6 +773,70 @@ func (s *Session) SigningInput(seal *graphene.SealSignature, redactionSeq uint64
 		in.RedactionInSigned = reg.SignedAtLedgerSeq(redactionSeq)
 	}
 	return in
+}
+
+// integrityNotes is what this session itself recorded, for the integrity report: its audit gaps, and
+// a changed log it did or did not accept. Taken under s.mu, before sealMu.
+func (s *Session) integrityNotes() caseintegrity.SigningPosture {
+	if s == nil {
+		return caseintegrity.SigningPosture{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return caseintegrity.SigningPosture{
+		AuditGaps:   slices.Clone(s.gaps),
+		LogFlagged:  s.flagged && !s.accepted,
+		LogAccepted: s.acceptReason,
+	}
+}
+
+// integrityPosture is what the integrity report says about who signs the case and what this session
+// did about it (item 43), with the keys to check the redaction ledger under. The keys are nil when the
+// register cannot be read, so the ledger's signatures are left unchecked rather than failing; a case
+// with no register yet has no keys, so any signature in it is by a key the case does not list.
+//
+// notes is from integrityNotes, read before the caller took sealMu. The caller holds sealMu, so no
+// seal lands between the register and the image it is compared with. 🔒 It never takes s.mu: the
+// session takes s.mu and then sealMu (Begin, Close), and the reverse order here would deadlock.
+func (s *Session) integrityPosture(roots *custody.Store, notes caseintegrity.SigningPosture) (*caseintegrity.SigningPosture, store.Verifier) {
+	if s == nil {
+		return nil, nil
+	}
+	p := &notes
+	if roots != nil {
+		p.Seals, p.UnsignedSeals = roots.SealCounts()
+	}
+	if err := s.d.Register.Err(); err != nil {
+		p.RegisterErr = err.Error()
+		return p, nil
+	}
+	reg, ok := s.d.Register.Get()
+	p.State = consts.SigningUnsigned
+	if ok {
+		p.State = reg.State
+	}
+	for _, k := range reg.Keys {
+		if !reg.Bound(k) {
+			p.UnboundKeys++
+		}
+	}
+	p.SignedAtLedgerSeq = reg.SignedAtLedgerSeq
+	ring := reg.Keyring()
+
+	switch p.State {
+	case consts.SigningUnsignedAfterSigned:
+		in := s.SigningInput(nil, 0)
+		p.StoppedAt, p.StoppedBy, p.StoppedReason = in.StoppedAt, in.StoppedBy, in.StoppedReason
+	case consts.SigningSigned:
+		seal, err := s.d.Store.SealSignature(ring)
+		if err != nil {
+			p.SealErr = err.Error()
+			return p, ring
+		}
+		state, msg := custody.SealVerdict(*s.SigningInput(seal, 0))
+		p.Seal = caseintegrity.SealVerdict{State: state, Message: msg}
+	}
+	return p, ring
 }
 
 func (s *Session) slotKey() uint64 {

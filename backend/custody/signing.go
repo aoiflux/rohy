@@ -66,6 +66,15 @@ func signingLayer(in SigningInput, e graphene.EventCustody) Layer {
 	return l
 }
 
+// SealVerdict is the signing layer's verdict on the case's current seal alone, for the integrity
+// report (item 43): the same rules an event's report applies, so the two never disagree. State is
+// consts.CustodyEstablished, CustodyNotEstablished or CustodyBroken.
+func SealVerdict(in SigningInput) (state, message string) {
+	in.RedactionInSigned = false
+	l := signingLayer(in, graphene.EventCustody{})
+	return l.State, l.Message
+}
+
 // signedSeal judges the current seal of a case that signs.
 func signedSeal(in SigningInput, l Layer) Layer {
 	s := in.Seal

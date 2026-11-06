@@ -64,11 +64,21 @@ describe('lib/maintenance / forensic actions', () => {
     expect(match).not.toMatch(/\bproves? that the (case|evidence) is\b/);
   });
 
-  it('states that an unsigned case cannot be attributed retrospectively', () => {
+  it('states that signing cannot be added afterwards to what is already written', () => {
     // This is the one thing about the unsigned posture that changes what an analyst should do
     // now rather than later, so it must be in the copy and not only in the plan.
     const text = UI.MAINT_FORENSIC_UNSIGNED.toLowerCase();
     expect(text).toMatch(/cannot be added afterwards|retrospectiv/);
+  });
+
+  it('no longer says writes are unattributed: they name the analyst, unchecked', () => {
+    // Since item 41 every write names its analyst. What an unsigned session lacks is anything
+    // that checks the name, and the copy says exactly that.
+    const text = UI.MAINT_FORENSIC_UNSIGNED.toLowerCase();
+    expect(text).not.toMatch(/cannot be attributed|unattributed/);
+    expect(text).toContain('own record');
+    // A read-only session signs nothing, whatever the case does.
+    expect(UI.MAINT_FORENSIC_READ_ONLY.toLowerCase()).toContain('signs nothing');
   });
 
   it('says an unsealed case is not a case with anything missing', () => {

@@ -87,3 +87,17 @@ func TestASignedSealIsListedAmongWhatTheReportEstablishes(t *testing.T) {
 		t.Fatalf("establishes %v", r.Establishes)
 	}
 }
+
+// The integrity report's seal verdict is the signing layer's, and an event's redaction never leaks
+// into it (item 43).
+func TestTheSealVerdictIsTheSigningLayersWithoutAnEvent(t *testing.T) {
+	good := &graphene.SealSignature{ID: sealB, Prev: sealA, Verified: true}
+	in := signedIn(good, sealB)
+	in.RedactionInSigned = true
+	if state, msg := SealVerdict(in); state != consts.CustodyEstablished || !strings.Contains(msg, "Ada's key f1f2") {
+		t.Errorf("%s: %q", state, msg)
+	}
+	if state, _ := SealVerdict(signedIn(nil, sealB)); state != consts.CustodyBroken {
+		t.Errorf("a signed case with no seal signature is %s", state)
+	}
+}

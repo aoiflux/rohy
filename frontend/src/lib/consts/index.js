@@ -973,6 +973,11 @@ export const UI = Object.freeze({
     // you would sit in the same folder as the evidence, where anyone able to change one could
     // change the other. Keeping it elsewhere is the entire mechanism.
     retain_root: 'Copy the case fingerprint below and keep it somewhere outside this case folder.',
+    // Advice, not a button (item 43): signing needs a key chosen on the Signing card, starts the
+    // next time the case opens, and cannot reach what is already written.
+    sign_case:
+      'Use “Sign this case…” on the Signing card above. Signing starts the next time the case ' +
+      'opens; what is already written stays unsigned.',
   }),
   MAINT_RUNNING: Object.freeze({
     check: 'Checking the case…',
@@ -1014,10 +1019,16 @@ export const UI = Object.freeze({
   MAINT_FORENSIC_ROOTS_UNREADABLE:
     'The case fingerprint could not be read, so whether this case was ever sealed is unknown. ' +
     'Sealing again would hide the cause; check the case folder first.',
+  // Since item 41 every write names its analyst; signing is what makes that name checkable. The
+  // three lines follow the session, not the case: a signed case opened read-only signs nothing.
   MAINT_FORENSIC_UNSIGNED:
-    'Writes are not signed, so nothing in this case can be attributed to a person. This cannot ' +
-    'be added afterwards: what is already written stays unattributed.',
-  MAINT_FORENSIC_SIGNED: 'Writes are signed, so each one can be attributed.',
+    'This session does not sign. Each write names the analyst, but that name is the case’s own ' +
+    'record, which anyone able to change the case can change. Signing cannot be added afterwards ' +
+    'to what is already written.',
+  MAINT_FORENSIC_SIGNED:
+    'This session signs each seal with the analyst’s key. A seal can be checked against that ' +
+    'key’s fingerprint — compare it with the one you kept.',
+  MAINT_FORENSIC_READ_ONLY: 'This session cannot write, so it signs nothing and records nothing.',
   MAINT_FORENSIC_ROOT_LABEL: 'Case fingerprint',
   MAINT_FORENSIC_ROOT_HINT:
     'Keep a copy of this somewhere outside the case folder — a ticket, a case log, an email. ' +

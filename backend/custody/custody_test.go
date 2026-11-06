@@ -435,3 +435,23 @@ func TestADeferredOpenMovesNothingUntilSettled(t *testing.T) {
 		t.Fatalf("a settled history refused a write: %v", err)
 	}
 }
+
+// SealCounts counts every recorded seal and those without a signature, including seals recorded
+// before signing existed (item 43).
+func TestSealCountsCountTheUnsignedSeals(t *testing.T) {
+	s, _ := openStore(t)
+	if n, u := s.SealCounts(); n != 0 || u != 0 {
+		t.Fatalf("empty history counts %d/%d", n, u)
+	}
+	if _, err := s.Observe(rec("aaa", "")); err != nil {
+		t.Fatal(err)
+	}
+	signed := rec("bbb", "aaa")
+	signed.Attestation, signed.KeyID, signed.ActorID = "att", 7, 9
+	if _, err := s.Observe(signed); err != nil {
+		t.Fatal(err)
+	}
+	if n, u := s.SealCounts(); n != 2 || u != 1 {
+		t.Fatalf("counts %d/%d, want 2/1", n, u)
+	}
+}

@@ -10,6 +10,8 @@ import {
   duration,
   ranAt,
   backfillFraction,
+  sessionSigning,
+  writesRefused,
 } from './report.js';
 
 const finding = (severity, over = {}) => ({
@@ -201,5 +203,24 @@ describe('backfillFraction', () => {
   it('clamps a count that overshoots its total', () => {
     expect(backfillFraction({ done: 500, total: 100 })).toBe(1);
     expect(backfillFraction({ done: -5, total: 100 })).toBe(0);
+  });
+});
+
+describe('the session behind the forensic card (item 43)', () => {
+  it('reads the session, not the case: read-only first, then signed', () => {
+    expect(sessionSigning(null)).toBe(null);
+    expect(sessionSigning({ signed: true, read_only: 'the key is locked' })).toBe('read_only');
+    expect(sessionSigning({ signed: true })).toBe('signed');
+    expect(sessionSigning({ signed: false })).toBe('unsigned');
+  });
+
+  it('refuses writes only when the session says it cannot write', () => {
+    expect(writesRefused(null)).toBe(false);
+    expect(writesRefused({ read_only: '' })).toBe(false);
+    expect(writesRefused({ read_only: 'recovery' })).toBe(true);
+  });
+
+  it('keeps signing a case as advice, never a button', () => {
+    expect(runnable(ACTION.SIGN_CASE)).toBe(false);
   });
 });

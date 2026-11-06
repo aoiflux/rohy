@@ -30,6 +30,8 @@ export const ACTION = Object.freeze({
   RETAIN_ROOT: 'retain_root',
   // Runs the steps an unfinished redaction did not complete (plan §14.5).
   FINISH_REDACTION: 'finish_redaction',
+  // Points at "Sign this case…" on the Signing card (item 43). Advice: it needs a key chosen there.
+  SIGN_CASE: 'sign_case',
 });
 
 /** Actions the app can actually perform. Everything else is advice, and is shown as advice. */
@@ -168,4 +170,25 @@ export function backfillFraction(progress) {
   if (!progress || !Number.isFinite(progress.total) || progress.total <= 0) return null;
   const done = Number.isFinite(progress.done) ? progress.done : 0;
   return Math.min(Math.max(done / progress.total, 0), 1);
+}
+
+/**
+ * sessionSigning says what the forensic card's signing line is about: this session, not the case
+ * (item 41). A signed case opened read-only signs nothing, and must not read as signing.
+ * @param {{signed?:boolean, read_only?:string}|null} forensics
+ * @returns {'read_only'|'signed'|'unsigned'|null}
+ */
+export function sessionSigning(forensics) {
+  if (!forensics) return null;
+  if (forensics.read_only) return 'read_only';
+  return forensics.signed ? 'signed' : 'unsigned';
+}
+
+/**
+ * writesRefused reports whether this session would refuse an action that writes, so the page can
+ * disable those buttons rather than offer one that is refused (item 43).
+ * @param {{read_only?:string}|null} forensics
+ */
+export function writesRefused(forensics) {
+  return Boolean(forensics?.read_only);
 }

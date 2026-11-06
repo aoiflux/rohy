@@ -16,6 +16,8 @@ import (
 	"rohy/backend/rules"
 	"rohy/backend/snapshot"
 	"rohy/backend/version"
+
+	"github.com/aoiflux/graphene/store"
 )
 
 // Case-integrity binding (P30).
@@ -62,15 +64,15 @@ func (a *MaintenanceAPI) WithIntegrity(d IntegrityDeps) *MaintenanceAPI {
 // their case looks wrong while it is being repaired.
 func (a *MaintenanceAPI) CheckIntegrity(deep bool) (caseintegrity.Report, error) {
 	a.mu.Lock()
-	deps := a.integrity
+	deps, session := a.integrity, a.session
 	a.mu.Unlock()
 
-	return caseintegrity.Run(context.Background(), a.buildDeps(deps), caseintegrity.Options{Deep: deep}), nil
+	return caseintegrity.Run(context.Background(), a.buildDeps(deps, session), caseintegrity.Options{Deep: deep}), nil
 }
 
 // buildDeps adapts the concrete stores to the checker's narrow interfaces. The adaptation lives
 // here rather than in caseintegrity so that package stays testable against literals.
-func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
+func (a *MaintenanceAPI) buildDeps(d IntegrityDeps, session *Session) caseintegrity.Deps {
 	out := caseintegrity.Deps{LayoutDir: d.LayoutDir}
 	if a.store != nil {
 		out.Events = a.store
@@ -78,6 +80,7 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 		// separately so a Deps assembled without it reports the posture as unknown rather than
 		// as fine (plan §14.8).
 		out.Forensics = a.store
+		a.readPosture(&out, d, session)
 	}
 	if d.Findings != nil {
 		out.Findings = d.Findings
@@ -111,6 +114,33 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps) caseintegrity.Deps {
 		}
 	}
 	return out
+}
+
+// readPosture reads who signs the case, the redaction ledger and the checkpoints (item 43). Under
+// sealMu, so no seal lands between the register, the image and the ledger they are compared with;
+// the reads are short, unlike the deep checks, which run without it.
+//
+// With no session there is no register: Signing stays nil and is reported as not read, and the
+// ledger's signatures are left unchecked.
+func (a *MaintenanceAPI) readPosture(out *caseintegrity.Deps, d IntegrityDeps, session *Session) {
+	// The session's own notes first: it takes its lock before sealMu, never after (api_session.go).
+	notes := session.integrityNotes()
+	sealMu.Lock()
+	defer sealMu.Unlock()
+	var ring store.Verifier
+	if session != nil {
+		out.Signing, ring = session.integrityPosture(d.Roots, notes)
+	}
+	if l, err := a.store.LedgerState(ring); err != nil {
+		out.LedgerErr = err
+	} else {
+		out.Ledger = &l
+	}
+	if c, err := a.store.CheckpointState(); err != nil {
+		out.CheckpointErr = err
+	} else {
+		out.Checkpoints = &c
+	}
 }
 
 // rootHistoryAdapter narrows the fingerprint history to what the checks read, translating its chain
