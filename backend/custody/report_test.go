@@ -643,3 +643,29 @@ func TestDescendsDoesNotCrossAFork(t *testing.T) {
 		}
 	}
 }
+
+// A checkpoint digest kept outside the case is checked as the seal it names (item 42), once the case
+// is shown to still hold what the checkpoint committed to.
+func TestAKeptCheckpointDigestIsCheckedAsItsSeal(t *testing.T) {
+	in := sealedInput()
+	in.Kept, in.KeptVia = snapA, &KeptCheckpoint{Seq: 3}
+	l := layerOf(t, EventReport(in).Layers, consts.CustodyEventLayerKept)
+	if l.State != consts.CustodyEstablished || len(l.Notes) == 0 || !strings.Contains(l.Notes[0], "checkpoint 3") {
+		t.Fatalf("%+v", l)
+	}
+
+	in.KeptVia = &KeptCheckpoint{Seq: 3, Off: "the audit entries were changed"}
+	r := EventReport(in)
+	if l := layerOf(t, r.Layers, consts.CustodyEventLayerKept); l.State != consts.CustodyBroken || !strings.Contains(l.Message, "audit entries were changed") {
+		t.Fatalf("off: %+v", l)
+	}
+	if slices.Contains(r.Establishes, consts.CustodyEstablishesKept) {
+		t.Fatal("a checkpoint the case no longer holds established the kept layer")
+	}
+
+	in.Kept, in.KeptVia = strings.Repeat("cd", 32), &KeptCheckpoint{Seq: 1, NoSeal: true}
+	r = EventReport(in)
+	if l := layerOf(t, r.Layers, consts.CustodyEventLayerKept); l.State != consts.CustodyNotEstablished || r.Form != consts.CustodyFormKept {
+		t.Fatalf("no seal: %+v %s", l, r.Form)
+	}
+}

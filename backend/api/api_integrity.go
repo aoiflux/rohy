@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"rohy/backend/anchor"
 	"rohy/backend/caseintegrity"
 	"rohy/backend/consts"
 	"rohy/backend/custody"
@@ -41,6 +42,8 @@ type IntegrityDeps struct {
 	Journal *redaction.Journal
 	// Snapshots holds the snapshot documents a redaction scrubs.
 	Snapshots *snapshot.Store
+	// Receipts is what the analyst recorded about where each checkpoint's digest went (item 42).
+	Receipts *anchor.Store
 }
 
 // WithIntegrity attaches the stores the integrity checks read. Returns the receiver so it can be
@@ -131,16 +134,27 @@ func (a *MaintenanceAPI) readPosture(out *caseintegrity.Deps, d IntegrityDeps, s
 	if session != nil {
 		out.Signing, ring = session.integrityPosture(d.Roots, notes)
 	}
-	if l, err := a.store.LedgerState(ring); err != nil {
+	// Every history is read once, for the ledger's signatures and for the checkpoints (item 42).
+	h, err := a.store.Histories()
+	if err != nil {
+		out.LedgerErr, out.CheckpointErr = err, err
+		return
+	}
+	if l, err := h.LedgerState(ring); err != nil {
 		out.LedgerErr = err
 	} else {
 		out.Ledger = &l
 	}
-	if c, err := a.store.CheckpointState(); err != nil {
-		out.CheckpointErr = err
-	} else {
-		out.Checkpoints = &c
+	if why, unread := h.Unread()[consts.AnchorLayerChain]; unread {
+		out.CheckpointErr = errors.New(why)
+		return
 	}
+	current, err := a.store.SnapshotRoots()
+	if err != nil {
+		out.CheckpointErr = err
+		return
+	}
+	out.Checkpoints = anchoring(h, d.Receipts, session.publishedCheckpoint(d.Roots, current))
 }
 
 // rootHistoryAdapter narrows the fingerprint history to what the checks read, translating its chain
@@ -356,7 +370,7 @@ func (a *MaintenanceAPI) ExportEventProof(id uint64) (EventProofExport, error) {
 
 // EventCustody is the custody report for one event (plan §14.4, §15.6): gaps, never a verdict.
 //
-// kept is a fingerprint the analyst kept outside the case, or empty. 🔒 It is the caller's, always:
+// kept is a fingerprint the analyst kept outside the case, a checkpoint digest (item 42), or empty. 🔒 It is the caller's, always:
 // the UI never fills it from the case, because a check against the case's own copy proves nothing.
 //
 // It takes no maintenance lock: it writes nothing. It takes sealMu, so no seal lands between the
@@ -390,14 +404,22 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 	if in.Current, err = a.store.SnapshotRoots(); err != nil {
 		return custody.Report{}, AsError(consts.ErrCodePersistence, err)
 	}
+	// A kept checkpoint digest is checked as the seal it names (item 42).
+	if k != "" {
+		h, err := a.store.Histories()
+		if err != nil {
+			return custody.Report{}, AsError(consts.ErrCodePersistence, err)
+		}
+		in.Kept, in.KeptVia = keptCheckpoint(h, k)
+	}
 	if hist != nil {
 		in.Chain = hist.Chain(in.Current)
 		if in.Current != nil {
 			in.Exported = hist.Exported(in.Current.Snapshot)
 		}
-		if k != "" {
-			_, in.KeptKnown = hist.Get(k)
-			in.KeptAncestor = hist.DescendsFrom(in.Current, k)
+		if in.Kept != "" {
+			_, in.KeptKnown = hist.Get(in.Kept)
+			in.KeptAncestor = hist.DescendsFrom(in.Current, in.Kept)
 		}
 	}
 	if session != nil {

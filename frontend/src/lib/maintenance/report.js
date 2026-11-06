@@ -32,6 +32,10 @@ export const ACTION = Object.freeze({
   FINISH_REDACTION: 'finish_redaction',
   // Points at "Sign this case…" on the Signing card (item 43). Advice: it needs a key chosen there.
   SIGN_CASE: 'sign_case',
+  // Checkpoints (item 42). Publishing is a button: it seals first if needed, records a checkpoint
+  // and saves its statement. Recording a receipt is advice: only the analyst knows what came back.
+  PUBLISH_CHECKPOINT: 'publish_checkpoint',
+  RECORD_RECEIPT: 'record_receipt',
 });
 
 /** Actions the app can actually perform. Everything else is advice, and is shown as advice. */
@@ -42,6 +46,7 @@ const RUNNABLE = new Set([
   ACTION.COMPACT,
   ACTION.VERIFY_IMAGE,
   ACTION.FINISH_REDACTION,
+  ACTION.PUBLISH_CHECKPOINT,
 ]);
 
 /**

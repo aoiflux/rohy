@@ -351,3 +351,45 @@ func FuzzDecodeProfile(f *testing.F) {
 		}
 	})
 }
+
+// The last checkpoint published of each case is kept outside it (item 42), one per case, and read
+// back strictly.
+func TestTheProfileKeepsTheLastCheckpointPublishedPerCase(t *testing.T) {
+	dir := t.TempDir()
+	ps, _ := OpenProfile(dir)
+	if _, err := ps.SetIdentity("Ada"); err != nil {
+		t.Fatal(err)
+	}
+	caseA, caseB := strings.Repeat("aa", 16), strings.Repeat("bb", 16)
+	at := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
+	for _, c := range []PublishedCheckpoint{
+		{CaseID: caseA, Seq: 1, Digest: strings.Repeat("01", 32), Snapshot: strings.Repeat("0a", 32), At: at},
+		{CaseID: caseB, Seq: 4, Digest: strings.Repeat("02", 32), At: at},
+		{CaseID: caseA, Seq: 2, Digest: strings.Repeat("03", 32), At: at},
+	} {
+		if _, err := ps.RecordCheckpoint(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, _ := OpenProfile(dir)
+	p, ok := again.Get()
+	if !ok || len(p.Checkpoints) != 2 || p.Checkpoints[0].Seq != 2 || p.Checkpoints[1].Seq != 4 {
+		t.Fatalf("%+v", p.Checkpoints)
+	}
+	for name, c := range map[string]PublishedCheckpoint{
+		"no case":   {Seq: 1, Digest: strings.Repeat("01", 32)},
+		"seq 0":     {CaseID: caseA, Digest: strings.Repeat("01", 32)},
+		"bad hex":   {CaseID: caseA, Seq: 1, Digest: "zz"},
+		"bad image": {CaseID: caseA, Seq: 1, Digest: strings.Repeat("01", 32), Snapshot: "ab"},
+	} {
+		if _, err := again.RecordCheckpoint(c); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	twice := `{"profile_version":1,"analyst_id":"` + strings.Repeat("ab", 16) + `","name":"Ada","checkpoints":[` +
+		`{"case_id":"` + caseA + `","seq":1,"digest":"` + strings.Repeat("01", 32) + `","at":"2026-11-06T00:00:00Z"},` +
+		`{"case_id":"` + caseA + `","seq":2,"digest":"` + strings.Repeat("02", 32) + `","at":"2026-11-06T00:00:00Z"}]}`
+	if _, err := decodeProfile([]byte(twice)); err == nil {
+		t.Fatal("a case listed twice was accepted")
+	}
+}

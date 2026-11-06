@@ -591,6 +591,46 @@ export function eventCustody(id, kept) {
   return call(MAINTENANCE, 'EventCustody', id, kept);
 }
 
+// --- Checkpoints (plan §14.7, item 42) ---
+
+/** The case's checkpoints, oldest first, each with the receipts the case records for it. Cheap. */
+export function checkpoints() {
+  return call(MAINTENANCE, 'Checkpoints');
+}
+
+/**
+ * Seals the case if it has unsealed changes, records a checkpoint, and returns its statement.
+ *
+ * 🔒 Once the checkpoint is recorded the call does not fail: `gaps` lists what could not be recorded
+ * after it. `file_name` and `document` are the statement to save, untouched.
+ */
+export function publishCheckpoint() {
+  return call(MAINTENANCE, 'PublishCheckpoint');
+}
+
+/** The statement for checkpoint seq, to save again. A read. @param {number} seq */
+export function checkpointStatement(seq) {
+  return call(MAINTENANCE, 'CheckpointStatement', seq);
+}
+
+/**
+ * Records what the place a checkpoint's digest was published gave back.
+ * @param {number} seq
+ * @param {string} ref
+ * @param {string} publishedAt RFC 3339, or ''
+ */
+export function recordCheckpointReceipt(seq, ref, publishedAt) {
+  return call(MAINTENANCE, 'RecordCheckpointReceipt', seq, ref, publishedAt);
+}
+
+/**
+ * Checks the case against a checkpoint digest the reader holds. 🔒 Always the reader's value, never
+ * one read from the case. @param {string} digest
+ */
+export function checkCheckpoint(digest) {
+  return call(MAINTENANCE, 'CheckCheckpoint', digest);
+}
+
 // --- Redaction (plan §14.5) ---
 
 /** What redacting an event would remove and keep. Writes nothing. @param {number} id */

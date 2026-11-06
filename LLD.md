@@ -1768,7 +1768,7 @@ by `MaintenanceAPI.readPosture` under `sealMu`:
 |---|---|---|
 | `Signing *SigningPosture` | the session's notes (gaps, the log it did or did not accept), the register, `custody.SealCounts`, `custody.SealVerdict` | 14, and the session's own posture |
 | `Ledger *graphene.LedgerState` | `Store.LedgerState(keyring)`: the keyless chain check, then each signature under the bound keys | 16 |
-| `Checkpoints *graphene.CheckpointState` | `InspectCheckpoints`: graphene's local chain, a torn tail included | 17 |
+| `Checkpoints *caseintegrity.Anchoring` | `Store.Histories` (each history read once), the receipts, the analyst's profile (#42) | 17 |
 
 - **Lock order is the session's lock, then `sealMu`.** `Begin` and `Close` take them in that order,
   so `readPosture` reads the session's notes before it takes `sealMu`.
@@ -1777,6 +1777,40 @@ by `MaintenanceAPI.readPosture` under `sealMu`:
 - **A nil dep is a note, never a clean line.** With the register unreadable, the keyring is nil
   and the ledger's signatures are `unchecked`, not failing.
 - **A read-only session's report carries no write action** (`withholdWrites`).
+
+### 18.6 Checkpoints: the digest out, the receipt in (#42)
+
+rohy ships no anchor. `MaintenanceAPI.PublishCheckpoint` records a checkpoint through graphene's
+`PublishCheckpoint` with a **hand-off** anchor that publishes nothing, and returns a statement whose
+digest the analyst publishes. What came back is recorded with `RecordCheckpointReceipt` in
+`rohy-data/roots/receipts.json` (`backend/anchor`).
+
+| Path | Locks | Writes |
+|---|---|---|
+| `PublishCheckpoint` | maintenance lock, case lock shared, then `sealMu` across the keep-aside, the seal (when unsealed), the checkpoint and the profile record | yes |
+| `RecordCheckpointReceipt` | case lock shared | yes |
+| `CheckCheckpoint`, the drawer's `EventCustody` | case lock for reading, `sealMu` | no |
+| `CheckpointStatement`, `Checkpoints` | none | no |
+
+Ordering of a publish:
+1. Ready the chain: keep a torn tail aside, refuse a broken chain.
+2. Seal if unsealed (`sealAndRecordLocked`). Abort if the seal failed or left the session unable to
+   write.
+3. Call `PublishCheckpoint`. The engine writes its audit announcement, captures, and appends.
+   - On error, no digest is handed out, and rohy writes "checkpoint N was not recorded".
+4. 🔒 Nothing after this returns an error. The statement and the profile record failing are gaps.
+
+Invariants, each a test:
+- A record's stored digest is trusted only after `VerifyCheckpointChain(chain[:K])`.
+- Every history is checked on its own at K: at least K's count, the prefix verifies, the last hash
+  is K's head. A history that cannot be read is unread, not changed.
+- A deleted chain is caught two ways:
+  - the engine's announcements in the audit log, a kind no caller can write
+  - the analyst's profile, matched by case id or by the seal the checkpoint named
+- The best detector-17 state is info and says rohy cannot check the anchor. A receipt is the case's
+  own record.
+- The held digest is never prefilled from the case. A seal fingerprint pasted there is pointed to
+  the custody check.
 
 ---
 

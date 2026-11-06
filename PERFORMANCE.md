@@ -1054,3 +1054,25 @@ turn each relation into an fsync.
 go test ./backend/graphene/ -run XXX -bench 'InsertShape|SealShape' -benchtime 20x -count 3
 go test ./backend/keyfile/  -run XXX -bench Unlock -benchtime 10x -count 3
 ```
+
+## 19. Checkpoints: what a publish and a check cost (item 42)
+
+A checkpoint commits to the head of every history except the events themselves: the image root,
+its attestation, the audit log, the removal and grant ledgers. Reading them once is what both an
+integrity check and a held-digest check do. A publish adds the engine's audit entry and the
+checkpoint record, and each is synced.
+
+| | 10k events | 100k events |
+|---|---|---|
+| `Histories` + `Holds` + `Current` (1,000 audit entries) | 1.8 ms, 0.80 MB, 3,093 allocs | 2.2 ms, 0.79 MB, 3,093 allocs |
+| `ReadyCheckpointChain` + `PublishCheckpoint` | 17 ms, 0.59 MB | 22 ms, 0.59 MB |
+
+Neither moves with the number of events. They grow with the audit log, which holds rohy's
+actions, never one entry per event. A publish is a click; the read runs inside each integrity
+check, under `sealMu`, and is small beside it.
+
+A publish on a case with unsealed changes seals first, and then costs what a seal costs (§18).
+
+```
+go test ./backend/graphene/ -run XXX -bench 'Histories|PublishCheckpoint' -benchtime 20x
+```

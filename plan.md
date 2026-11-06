@@ -35,10 +35,10 @@ P4 Editor            ███████████████████�
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
 P7 Tooling           ████████░░░░░░░░░░░░  40%  2/5    #32b extension, #33 QueryAPI, #34 integration+stress ⬜; #36 docs ½
-P8 Forensic          █████████████████░░░  86%  6/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #43 ✅ (§15.9); #42 ⬜
+P8 Forensic          ████████████████████ 100%  7/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #42 ✅ (§15.10), #43 ✅ (§15.9)
 ───────────────────────────────────────────────────────
-Overall              ██████████████████░░  91%  43/47
-Definition of done   ██████████████████░░  91%  10/11  the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43
+Overall              ███████████████████░  94%  44/47
+Definition of done   ██████████████████░░  91%  10/11  the "integration path" ✅ was not true; proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43 (+ the window, #42)
 ```
 
 Not numbered, not started: §7.4 editor → canvas step highlight; §7.3 (b) diff against the file on
@@ -72,6 +72,13 @@ is locked opens read-only. **Next:** #43 forensic detectors (§14.8), then #42 a
 session cannot do, what the redaction ledger's records can show about who made them, and that no
 checkpoint has been published. A read-only session is offered no action it would be refused.
 **Next:** #42 anchoring (§14.7).
+
+**#42 landed 2026-11-06** (§15.10): checkpoints. *Publish a checkpoint…* seals the case if it needs
+it, records a checkpoint and saves a statement whose digest the analyst publishes somewhere the
+case's rewriter cannot reach; the receipt they get back is recorded beside the seal history. The
+integrity report states the window since the last checkpoint with a receipt, and a digest the
+reader holds is checked against the case — the one check rohy runs that does not rest on the case.
+**P8 is complete.** What is left is P7 (#32b, #33, #34, #36 ½) and P4's #23 ½.
 
 ---
 
@@ -2450,7 +2457,9 @@ the event that was ingested.
 41. ✅ **Signing and attribution** (§14.6) — landed 2026-11-05 (§15.8): key custody OUTSIDE the
     case folder, `RequireSignedCommits`, `Audit`, analyst actor identity. `Retention` stays off:
     a retained segment keeps what a redaction removed.
-42. **Anchoring** (§14.7) — checkpoint digest out, receipt in. 🔒 rohy ships no anchor.
+42. ✅ **Anchoring** (§14.7) — checkpoint digest out, receipt in. 🔒 rohy ships no anchor. Landed
+    2026-11-06 (§15.10): a hand-off anchor that publishes nothing, receipts recorded beside the
+    seal history, the window reported, and a held digest checked against the case and the drawer.
 43. ✅ **Forensic detectors** in `caseintegrity` (§14.8) + the Maintenance page surface — landed
     2026-11-06 (§15.9): detector 14 reworked over #41, 16 and 17 built, the session's own posture
     reported, and a read-only session offered no write.
@@ -2850,6 +2859,14 @@ same machine is not an anchor. It may appear in rohy's tests and nowhere else.
 ⚠️ The guarantee is bounded by publication frequency — everything since the last checkpoint is
 freely rewritable. `AnchorAudit` reports that window; rohy shows it rather than a tick.
 
+**Correction (#42, §15.10).** rohy calls neither `VerifyAgainstAnchor` nor `CustodyForAnchor`:
+both take the anchor to hold every digest ever published, so a reader holding one, or receipts for
+some checkpoints only, would read as fatal for the rest. And "capture, then publish later" is not
+possible: the engine's `PublishCheckpoint` is the only way to record a checkpoint, and it writes an
+audit entry and stamps the time before capturing. rohy's anchor is a **hand-off** that publishes
+nothing: the digest leaves in rohy's reply to the analyst, the receipt comes back as their record,
+and the window and the held-digest check are rohy's own, built from the engine's chain checks.
+
 ### 14.8 Forensic detectors in `caseintegrity` (item 43)
 
 The existing eleven detectors answer "is this case broken". These answer "what can this case
@@ -2880,7 +2897,7 @@ signed interval. A record written while the case did not sign is the posture. De
 
 ```
 backend/graphene/graphene_forensics.go   Forensics() accessor, roots, proofs, redaction,
-                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37), ProveEvent (#38), EventCustody (#39, graphene_custody.go) and redaction (#40) built; checkpoints ❌
+                                          custody, checkpoints — rohy-shaped types      ⚠️ roots, VerifyImage, Unsealed, VerifyChain (#37), ProveEvent (#38), EventCustody (#39, graphene_custody.go) and redaction (#40) built; checkpoints in graphene_anchor.go (#42)
 backend/custody                          policy + report assembly over narrow interfaces ✅ fingerprint history + Chain (#37, §15.5); custody report + DescendsFrom (#39, §15.6)
 backend/api/api_seal.go                  every seal through one path, recorded            ✅ (#37, §15.5)
 backend/payload/payload_redact.go        same-length in-place tombstone (§14.5.1)         ✅ (#40, §15.7)
@@ -2892,6 +2909,10 @@ backend/api/api_caselock.go              the case lock: writes shared, redaction
 backend/keyfile                          passphrase-sealed Ed25519 key, outside the case  ✅ (#41, §15.8)
 backend/analyst                          profile (per user) + register (per case)          ✅ (#41, §15.8)
 backend/graphene/graphene_posture.go     ledger signatures + checkpoint chain, read only   ✅ (#43, §15.9)
+backend/graphene/graphene_anchor.go      hand-off anchor, publish, histories read once      ✅ (#42, §15.10)
+backend/anchor                           checkpoint receipts, beside the seal history       ✅ (#42, §15.10)
+backend/custody/anchor.go                a held digest checked against the case             ✅ (#42, §15.10)
+backend/api/api_anchor.go                publish, statement, receipt, check, detector input ✅ (#42, §15.10)
 backend/graphene/graphene_signing.go     key slot, posture, audit framing, seal signature ✅ (#41, §15.8)
 backend/custody/signing.go               the signing layer: what the engine does not ask  ✅ (#41, §15.8)
 backend/api/api_session.go               the session step, before the case opens          ✅ (#41, §15.8)
@@ -3509,3 +3530,113 @@ before `sealMu` is taken.
 - What rohy reads from inside the case stays best-effort (§15.8). Whoever can rewrite the case and
   the profile can make every detector here pass; only a fingerprint kept elsewhere, and after #42
   an anchor, does not depend on the case.
+
+### 15.10 #42 anchoring (2026-11-06)
+
+**What §14.7 assumed, measured against graphene v0.4.0** (`disk/anchor.go`):
+
+| §14.7 said | What holds |
+|---|---|
+| "The `Anchor` interface is implemented over that sidecar" | `PublishCheckpoint` is the only way to record a checkpoint, and it calls `Publish` synchronously after writing an audit entry and stamping the time. A digest captured earlier can never be the one recorded, so the digest is handed out **at** publish. rohy's anchor is a hand-off: it publishes nothing, claims no time and no reference, and refuses to be read back |
+| `AnchorAudit` reports the window | `VerifyAgainstAnchor` assumes the anchor returns every digest ever published; any checkpoint it does not is fatal. rohy builds the window and the held-digest check itself, from `ReadCheckpoints`, `VerifyCheckpointChain` and each history's own chain check |
+| (unstated) | The live log is in no checkpoint, and rohy's own audit entries (session start, every launch) move the audit head. "Moved on" is therefore judged per history: a new seal, removals or grants are stale; audit entries alone are not |
+
+**Decisions (owner, 2026-11-06):**
+
+| Question | Decision |
+|---|---|
+| Publishing a case with unsealed changes | Seal first, in the same click. |
+| The event drawer takes a checkpoint digest | Now: it closes #39's third form. |
+| The profile remembers the last checkpoint published | Yes, as a tripwire for that machine account only. |
+
+Defaults chosen without asking:
+- a receipt's time is optional
+- a checkpoint can have several receipts
+- a window where only audit entries were added is info
+- the ref text never reaches the audit log
+
+**Found by an independent review of the design, before any code (all fixed):**
+
+- 🔴 **The publish deadlocked itself.** It held `sealMu` across a seal that takes `sealMu`.
+  `sealAndRecordLocked` is the seal for a caller that already holds it.
+- 🔴 **Publishing onto a torn chain lost the new checkpoint.** The engine appends after the torn
+  bytes, then reads back in whole records from the start, so the new record is out of alignment and
+  its digest is never found again. A test pins the engine behaviour. `ReadyCheckpointChain` keeps
+  the tail aside first and refuses a chain that does not hold.
+- 🔴 **The profile tripwire was wiped or bypassed.** `SignedCase` is replaced whole at every seal
+  and recorded only for signed cases, and a deleted register gives the case a new id. The profile
+  now has its own `checkpoints` list, matched by case id or by the seal the checkpoint names.
+- 🟡 **A tripwire was available inside the case and unused.** The engine announces each publication
+  in an audit kind no caller can write, and the announcement outlives the chain file. A failed
+  publish writes "checkpoint N was not recorded", so a failed attempt is not read as a removal.
+- 🟡 **The chain was being trusted before it was checked.** A record's stored digest is only a claim.
+  `Find` runs `VerifyCheckpointChain(chain[:K])` first, so an edited root under its original digest
+  does not steer the check.
+- 🟡 **One misframed audit entry failed the whole capture.** Each history is now read once, keeping
+  the readable prefix beside its error. A layer that cannot be read is noted, and the rest is
+  checked.
+- 🟡 **The digest could be lost.** After the append nothing returns an error, so later failures are
+  gaps. The statement is built from the engine's own reply, and the digest stays on the page
+  whether or not the save worked.
+- 🟡 **The design overclaimed.** An image the history cannot trace is no longer called a rollback;
+  only a rollback or fork in the seal history is.
+
+**Found while building:** the "current" line claimed the image and the removal records were
+unchanged even when one of them could not be read. It is now made only when every history it rests
+on was read; otherwise the notes say what was not covered (test first).
+
+**As built:**
+
+- **graphene** (`graphene_anchor.go`):
+  - the hand-off, `ReadyCheckpointChain`, `PublishCheckpoint`, `CheckpointAt`, `CheckpointChain`
+  - `Histories` (every history read once) with `Current`, `Find`, `Holds` and `Unrecorded`
+
+  `Holds(K)` checks each history independently: at least K's count, the prefix verifies, and its
+  last hash is K's head.
+- **`backend/anchor`**: the receipts file beside the seal history.
+  - strict decoding, bounded, durable, fuzzed
+  - an unusable file is left as it is and refuses writes
+  - typo guards on the time
+- **`custody.AnchorReport`**: the held-digest check, tested against literals. Its states:
+  - matches, or descends (the seals between rest on the case's own record)
+  - unplaced, incomplete, broken
+  - not found, or a seal fingerprint (pointed to the custody check)
+- **The drawer's kept value accepts a checkpoint digest.** It is checked as the seal the checkpoint
+  names, and reads as broken once a history the checkpoint covered has changed.
+- **Detector 17:**
+  - broken (error): a broken chain, an unrecorded announcement, the profile's checkpoint missing, an
+    orphaned receipt, or a history changed or shrunk under the newest checkpoint
+  - absent (offers *Publish a checkpoint*)
+  - unconfirmed (asks for a receipt)
+  - stale (offers a new checkpoint)
+  - current (info)
+
+  🔒 The best state says rohy cannot check the anchor, that the receipt is the case's own record,
+  and where the check that does not rest on the case is.
+- **API:**
+  - `Checkpoints`, `PublishCheckpoint`, `CheckpointStatement`, `RecordCheckpointReceipt`,
+    `CheckCheckpoint`
+  - the integrity read takes `Histories` once, under `sealMu`
+  - publish and receipts are writes, withheld in a read-only session; the check and the statement
+    are reads
+- **UI:** a *Checkpoints outside the case* card on the Maintenance page. It shows the last digest
+  with copy and save-again, its receipts, the publish confirmation, the receipt form, and the
+  held-digest check (never prefilled). The statement is saved wherever the publish started.
+
+**Measured** (PERFORMANCE.md §19): the histories read takes ~2 ms and ~0.8 MB with 1,000 audit
+entries; a publish takes ~17–22 ms (two syncs). Neither depends on the number of events.
+
+**Upstream notes** (graphene, worth raising):
+- a publish split into "capture and announce" and "record what was published"
+- `VerifyAgainstAnchor` taking the digests a reader holds rather than every one
+- the checkpoint digest function exported, so a third party can recompute a statement
+- a torn checkpoint tail repaired or refused, not appended after
+
+**Still open:**
+- The event proof (#38) does not carry the checkpoint. A recipient holding the published digest
+  and a proof still needs the seal fingerprint from the statement, until a proof can embed the
+  checkpoint record and `rohyctl` can recompute its digest (upstream, above).
+- A receipt is opaque text. rohy checks no timestamp token, which would be a parser and a trust
+  store of its own.
+- Everything after the last checkpoint rests on the case's own word, as §14.7 says; the report
+  states the window rather than closing it.

@@ -965,6 +965,7 @@ export const UI = Object.freeze({
     compact: 'Seal the case',
     verify_image: 'Check the case has not changed',
     finish_redaction: 'Finish the redactions',
+    publish_checkpoint: 'Publish a checkpoint',
   }),
   MAINT_ADVICE: Object.freeze({
     ingest: 'Ingest the missing logs to resolve this.',
@@ -978,6 +979,10 @@ export const UI = Object.freeze({
     sign_case:
       'Use “Sign this case…” on the Signing card above. Signing starts the next time the case ' +
       'opens; what is already written stays unsigned.',
+    // Advice (item 42): only the analyst knows what the place they published to gave back.
+    record_receipt:
+      'Record what the place you published the digest to gave back, under “Record a receipt” on ' +
+      'the Checkpoints card.',
   }),
   MAINT_RUNNING: Object.freeze({
     check: 'Checking the case…',
@@ -987,6 +992,7 @@ export const UI = Object.freeze({
     verify: 'Re-reading the whole case…',
     compact: 'Sealing the case…',
     finish_redaction: 'Finishing the redactions…',
+    publish: 'Publishing a checkpoint…',
   }),
   MAINT_DONE: Object.freeze({
     backfill: 'Correlation fields filled in.',
@@ -994,6 +1000,7 @@ export const UI = Object.freeze({
     rebuild: 'Indexes rebuilt.',
     compact: 'Case sealed. It now has a fingerprint that covers everything in it.',
     finish_redaction: 'Redactions finished.',
+    publish: 'Checkpoint recorded and its statement saved. Publish the digest, then record the receipt.',
   }),
 
   // --- Forensic posture (Phase 8, plan §14) ---
@@ -1045,6 +1052,63 @@ export const UI = Object.freeze({
   MAINT_FORENSIC_EXPORTED:
     'A copy was saved. rohy cannot tell whether it still exists, or whether it is somewhere ' +
     'beyond the reach of anyone able to change this case — which is what makes it worth having.',
+  // --- Checkpoints (item 42) ---
+  //
+  // 🔒 rohy ships no anchor. It records a checkpoint and hands over its digest; publishing it, and
+  // what comes back, is the analyst's. A receipt is the case's own record — a pointer to follow,
+  // never a witness — and nothing on this card ever reads as a tick.
+  ANCHOR_TITLE: 'Checkpoints outside the case',
+  ANCHOR_INTRO:
+    'A checkpoint fixes the seal, the audit log and the removal records in one digest. Published ' +
+    'somewhere this case’s rewriter cannot reach, it is the one thing a rewrite cannot match.',
+  ANCHOR_UNAVAILABLE: 'This case is held in memory only, so there is nothing to checkpoint.',
+  ANCHOR_NONE: 'No checkpoint has been published.',
+  ANCHOR_CHAIN_BROKEN: 'The case’s checkpoint record does not hold together:',
+  ANCHOR_RECEIPTS_UNREAD: 'The receipts could not be read:',
+  ANCHOR_LAST: (seq, when) => `Checkpoint ${seq}, made ${when}`,
+  ANCHOR_DIGEST_LABEL: 'Digest to publish',
+  ANCHOR_COPY: 'Copy digest',
+  ANCHOR_COPIED: 'Copied.',
+  ANCHOR_SAVE_AGAIN: 'Save its statement again',
+  ANCHOR_NO_RECEIPT: 'No receipt recorded: nothing shows this digest left the case.',
+  ANCHOR_RECEIPTS: 'The case records it as published:',
+  ANCHOR_RECEIPT_AT: (when) => ` (the anchor’s time: ${when})`,
+  ANCHOR_RECEIPT_CAVEAT: 'A receipt is the case’s own record. Follow it to the anchor to confirm.',
+  ANCHOR_PUBLISH: 'Publish a checkpoint…',
+  ANCHOR_PUBLISH_CONFIRM:
+    'rohy seals the case first if it has unsealed changes, records a checkpoint, and saves its ' +
+    'statement. Then publish the digest yourself — a timestamping authority, opposing counsel, an ' +
+    'organisational log, a printed sheet in a safe — and record what you get back.',
+  ANCHOR_PUBLISH_GO: 'Seal if needed and publish',
+  ANCHOR_CANCEL: 'Cancel',
+  ANCHOR_PUBLISHED: (seq) => `Checkpoint ${seq} recorded. Its statement was saved; publish the digest below.`,
+  ANCHOR_SEALED_FIRST: 'The case was sealed first.',
+  ANCHOR_KEPT_ASIDE: 'A torn end of the checkpoint record was kept aside at',
+  ANCHOR_GAPS: 'Recorded, with gaps:',
+  ANCHOR_RECEIPT_TITLE: 'Record a receipt',
+  ANCHOR_RECEIPT_REF: 'What the anchor gave back',
+  ANCHOR_RECEIPT_REF_HINT: 'A token serial, a URL, a letter reference, a page number',
+  ANCHOR_RECEIPT_AT_LABEL: 'Its time, if it gave one (optional)',
+  ANCHOR_RECEIPT_SAVE: 'Record receipt',
+  ANCHOR_RECEIPT_BAD_TIME: 'That time could not be read.',
+  ANCHOR_RECEIPT_SAVED: 'Receipt recorded.',
+  ANCHOR_CHECK_TITLE: 'Check a digest you hold',
+  ANCHOR_CHECK_HINT:
+    'Paste a checkpoint digest from where it was published — never from this case. It is the one ' +
+    'check here that does not rest on the case itself.',
+  ANCHOR_CHECK_PLACEHOLDER: 'Paste the digest from your own copy',
+  ANCHOR_CHECK_GO: 'Check',
+  ANCHOR_CHECK_ESTABLISHES: 'Establishes',
+  ANCHOR_CHECK_NOT: 'Does not establish',
+  ANCHOR_LAYER_LABEL: Object.freeze({
+    image: 'Seal',
+    audit: 'Audit log',
+    removals: 'Removal records',
+    grants: 'Grant records',
+    segments: 'Retained log',
+    since: 'Since then',
+  }),
+  ANCHOR_READ_ONLY: 'This session cannot write: it can check a digest, but not publish or record.',
   MAINT_IMAGE_TITLE: 'Has the case changed?',
   MAINT_IMAGE_HINT:
     'Re-reads every record and compares it against the fingerprint written with it. Proportional ' +
@@ -1587,7 +1651,7 @@ export const UI = Object.freeze({
     'list of gaps, not a verdict. Without a fingerprint you kept outside the case, every check compares ' +
     'the case against itself.',
   CUSTODY_RUN: 'Account for this event',
-  CUSTODY_KEPT_LABEL: 'Fingerprint you kept (optional)',
+  CUSTODY_KEPT_LABEL: 'Fingerprint or checkpoint digest you kept (optional)',
   CUSTODY_KEPT_PLACEHOLDER: 'Paste it from your own copy, not from this case',
   CUSTODY_CHECK: 'Check against it',
   CUSTODY_WORKING: 'Accounting for this event…',

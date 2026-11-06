@@ -121,6 +121,19 @@ whole answer.
   - **Checkpoints:** none has been published, so anyone able to rewrite the case's files can rewrite
     its whole history consistently. A fingerprint you keep elsewhere covers the seal, not the rest.
   - Anything the check could not read is listed as not checked, never as fine.
+- **Checkpoints outside the case.** *Publish a checkpoint…* on the Maintenance page seals the case
+  if it has unsealed changes, records a checkpoint, and saves `rohy-checkpoint-<n>.json`. The
+  checkpoint fixes the seal, the audit log and the removal records in one digest.
+  - **Publishing is yours.** Put the digest somewhere this case's rewriter cannot reach: a
+    timestamping authority, opposing counsel, an organisational log, a printed sheet in a safe.
+    rohy publishes nothing.
+  - **Record a receipt** with what that place gave back. It is the case's own record, a pointer to
+    follow, never proof.
+  - **The integrity check states the window.** It reports what was recorded since the last checkpoint
+    with a receipt, and a checkpoint record that was removed or edited is an error.
+  - **Check a digest you hold** compares the case with a digest taken from where it was published.
+    It is the one check rohy runs that does not rest on the case. The event drawer's "fingerprint
+    you kept" accepts a checkpoint digest too.
 
 ### Fixed
 

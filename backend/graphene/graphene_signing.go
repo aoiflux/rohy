@@ -216,31 +216,44 @@ func KeepAuditTailAside(dir string, now time.Time) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	aside := path + ".torn-" + now.UTC().Format("20060102T150405.000000000Z")
-	if err := os.WriteFile(aside, data[f.End:], 0o600); err != nil {
-		return "", 0, err
-	}
-	af, err := os.OpenFile(aside, os.O_RDWR, 0)
+	aside, err := keepTailAside(path, data, f.End, now)
 	if err != nil {
-		return "", 0, err
-	}
-	if err := af.Sync(); err != nil {
-		_ = af.Close()
-		return "", 0, err
-	}
-	_ = af.Close()
-	lf, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		return "", 0, err
-	}
-	defer lf.Close()
-	if err := lf.Truncate(f.End); err != nil {
-		return "", 0, err
-	}
-	if err := lf.Sync(); err != nil {
 		return "", 0, err
 	}
 	return aside, f.Size - f.End, nil
+}
+
+// keepTailAside copies data[end:], the tail of the file at path, to a new file beside it, then cuts
+// the file back to end. Both are synced before it returns. An existing copy is never replaced.
+func keepTailAside(path string, data []byte, end int64, now time.Time) (string, error) {
+	aside := path + ".torn-" + now.UTC().Format("20060102T150405.000000000Z")
+	af, err := os.OpenFile(aside, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := af.Write(data[end:]); err != nil {
+		_ = af.Close()
+		return "", err
+	}
+	if err := af.Sync(); err != nil {
+		_ = af.Close()
+		return "", err
+	}
+	if err := af.Close(); err != nil {
+		return "", err
+	}
+	lf, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return "", err
+	}
+	defer lf.Close()
+	if err := lf.Truncate(end); err != nil {
+		return "", err
+	}
+	if err := lf.Sync(); err != nil {
+		return "", err
+	}
+	return aside, nil
 }
 
 // Writable reports whether this session can write the case, and if not, why. Every write path in

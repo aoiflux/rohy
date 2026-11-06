@@ -195,8 +195,41 @@ type Deps struct {
 	Signing       *SigningPosture
 	Ledger        *graphene.LedgerState
 	LedgerErr     error
-	Checkpoints   *graphene.CheckpointState
+	Checkpoints   *Anchoring
 	CheckpointErr error
+}
+
+// Anchoring is what the case's checkpoints, its receipts and the analyst's profile say (detector 17;
+// items 42, 43). All of it except Missing is the case's own record.
+type Anchoring struct {
+	graphene.CheckpointState
+	// Last is the newest checkpoint, and LastHeld each history checked against it. Nil while the
+	// chain does not hold.
+	Last     *graphene.Checkpoint
+	LastHeld []graphene.LayerHeld
+	// Receipted is the newest checkpoint the case records a receipt for, and Refs what the anchor gave
+	// back for it.
+	Receipted *graphene.Checkpoint
+	Refs      []string
+	// Current is where every history stands now. Unread names each one not read in full, with why;
+	// nothing is compared for those.
+	Current  graphene.Heads
+	Unread   map[string]string
+	Unsealed int
+	// Orphans are checkpoints the case records receipts for that its chain does not hold with the
+	// digest the receipt names. Unrecorded are checkpoints the audit log announced that the chain
+	// does not hold. Missing is the analyst's last published checkpoint of this case, from their
+	// profile, when the chain does not hold it.
+	Orphans     []uint64
+	Unrecorded  []uint64
+	Missing     *Published
+	ReceiptsErr error
+}
+
+// Published is a checkpoint the analyst's profile says they published.
+type Published struct {
+	Seq uint64
+	At  time.Time
 }
 
 // SigningPosture is what the case records about its own signing, reduced to what the findings say.
@@ -943,10 +976,13 @@ func actionIf(fault bool) string {
 	return consts.IntegrityActionNone
 }
 
-// checkCheckpoints reports how much of the case's history nothing outside it vouches for (detector 17).
+// checkCheckpoints reports how much of the case's history something outside it vouches for (detector
+// 17; items 42, 43).
 //
-// rohy publishes no checkpoint before item 42, so absent is every case's state; a chain found here was
-// written by something else, and without a receipt it is the case vouching for itself.
+// 🔒 Everything read here is the case's own record, the receipts included: a rewriter can write them
+// all. What this detector can catch is a careless rewrite — a chain edited or removed, a history
+// shrunk under a checkpoint — and what it must never do is read a receipt as a witness. The one check
+// that does not rest on the case is a digest the reader holds, and the best state here says so.
 func checkCheckpoints(rep *Report, deps Deps) {
 	switch {
 	case deps.CheckpointErr != nil:
@@ -956,32 +992,146 @@ func checkCheckpoints(rep *Report, deps Deps) {
 		rep.note(consts.MsgIntegrityNoCheckpoints)
 		return
 	}
-	c := deps.Checkpoints
+	a := deps.Checkpoints
+	layers := make([]string, 0, len(a.Unread))
+	for layer := range a.Unread {
+		layers = append(layers, layer)
+	}
+	sort.Strings(layers)
+	for _, layer := range layers {
+		rep.note(fmt.Sprintf(consts.MsgIntegrityAnchorUnread, layer, a.Unread[layer]))
+	}
+	if a.ReceiptsErr != nil {
+		rep.note(fmt.Sprintf(consts.MsgIntegrityReceiptsUnread, a.ReceiptsErr))
+	}
+
+	fault := func(code, msg string) {
+		rep.add(Finding{Code: code, Severity: consts.IntegritySevError, Message: msg, Action: consts.IntegrityActionReview})
+	}
+	if a.ChainErr != "" {
+		fault(consts.IntegrityCheckpointBroken, fmt.Sprintf(consts.MsgIntegrityCheckpointBroken, a.ChainErr))
+	}
+	removed := len(a.Unrecorded) > 0 || a.Missing != nil
+	if len(a.Unrecorded) > 0 {
+		fault(consts.IntegrityCheckpointUnrecorded, fmt.Sprintf(consts.MsgIntegrityCheckpointUnrecorded, seqList(a.Unrecorded)))
+	}
+	if a.Missing != nil {
+		fault(consts.IntegrityCheckpointMissing, fmt.Sprintf(consts.MsgIntegrityCheckpointMissing, a.Missing.Seq, a.Missing.At.Format(time.RFC3339)))
+	}
+	if len(a.Orphans) > 0 {
+		fault(consts.IntegrityReceiptOrphaned, fmt.Sprintf(consts.MsgIntegrityReceiptOrphaned, seqList(a.Orphans)))
+	}
+	if a.ChainErr != "" {
+		return
+	}
+	if a.Last != nil {
+		var off []string
+		for _, h := range a.LastHeld {
+			if h.State == consts.HeldChanged || h.State == consts.HeldShrank {
+				off = append(off, fmt.Sprintf("%s %s", h.Layer, h.State))
+			}
+		}
+		if len(off) > 0 {
+			fault(consts.IntegrityCheckpointNotHeld, fmt.Sprintf(consts.MsgIntegrityCheckpointNotHeld, a.Last.Seq, strings.Join(off, ", ")))
+		}
+	}
+
 	switch {
-	case c.ChainErr != "":
+	case a.Last == nil && !removed:
 		rep.add(Finding{
-			Code: consts.IntegrityCheckpointBroken, Severity: consts.IntegritySevError,
-			Message: fmt.Sprintf(consts.MsgIntegrityCheckpointBroken, c.ChainErr), Action: consts.IntegrityActionReview,
+			Code: consts.IntegrityCheckpointAbsent, Severity: consts.IntegritySevWarn,
+			Message: consts.MsgIntegrityCheckpointAbsent, Action: consts.IntegrityActionPublishCheckpoint,
 		})
-	case c.Count == 0:
-		rep.add(Finding{Code: consts.IntegrityCheckpointAbsent, Severity: consts.IntegritySevWarn, Message: consts.MsgIntegrityCheckpointAbsent})
-	default:
+		return
+	case a.Last == nil:
+		return
+	}
+	if a.Receipted == nil || a.Receipted.Seq != a.Last.Seq {
+		tail := consts.MsgIntegrityCheckpointNoReceipt
+		if a.Receipted != nil {
+			tail = fmt.Sprintf(consts.MsgIntegrityCheckpointLastReceipt, a.Receipted.Seq)
+		}
 		rep.add(Finding{
-			Code: consts.IntegrityCheckpointUnconfirmed, Severity: consts.IntegritySevWarn,
-			Message: fmt.Sprintf(consts.MsgIntegrityCheckpointUnconfirmed, c.Count, c.Last.Format(time.RFC3339)), Count: c.Count,
+			Code: consts.IntegrityCheckpointUnconfirmed, Severity: consts.IntegritySevWarn, Count: a.Count,
+			Message: fmt.Sprintf(consts.MsgIntegrityCheckpointUnconfirmed, a.Last.Seq, a.Last.CapturedAt.Format(time.RFC3339), tail),
+			Action:  consts.IntegrityActionRecordReceipt,
 		})
 	}
+	if a.Receipted != nil {
+		checkWindow(rep, a)
+	}
+}
+
+// checkWindow says what the case recorded after the last checkpoint with a receipt: everything there
+// rests on the case's own word. A history that was not read in full is left out, and noted above.
+func checkWindow(rep *Report, a *Anchoring) {
+	k, now := a.Receipted, a.Current
+	unread := func(layer string) bool { _, ok := a.Unread[layer]; return ok }
+	var moved []string
+	if !unread(consts.AnchorLayerImage) && (now.Snapshot != k.Snapshot || now.Attestation != k.Attestation) {
+		moved = append(moved, consts.MsgAnchorSinceSealed)
+	}
+	for _, c := range []struct {
+		layer, noun string
+		at, held    uint64
+	}{
+		{consts.AnchorLayerLedger, consts.AnchorNounLedger, k.RedactionCount, now.RedactionCount},
+		{consts.AnchorLayerGrants, consts.AnchorNounGrants, k.GrantCount, now.GrantCount},
+		{consts.AnchorLayerSegments, consts.AnchorNounSegments, k.SegmentCount, now.SegmentCount},
+	} {
+		if !unread(c.layer) && c.held != c.at {
+			moved = append(moved, fmt.Sprintf(consts.MsgIntegrityCheckpointCountNow, c.held, c.noun, c.at))
+		}
+	}
+	unsealed := ""
+	if a.Unsealed > 0 {
+		unsealed = fmt.Sprintf(consts.MsgIntegrityCheckpointUnsealed, a.Unsealed)
+	}
+	when, refs := k.CapturedAt.Format(time.RFC3339), strings.Join(a.Refs, "; ")
+	if len(moved) > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityCheckpointStale, Severity: consts.IntegritySevWarn,
+			Message: fmt.Sprintf(consts.MsgIntegrityCheckpointStale, k.Seq, when, strings.Join(moved, ", "), k.Seq, refs) + unsealed,
+			Action:  consts.IntegrityActionPublishCheckpoint,
+		})
+		return
+	}
+	// 🔒 "Still describes the image and its removal records" is a claim: made only when every history
+	// it rests on was read. Otherwise the notes above say what was not covered, and nothing more.
+	for _, layer := range []string{consts.AnchorLayerImage, consts.AnchorLayerLedger, consts.AnchorLayerGrants, consts.AnchorLayerSegments} {
+		if unread(layer) {
+			return
+		}
+	}
+	audit := ""
+	if !unread(consts.AnchorLayerAudit) && now.AuditCount > k.AuditCount {
+		audit = fmt.Sprintf(consts.MsgIntegrityCheckpointAuditSince, now.AuditCount-k.AuditCount)
+	}
+	rep.add(Finding{
+		Code: consts.IntegrityCheckpointCurrent, Severity: consts.IntegritySevInfo,
+		Message: fmt.Sprintf(consts.MsgIntegrityCheckpointCurrent, k.Seq, when, audit, refs) + unsealed,
+	})
+}
+
+func seqList(seqs []uint64) string {
+	out := make([]string, len(seqs))
+	for i, n := range seqs {
+		out[i] = fmt.Sprint(n)
+	}
+	return strings.Join(out, ", ")
 }
 
 // writeActions are the actions a session that cannot write would be refused.
 var writeActions = map[string]bool{
-	consts.IntegrityActionBackfill:        true,
-	consts.IntegrityActionRepair:          true,
-	consts.IntegrityActionRebuild:         true,
-	consts.IntegrityActionIngest:          true,
-	consts.IntegrityActionCompact:         true,
-	consts.IntegrityActionFinishRedaction: true,
-	consts.IntegrityActionSignCase:        true,
+	consts.IntegrityActionBackfill:          true,
+	consts.IntegrityActionRepair:            true,
+	consts.IntegrityActionRebuild:           true,
+	consts.IntegrityActionIngest:            true,
+	consts.IntegrityActionCompact:           true,
+	consts.IntegrityActionFinishRedaction:   true,
+	consts.IntegrityActionSignCase:          true,
+	consts.IntegrityActionPublishCheckpoint: true,
+	consts.IntegrityActionRecordReceipt:     true,
 }
 
 func writes(action string) bool { return writeActions[action] }

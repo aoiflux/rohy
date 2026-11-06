@@ -45,6 +45,53 @@ export namespace analyst {
 
 }
 
+export namespace anchor {
+	
+	export class Receipt {
+	    seq: number;
+	    digest: string;
+	    ref: string;
+	    // Go type: time
+	    published_at?: any;
+	    // Go type: time
+	    recorded_at: any;
+	    recorded_by: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Receipt(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.digest = source["digest"];
+	        this.ref = source["ref"];
+	        this.published_at = this.convertValues(source["published_at"], null);
+	        this.recorded_at = this.convertValues(source["recorded_at"], null);
+	        this.recorded_by = source["recorded_by"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace annotate {
 	
 	export class Anchor {
@@ -390,6 +437,243 @@ export namespace api {
 		    return a;
 		}
 	}
+	export class CheckpointStatement {
+	    format: string;
+	    version: number;
+	    digest: string;
+	    case_id?: string;
+	    checkpoint: graphene.Checkpoint;
+	    unsealed_records?: number;
+	    app_version?: string;
+	    how_to_publish: string;
+	    establishes: string[];
+	    does_not_establish: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckpointStatement(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format = source["format"];
+	        this.version = source["version"];
+	        this.digest = source["digest"];
+	        this.case_id = source["case_id"];
+	        this.checkpoint = this.convertValues(source["checkpoint"], graphene.Checkpoint);
+	        this.unsealed_records = source["unsealed_records"];
+	        this.app_version = source["app_version"];
+	        this.how_to_publish = source["how_to_publish"];
+	        this.establishes = source["establishes"];
+	        this.does_not_establish = source["does_not_establish"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CheckpointExport {
+	    statement: CheckpointStatement;
+	    file_name: string;
+	    document: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckpointExport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statement = this.convertValues(source["statement"], CheckpointStatement);
+	        this.file_name = source["file_name"];
+	        this.document = source["document"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CheckpointView {
+	    seq: number;
+	    // Go type: time
+	    captured_at: any;
+	    actor_id: number;
+	    snapshot?: string;
+	    attestation?: string;
+	    segment_head?: string;
+	    audit_head?: string;
+	    redaction_head?: string;
+	    grant_head?: string;
+	    segment_count: number;
+	    audit_count: number;
+	    redaction_count: number;
+	    grant_count: number;
+	    prev?: string;
+	    digest: string;
+	    receipts: anchor.Receipt[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckpointView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.captured_at = this.convertValues(source["captured_at"], null);
+	        this.actor_id = source["actor_id"];
+	        this.snapshot = source["snapshot"];
+	        this.attestation = source["attestation"];
+	        this.segment_head = source["segment_head"];
+	        this.audit_head = source["audit_head"];
+	        this.redaction_head = source["redaction_head"];
+	        this.grant_head = source["grant_head"];
+	        this.segment_count = source["segment_count"];
+	        this.audit_count = source["audit_count"];
+	        this.redaction_count = source["redaction_count"];
+	        this.grant_count = source["grant_count"];
+	        this.prev = source["prev"];
+	        this.digest = source["digest"];
+	        this.receipts = this.convertValues(source["receipts"], anchor.Receipt);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CheckpointList {
+	    checkpoints: CheckpointView[];
+	    chain_error?: string;
+	    receipts_error?: string;
+	    unavailable?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckpointList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.checkpoints = this.convertValues(source["checkpoints"], CheckpointView);
+	        this.chain_error = source["chain_error"];
+	        this.receipts_error = source["receipts_error"];
+	        this.unavailable = source["unavailable"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SealOutcome {
+	    state: string;
+	    snapshot?: string;
+	    signed?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SealOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.snapshot = source["snapshot"];
+	        this.signed = source["signed"];
+	    }
+	}
+	export class CheckpointPublished {
+	    statement: CheckpointStatement;
+	    file_name: string;
+	    document: string;
+	    sealed?: SealOutcome;
+	    kept_aside?: string;
+	    gaps?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckpointPublished(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statement = this.convertValues(source["statement"], CheckpointStatement);
+	        this.file_name = source["file_name"];
+	        this.document = source["document"];
+	        this.sealed = this.convertValues(source["sealed"], SealOutcome);
+	        this.kept_aside = source["kept_aside"];
+	        this.gaps = source["gaps"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class ClusterRequest {
 	    graph_id: number;
 	    mode: string;
@@ -680,6 +964,8 @@ export namespace api {
 	    Journal?: any;
 	    // Go type: snapshot
 	    Snapshots?: any;
+	    // Go type: anchor
+	    Receipts?: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new IntegrityDeps(source);
@@ -694,6 +980,7 @@ export namespace api {
 	        this.LayoutDir = source["LayoutDir"];
 	        this.Journal = this.convertValues(source["Journal"], null);
 	        this.Snapshots = this.convertValues(source["Snapshots"], null);
+	        this.Receipts = this.convertValues(source["Receipts"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -805,6 +1092,38 @@ export namespace api {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	
 	    }
+	}
+	export class ReceiptRecorded {
+	    receipt: anchor.Receipt;
+	    audit_gap?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReceiptRecorded(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.receipt = this.convertValues(source["receipt"], anchor.Receipt);
+	        this.audit_gap = source["audit_gap"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class RedactRequest {
 	    event: number;
@@ -1050,6 +1369,7 @@ export namespace api {
 		    return a;
 		}
 	}
+	
 	export class SessionRequest {
 	    name: string;
 	    choice: string;
@@ -1357,6 +1677,58 @@ export namespace custody {
 	        this.cause = source["cause"];
 	    }
 	}
+	export class AnchorCheck {
+	    digest: string;
+	    state: string;
+	    message: string;
+	    seq?: number;
+	    // Go type: time
+	    captured_at?: any;
+	    layers: Layer[];
+	    notes?: string[];
+	    broken: number;
+	    not_established: number;
+	    establishes: string[];
+	    does_not_establish: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AnchorCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.digest = source["digest"];
+	        this.state = source["state"];
+	        this.message = source["message"];
+	        this.seq = source["seq"];
+	        this.captured_at = this.convertValues(source["captured_at"], null);
+	        this.layers = this.convertValues(source["layers"], Layer);
+	        this.notes = source["notes"];
+	        this.broken = source["broken"];
+	        this.not_established = source["not_established"];
+	        this.establishes = source["establishes"];
+	        this.does_not_establish = source["does_not_establish"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class Report {
 	    event: number;
 	    presence: string;
@@ -1759,6 +2131,65 @@ export namespace graphene {
 	        this.redacted = source["redacted"];
 	        this.cancelled = source["cancelled"];
 	    }
+	}
+	export class Checkpoint {
+	    seq: number;
+	    // Go type: time
+	    captured_at: any;
+	    actor_id: number;
+	    snapshot?: string;
+	    attestation?: string;
+	    segment_head?: string;
+	    audit_head?: string;
+	    redaction_head?: string;
+	    grant_head?: string;
+	    segment_count: number;
+	    audit_count: number;
+	    redaction_count: number;
+	    grant_count: number;
+	    prev?: string;
+	    digest: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Checkpoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.captured_at = this.convertValues(source["captured_at"], null);
+	        this.actor_id = source["actor_id"];
+	        this.snapshot = source["snapshot"];
+	        this.attestation = source["attestation"];
+	        this.segment_head = source["segment_head"];
+	        this.audit_head = source["audit_head"];
+	        this.redaction_head = source["redaction_head"];
+	        this.grant_head = source["grant_head"];
+	        this.segment_count = source["segment_count"];
+	        this.audit_count = source["audit_count"];
+	        this.redaction_count = source["redaction_count"];
+	        this.grant_count = source["grant_count"];
+	        this.prev = source["prev"];
+	        this.digest = source["digest"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class CorrelationKeyStatus {
 	    total: number;

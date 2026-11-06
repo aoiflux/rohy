@@ -13,6 +13,7 @@ import {
   sessionSigning,
   writesRefused,
 } from './report.js';
+import { UI } from '../consts/index.js';
 
 const finding = (severity, over = {}) => ({
   code: 'x',
@@ -222,5 +223,13 @@ describe('the session behind the forensic card (item 43)', () => {
 
   it('keeps signing a case as advice, never a button', () => {
     expect(runnable(ACTION.SIGN_CASE)).toBe(false);
+  });
+
+  // Item 42: publishing is something the app does; what came back is only the analyst's to record.
+  it('offers publishing a checkpoint as a button and a receipt as advice', () => {
+    expect(runnable(ACTION.PUBLISH_CHECKPOINT)).toBe(true);
+    expect(runnable(ACTION.RECORD_RECEIPT)).toBe(false);
+    expect(UI.MAINT_ACTION[ACTION.PUBLISH_CHECKPOINT]).toBeTruthy();
+    expect(UI.MAINT_ADVICE[ACTION.RECORD_RECEIPT]).toBeTruthy();
   });
 });

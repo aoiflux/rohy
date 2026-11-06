@@ -27,7 +27,7 @@ func posture() (Deps, *fakeForensics) {
 		Forensics:   f,
 		Signing:     &SigningPosture{State: consts.SigningUnsigned},
 		Ledger:      &graphene.LedgerState{},
-		Checkpoints: &graphene.CheckpointState{},
+		Checkpoints: &Anchoring{},
 	}, f
 }
 
@@ -440,7 +440,8 @@ func TestNoCheckpointIsAWarningThatSaysWhatIsRewritable(t *testing.T) {
 
 func TestRecordedCheckpointsAreUnconfirmedWithoutAReceipt(t *testing.T) {
 	d, _ := posture()
-	d.Checkpoints = &graphene.CheckpointState{Count: 2, Last: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)}
+	k := checkpoint(2)
+	d.Checkpoints = &Anchoring{CheckpointState: graphene.CheckpointState{Count: 2, Last: k.CapturedAt}, Last: &k, Current: k.Heads}
 	rep := run(d)
 	got := has(rep, consts.IntegrityCheckpointUnconfirmed)
 	if got == nil || got.Count != 2 || got.Severity != consts.IntegritySevWarn || !strings.Contains(got.Message, "2026-11-01") {
@@ -453,7 +454,7 @@ func TestRecordedCheckpointsAreUnconfirmedWithoutAReceipt(t *testing.T) {
 
 func TestABrokenCheckpointChainIsAnError(t *testing.T) {
 	d, _ := posture()
-	d.Checkpoints = &graphene.CheckpointState{Count: 2, ChainErr: "entry 2 does not link"}
+	d.Checkpoints = &Anchoring{CheckpointState: graphene.CheckpointState{Count: 2, ChainErr: "entry 2 does not link"}}
 	got := has(run(d), consts.IntegrityCheckpointBroken)
 	if got == nil || got.Severity != consts.IntegritySevError || !strings.Contains(got.Message, "entry 2") {
 		t.Errorf("finding = %+v", got)
@@ -474,8 +475,8 @@ func TestUnreadableCheckpointsAreNoted(t *testing.T) {
 
 // --- the whole posture, once ---
 
-// The cleanest posture reachable today still reports the two caveats nothing inside the case can
-// lift — no root kept elsewhere, no checkpoint published — and nothing at error.
+// A case that was never anchored still reports the two caveats nothing inside the case can lift — no
+// root kept elsewhere, no checkpoint published — and nothing at error.
 func TestTheBestReachablePostureStillCarriesItsCaveats(t *testing.T) {
 	d, f := posture()
 	d = signedSession(d, f)

@@ -10,8 +10,20 @@ export function CancelMaintenance() {
   return window['go']['api']['MaintenanceAPI']['CancelMaintenance']();
 }
 
+export function CheckCheckpoint(arg1) {
+  return window['go']['api']['MaintenanceAPI']['CheckCheckpoint'](arg1);
+}
+
 export function CheckIntegrity(arg1) {
   return window['go']['api']['MaintenanceAPI']['CheckIntegrity'](arg1);
+}
+
+export function CheckpointStatement(arg1) {
+  return window['go']['api']['MaintenanceAPI']['CheckpointStatement'](arg1);
+}
+
+export function Checkpoints() {
+  return window['go']['api']['MaintenanceAPI']['Checkpoints']();
 }
 
 export function CompactCase() {
@@ -58,8 +70,16 @@ export function PreviewRedaction(arg1) {
   return window['go']['api']['MaintenanceAPI']['PreviewRedaction'](arg1);
 }
 
+export function PublishCheckpoint() {
+  return window['go']['api']['MaintenanceAPI']['PublishCheckpoint']();
+}
+
 export function RebuildIndexes() {
   return window['go']['api']['MaintenanceAPI']['RebuildIndexes']();
+}
+
+export function RecordCheckpointReceipt(arg1, arg2, arg3) {
+  return window['go']['api']['MaintenanceAPI']['RecordCheckpointReceipt'](arg1, arg2, arg3);
 }
 
 export function RedactEvent(arg1) {

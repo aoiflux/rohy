@@ -84,6 +84,9 @@ type ReportInput struct {
 	Kept         string
 	KeptKnown    bool
 	KeptAncestor bool
+	// KeptVia is set when the value kept was a checkpoint digest (item 42): Kept is then the seal the
+	// checkpoint names, found through a chain that checks.
+	KeptVia *KeptCheckpoint
 	// Signing is what the case records about its signing (item 41). Nil leaves the signing layer
 	// out, for a caller with no analyst register.
 	Signing *SigningInput
@@ -365,9 +368,45 @@ func historyLayer(in ReportInput) Layer {
 	return l
 }
 
-// keptLayer compares the fingerprint the analyst kept against the case's image NOW, whatever state
-// the event is in (§15.6: an event missing from a rolled-back image is exactly when it matters).
+// KeptCheckpoint is a checkpoint digest given as the kept value, resolved to the seal it names.
+type KeptCheckpoint struct {
+	Seq uint64
+	// Off says why the case no longer holds what the checkpoint committed to; empty when it does.
+	Off string
+	// Unread says why what the checkpoint committed to could not be read in full.
+	Unread string
+	// NoSeal: the checkpoint was made before the case was first sealed, so it names no seal.
+	NoSeal bool
+}
+
+// keptLayer compares the value the analyst kept against the case's image NOW. A checkpoint digest
+// is checked as the seal it names, once the case is shown to still hold what it committed to: the
+// digest pins that seal, as the seal's own fingerprint would.
 func keptLayer(in ReportInput) Layer {
+	v := in.KeptVia
+	if v == nil {
+		return keptSealLayer(in)
+	}
+	l := Layer{Layer: consts.CustodyEventLayerKept, State: consts.CustodyNotEstablished}
+	switch {
+	case v.Off != "":
+		l.State, l.Message = consts.CustodyBroken, fmt.Sprintf(consts.MsgCustodyKeptCheckpointOff, v.Seq, v.Off)
+		return l
+	case v.Unread != "":
+		l.Message = fmt.Sprintf(consts.MsgCustodyKeptCheckpointUnread, v.Seq, v.Unread)
+		return l
+	case v.NoSeal:
+		l.Message = fmt.Sprintf(consts.MsgCustodyKeptCheckpointNoSeal, v.Seq)
+		return l
+	}
+	l = keptSealLayer(in)
+	l.Notes = append([]string{fmt.Sprintf(consts.MsgCustodyKeptViaCheckpoint, v.Seq)}, l.Notes...)
+	return l
+}
+
+// keptSealLayer compares a kept seal fingerprint against the case's image NOW, whatever state the
+// event is in (§15.6: an event missing from a rolled-back image is exactly when it matters).
+func keptSealLayer(in ReportInput) Layer {
 	l := Layer{Layer: consts.CustodyEventLayerKept, State: consts.CustodyNotEstablished}
 	switch {
 	case in.Kept == "":

@@ -8,9 +8,6 @@ package graphene
 
 import (
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"rohy/backend/consts"
@@ -51,6 +48,10 @@ func (s *Store) LedgerState(v store.Verifier) (LedgerState, error) {
 	if err != nil {
 		return LedgerState{}, err
 	}
+	return ledgerStateOf(recs, v), nil
+}
+
+func ledgerStateOf(recs []disk.RedactionRecord, v store.Verifier) LedgerState {
 	st := LedgerState{Entries: make([]LedgerEntry, 0, len(recs))}
 	if err := disk.VerifyRedactionChain(recs, nil); err != nil {
 		st.ChainErr = err.Error()
@@ -62,7 +63,7 @@ func (s *Store) LedgerState(v store.Verifier) (LedgerState, error) {
 		}
 		st.Entries = append(st.Entries, e)
 	}
-	return st, nil
+	return st
 }
 
 // ledgerSignature judges one signed record. A record is signed over its hash (disk/redact.go).
@@ -80,8 +81,7 @@ func ledgerSignature(v store.Verifier, r disk.RedactionRecord) string {
 	}
 }
 
-// CheckpointState is the case's local checkpoint chain. rohy publishes no checkpoint before item 42,
-// so a case it made holds none.
+// CheckpointState is the case's local checkpoint chain: how many, the newest, and whether it holds.
 type CheckpointState struct {
 	Count int
 	// Last is when the newest checkpoint says it was captured: the case's own clock, not an anchor's.
@@ -107,24 +107,6 @@ func (s *Store) CheckpointState() (CheckpointState, error) {
 // 🔒 The engine drops a torn tail without saying so. Reported here: a checkpoint published and then
 // cut short on disk is exactly the record this chain exists to keep.
 func InspectCheckpoints(dir string) (CheckpointState, error) {
-	chain, err := disk.ReadCheckpoints(dir)
-	if err != nil {
-		return CheckpointState{}, err
-	}
-	st := CheckpointState{Count: len(chain)}
-	if n := len(chain); n > 0 {
-		st.Last = time.Unix(0, chain[n-1].UnixNano).UTC()
-	}
-	if err := disk.VerifyCheckpointChain(chain); err != nil {
-		st.ChainErr = err.Error()
-	}
-	fi, err := os.Stat(filepath.Join(dir, consts.CheckpointFile))
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-	case err != nil:
-		return CheckpointState{}, err
-	case fi.Size()%checkpointRecordBytes != 0 && st.ChainErr == "":
-		st.ChainErr = fmt.Sprintf(consts.MsgCheckpointTorn, fi.Size()%checkpointRecordBytes)
-	}
-	return st, nil
+	_, st, err := readCheckpointChain(dir)
+	return st, err
 }

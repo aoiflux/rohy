@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"rohy/backend/analyst"
+	"rohy/backend/anchor"
 	"rohy/backend/annotate"
 	"rohy/backend/api"
 	"rohy/backend/capture"
@@ -168,6 +169,7 @@ func NewApp() (*App, error) {
 			LayoutDir: layoutDir(dir),
 			Journal:   journal,
 			Snapshots: snapStore,
+			Receipts:  anchor.Open(rootsDir(dir)),
 		}),
 		Snapshots: api.NewSnapshotAPI(store, layoutStore, snapStore, registry),
 		Annotate:  api.NewAnnotateAPI(store, noteStore, registry),

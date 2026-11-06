@@ -60,6 +60,20 @@ type Profile struct {
 	Name      string       `json:"name"`
 	KeyPath   string       `json:"key_path,omitempty"`
 	Cases     []SignedCase `json:"signed_cases,omitempty"`
+	// Checkpoints is the last checkpoint this analyst published of each case, signed or not (item
+	// 42). Kept outside the case, it is a tripwire against the case's checkpoint record being removed:
+	// for this machine account only, and never a witness.
+	Checkpoints []PublishedCheckpoint `json:"checkpoints,omitempty"`
+}
+
+// PublishedCheckpoint is the last checkpoint an analyst published of one case. Snapshot is the seal
+// it names, so the case is still recognised after its register, and with it its id, is replaced.
+type PublishedCheckpoint struct {
+	CaseID   string    `json:"case_id"`
+	Seq      uint64    `json:"seq"`
+	Digest   string    `json:"digest"`
+	Snapshot string    `json:"snapshot,omitempty"`
+	At       time.Time `json:"at"`
 }
 
 // ActorID is the analyst's id in every case: derived, so a register cannot reassign it to someone
@@ -223,6 +237,23 @@ func (ps *Profiles) RecordCase(c SignedCase) (Profile, error) {
 	}, false)
 }
 
+// RecordCheckpoint stores the last checkpoint the analyst published of a case, replacing the
+// previous one for that case.
+func (ps *Profiles) RecordCheckpoint(c PublishedCheckpoint) (Profile, error) {
+	if !validHexID(c.CaseID, 16) || c.Seq == 0 || !validHexID(c.Digest, 32) || (c.Snapshot != "" && !validHexID(c.Snapshot, 32)) {
+		return Profile{}, errors.New("not a published checkpoint")
+	}
+	return ps.update(func(p *Profile) error {
+		i := slices.IndexFunc(p.Checkpoints, func(x PublishedCheckpoint) bool { return x.CaseID == c.CaseID })
+		if i < 0 {
+			p.Checkpoints = append(p.Checkpoints, c)
+		} else {
+			p.Checkpoints[i] = c
+		}
+		return nil
+	}, false)
+}
+
 // KeepAside moves an unreadable profile out of the way so a new identity can be made. The old file
 // is kept beside the new one, never deleted.
 func (ps *Profiles) KeepAside(now time.Time) (string, error) {
@@ -271,6 +302,7 @@ func (ps *Profiles) update(fn func(*Profile) error, create bool) (Profile, error
 
 func clone(p Profile) Profile {
 	p.Cases = slices.Clone(p.Cases)
+	p.Checkpoints = slices.Clone(p.Checkpoints)
 	return p
 }
 
@@ -307,6 +339,14 @@ func decodeProfile(data []byte) (Profile, error) {
 		if c.WALBytes < 0 || c.WALRecords < 0 {
 			return p, fmt.Errorf("signed case %s: negative log size", c.CaseID)
 		}
+	}
+	published := map[string]bool{}
+	for _, c := range p.Checkpoints {
+		if !validHexID(c.CaseID, 16) || published[c.CaseID] || c.Seq == 0 || !validHexID(c.Digest, 32) ||
+			(c.Snapshot != "" && !validHexID(c.Snapshot, 32)) {
+			return p, fmt.Errorf("published checkpoint for %q is not a checkpoint, or appears twice", c.CaseID)
+		}
+		published[c.CaseID] = true
 	}
 	return p, nil
 }

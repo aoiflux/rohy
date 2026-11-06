@@ -36,6 +36,7 @@
   import Button from '../components/material/Button.svelte';
   import ProgressBar from '../components/material/ProgressBar.svelte';
   import SigningCard from '../components/maintenance/SigningCard.svelte';
+  import AnchoringCard from '../components/maintenance/AnchoringCard.svelte';
 
   const report = $derived($maintenance.report);
   const read = $derived(verdict(report));
@@ -80,6 +81,7 @@
     if (action === ACTION.COMPACT) return maintenance.compact();
     if (action === ACTION.VERIFY_IMAGE) return maintenance.verify();
     if (action === ACTION.FINISH_REDACTION) return maintenance.finishRedactions();
+    if (action === ACTION.PUBLISH_CHECKPOINT) return maintenance.publishCheckpoint();
     return Promise.resolve(false);
   }
 
@@ -230,6 +232,11 @@
       {/if}
     {/if}
   </section>
+
+  <!-- Checkpoints outside the case (item 42): the one record whose digest leaves the case. -->
+  {#if forensics?.available}
+    <AnchoringCard {busy} {noWrites} />
+  {/if}
 
   <!-- Unfinished redactions (plan §14.5). Shown whenever there are any, before a check is run:
        until they finish, content they were removing may still be in the case. -->

@@ -909,6 +909,9 @@ const (
 	AuditActionProofExported    = 9
 	AuditActionAuditTailKept    = 10
 	AuditActionKeyUnlocked      = 11
+	// Item 42. The engine writes its own entry for each publication (MsgCheckpointAnnounced).
+	AuditActionCheckpointNotRecorded = 12
+	AuditActionReceiptRecorded       = 13
 )
 
 const (
@@ -955,10 +958,64 @@ const (
 	// length, and two hashes.
 	AuditRecordFixed = 8 + 8 + 8 + 2 + 4 + 32 + 32
 
-	// CheckpointFile is graphene's local checkpoint chain in the database directory (item 43). rohy
-	// writes none before item 42; it reads the file so that one it did not write is reported.
+	// CheckpointFile is graphene's local checkpoint chain in the database directory (items 42, 43).
+	// rohy appends to it only through the engine's PublishCheckpoint.
 	CheckpointFile    = "graphene.checkpoints"
 	MsgCheckpointTorn = "the checkpoint file ends in %d byte(s) that are not a whole checkpoint, which the engine drops without saying so"
+
+	// MsgCheckpointAnnounced is the engine's own audit entry for a publication, written before the
+	// checkpoint is captured (disk/anchor.go). rohy parses it; a test pins it against the engine.
+	MsgCheckpointAnnounced = "publishing checkpoint %d"
+	// MsgCheckpointNotRecorded is rohy's audit entry for a publication the engine announced and did
+	// not record, so a failed attempt is not later read as a removed checkpoint.
+	MsgCheckpointNotRecorded = "checkpoint %d was not recorded"
+	MsgCheckpointReceipt     = "receipt recorded for checkpoint %d"
+
+	MsgCheckpointChainBroken = "the case's checkpoint record does not hold together, so no checkpoint is added to it: %v"
+	// The checkpoint statement: the file the analyst publishes the digest from, and keeps (item 42).
+	// 🔒 Its limits travel with it, as a fingerprint's do: it is read by people who never saw the screen.
+	CheckpointStatementFormat  = "rohy-checkpoint"
+	CheckpointStatementVersion = 1
+	CheckpointStatementPrefix  = "rohy-checkpoint-"
+	CheckpointStatementHow     = "Publish the digest somewhere this case's rewriter cannot reach: a timestamping authority, opposing counsel, an organisational log, a printed sheet in a safe. Keep this file with it, then record in rohy what that place gave back."
+	CheckpointEstablishes      = "Once the digest is somewhere this case's rewriter cannot reach, it fixes the case's seal, audit log and removal records as they stood at this checkpoint: a later rewrite of any of them gives a different digest."
+	CheckpointNotOnItsOwn      = "This file proves nothing on its own. The digest is evidence only once it is outside the case, and only from the time it got there; that time is the anchor's to say."
+	CheckpointNotUnsealed      = "It does not cover anything recorded after the checkpoint, nor writes not yet sealed when it was made (unsealed_records, when known)."
+	MsgCheckpointProfileGap    = "the checkpoint was not recorded in your profile, so this machine account will not notice if the case loses it: %v"
+	MsgCheckpointNoSession     = "no analyst session"
+	MsgCheckpointNoCaseID      = "the case has no register, so it has no id to record the checkpoint under"
+	MsgHandoffHoldsNothing     = "rohy's hand-off anchor holds nothing: a published checkpoint's receipt is recorded by the analyst, not read back"
+)
+
+// The histories a checkpoint commits to (item 42), as layers of a check against one.
+const (
+	AnchorLayerChain    = "checkpoints"
+	AnchorLayerAudit    = "audit"
+	AnchorLayerLedger   = "removals"
+	AnchorLayerGrants   = "grants"
+	AnchorLayerSegments = "segments"
+	AnchorLayerImage    = "image"
+	AnchorLayerLog      = "log"
+)
+
+// Whether a history still holds what a checkpoint committed to (item 42).
+const (
+	// HeldOK: the history still holds the entries the checkpoint covered, unchanged. It may hold more.
+	HeldOK = "held"
+	// HeldChanged: an entry the checkpoint covered was edited, removed or reordered.
+	HeldChanged = "changed"
+	// HeldShrank: the history holds fewer entries than the checkpoint covered.
+	HeldShrank = "shrank"
+	// HeldUnread: the history could not be read far enough to tell.
+	HeldUnread = "unread"
+)
+
+// Where a digest was found in the case's checkpoint chain (item 42).
+const (
+	CheckpointFound       = "found"
+	CheckpointNotFound    = "not_found"
+	CheckpointChainBroken = "chain_broken"
+	CheckpointUnread      = "unread"
 )
 
 const (
@@ -1135,6 +1192,8 @@ const (
 	CaseActivityAnnotation = "an annotation edit"
 	CaseActivityGraphEdit  = "a graph edit"
 	CaseActivityRedaction  = "a redaction"
+	CaseActivityReceipt    = "a checkpoint receipt"
+	CaseActivityCheckpoint = "a checkpoint check"
 
 	// MsgCaseBusyExclusive: what was refused, then what holds the case alone.
 	MsgCaseBusyExclusive = "%s cannot start while %s is in progress; try again when it finishes"
@@ -1543,10 +1602,16 @@ const (
 	IntegrityLedgerUnverifiable = "ledger_unverifiable"
 	IntegrityLedgerSigned       = "ledger_signed"
 
-	// Checkpoints (detector 17). rohy publishes none before item 42, so absent is every case's state.
+	// Checkpoints (detector 17; items 42, 43).
 	IntegrityCheckpointAbsent      = "checkpoint_absent"
 	IntegrityCheckpointUnconfirmed = "checkpoint_unconfirmed"
 	IntegrityCheckpointBroken      = "checkpoint_chain_broken"
+	IntegrityCheckpointUnrecorded  = "checkpoint_unrecorded"
+	IntegrityCheckpointMissing     = "checkpoint_missing"
+	IntegrityReceiptOrphaned       = "receipt_orphaned"
+	IntegrityCheckpointNotHeld     = "checkpoint_not_held"
+	IntegrityCheckpointStale       = "checkpoint_stale"
+	IntegrityCheckpointCurrent     = "checkpoint_current"
 )
 
 // A redaction-ledger record's signature, as checked under the keys the case lists (item 43).
@@ -1584,6 +1649,11 @@ const (
 	// IntegrityActionSignCase points at "Sign this case…" on the Signing card. Advice, not a button:
 	// signing starts at the next open and cannot reach what is already written.
 	IntegrityActionSignCase = "sign_case"
+	// IntegrityActionPublishCheckpoint publishes a checkpoint from the Anchoring card (item 42): it
+	// seals first if the case has unsealed changes. IntegrityActionRecordReceipt points at the
+	// receipt form there. Both write.
+	IntegrityActionPublishCheckpoint = "publish_checkpoint"
+	IntegrityActionRecordReceipt     = "record_receipt"
 )
 
 const (
@@ -1663,10 +1733,21 @@ const (
 	MsgIntegrityLedgerUnverifiable = "%d removal record(s) were written while this case did not sign, so who made them rests on the case's own record. Their chain holds, which shows none was edited on its own; it cannot show the whole ledger was not rewritten."
 	MsgIntegrityLedgerSigned       = "all %d removal record(s) are signed by keys this case lists. The list is part of the case, so compare those keys' fingerprints with ones you kept."
 
-	// Checkpoints (detector 17). rohy publishes none before item 42.
+	// Checkpoints (detector 17; items 42, 43).
 	MsgIntegrityCheckpointAbsent      = "no checkpoint of this case has been published outside it. Until one is, anyone able to rewrite this case's files can rewrite its whole history — the seals, the removal records and the audit log — so that every check here still passes. A fingerprint you keep elsewhere covers the seal, not the rest."
-	MsgIntegrityCheckpointUnconfirmed = "%d checkpoint(s) are recorded in this case, the last on %s, and rohy holds no receipt showing any of them reached somewhere outside it. A checkpoint only the case holds is the case vouching for itself."
+	MsgIntegrityCheckpointUnconfirmed = "checkpoint %d, made %s, has no receipt recorded, so nothing shows its digest reached somewhere outside the case. A checkpoint only the case holds is the case vouching for itself. %s"
+	MsgIntegrityCheckpointLastReceipt = "The last checkpoint with a receipt is %d."
+	MsgIntegrityCheckpointNoReceipt   = "No checkpoint has one."
 	MsgIntegrityCheckpointBroken      = "the case's checkpoint record does not hold together: %s."
+	MsgIntegrityCheckpointUnrecorded  = "the case's audit log records that checkpoint(s) %s were published, and its checkpoint record does not hold them. The record was removed or rewritten, or this is an older copy of the case."
+	MsgIntegrityCheckpointMissing     = "you published checkpoint %d of this case on %s, and the case's checkpoint record does not hold it. The record was removed or rewritten, or this is an older copy of the case. This comes from your profile on this machine account, not from the case."
+	MsgIntegrityReceiptOrphaned       = "the case records receipts for checkpoint(s) %s, and its checkpoint record does not hold them with the digests the receipts name."
+	MsgIntegrityCheckpointNotHeld     = "checkpoint %d committed to history the case no longer holds: %s. Nothing legitimately changes or removes it."
+	MsgIntegrityCheckpointStale       = "since checkpoint %d, made %s, %s. That rests on the case's own record: publish a checkpoint to close the window. The case records checkpoint %d as published: %s."
+	MsgIntegrityCheckpointCurrent     = "checkpoint %d, made %s, still describes the case's image and its removal records%s. The case records it as published: %s. rohy cannot check the anchor, and that receipt is the case's own record: to check the case against the digest itself, paste it under Check a digest you hold."
+	MsgIntegrityCheckpointCountNow    = "the case holds %d %s, against %d at the checkpoint"
+	MsgIntegrityCheckpointAuditSince  = "; %d audit entries have been added since"
+	MsgIntegrityCheckpointUnsealed    = " %d log records are not yet sealed, and no checkpoint covers them."
 
 	// Notes for a posture that was not read: reported, never skipped.
 	MsgIntegrityNoSigning        = "the case's signing posture could not be read, so nothing here reports on who signs it"
@@ -1676,6 +1757,8 @@ const (
 	MsgIntegrityLedgerUnchecked  = "%d removal record signature(s) were not checked: the case's keys could not be read"
 	MsgIntegrityCheckpointUnread = "could not read the case's checkpoints: %v"
 	MsgIntegrityNoCheckpoints    = "the case's checkpoints were not read, so nothing here reports on them"
+	MsgIntegrityAnchorUnread     = "could not read the case's %s in full, so the checkpoint checks did not cover it: %s"
+	MsgIntegrityReceiptsUnread   = "could not read the case's checkpoint receipts: %v"
 )
 
 // Case fingerprint history (plan §14.2).
@@ -1690,6 +1773,17 @@ const (
 	// (unreadable, or could not be moved aside). 🔒 Refusing is the point: writing would destroy
 	// the only copy of what it held.
 	MsgCustodyHistoryHeld = "the fingerprint history could not be used and was left in place, so rohy will not write over it: %s"
+
+	// Checkpoint receipts (item 42).
+	MsgReceiptsUnusable  = "the checkpoint receipts (%s) could not be used and are left in place, so no receipt is recorded until the file is fixed: %v"
+	MsgReceiptsNewer     = "written by a newer rohy (format %d; this build reads %d)"
+	MsgReceiptRef        = "a receipt's reference must be 1 to %d characters of plain text: what the anchor gave back, such as a token serial, a URL or a page number"
+	MsgReceiptTimeFuture = "the receipt's time is after now; check the date"
+	MsgReceiptTimeBefore = "the receipt's time is before checkpoint %d was made; check the date"
+	MsgReceiptDuplicate  = "checkpoint %d already has a receipt with that reference"
+	MsgReceiptsNone      = "this case keeps no checkpoint receipts"
+	MsgReceiptTimeFormat = "the receipt's time must be a date and time such as 2026-11-06T14:30:00Z: %v"
+	MsgReceiptsFull      = "the case holds %d receipts, the most it records"
 )
 
 // Where the case's current image sits against its fingerprint history (plan §15.5).
@@ -1997,6 +2091,11 @@ const (
 	MsgCustodyKeptUnknown             = "The case's image does not descend from the fingerprint you kept, and the case has no record of it. It may belong to another case, or this case's image and history were replaced."
 	MsgCustodyKeptNoImage             = "The case has no fingerprint at all, so its image cannot be the one you kept: the image was replaced, or the fingerprint belongs to another case."
 	MsgCustodyKeptHeld                = "The case's image is not the one whose fingerprint you kept, and the history could not be consulted to say whether it descends from it: %s"
+	// A checkpoint digest given as the kept value (item 42): it is resolved to the seal it names.
+	MsgCustodyKeptViaCheckpoint    = "The value you kept is the digest of checkpoint %d, which names this seal. The digest pins the seal, so it is checked as if you had kept the seal's fingerprint."
+	MsgCustodyKeptCheckpointOff    = "The value you kept is the digest of checkpoint %d, but the case no longer holds what that checkpoint committed to: %s"
+	MsgCustodyKeptCheckpointUnread = "The value you kept is the digest of checkpoint %d, but what that checkpoint committed to could not be read in full, so it was not checked: %s"
+	MsgCustodyKeptCheckpointNoSeal = "The value you kept is the digest of checkpoint %d, made before the case was first sealed, so it names no seal to check this event against."
 
 	MsgCustodyAttestationNone     = "Seals are not signed, so nothing records who produced them."
 	MsgCustodyAttestationUnkeyed  = "The seal is signed, but rohy holds no key to check the signature."
@@ -2034,6 +2133,67 @@ const (
 	CustodyNotKept       = "Every check compared the case against itself. Whoever can rewrite the case can make all of them pass; a fingerprint kept outside the case is what closes that."
 	CustodyNotHistory    = "The history of seals is the case's own record: whoever can rewrite the case can rewrite it too."
 	CustodyNotSourceFile = "It does not establish that the record is what the source file held: rohy recorded no hash of the source file when it was ingested."
+)
+
+// Checking a checkpoint digest the reader holds (item 42, custody.AnchorReport). 🔒 The one check in
+// rohy that does not rest on the case: the digest came from outside it. Even so it says nothing about
+// when the digest was published, or by whom — that is on the anchor it came from.
+const (
+	AnchorCheckUnavailable     = "unavailable"
+	AnchorCheckSealFingerprint = "seal_fingerprint"
+	AnchorCheckNotFound        = "not_found"
+	AnchorCheckUnread          = "unread"
+	AnchorCheckBroken          = "broken"
+	AnchorCheckMatches         = "matches"
+	AnchorCheckDescends        = "descends"
+	AnchorCheckUnplaced        = "unplaced"
+	AnchorCheckIncomplete      = "incomplete"
+
+	AnchorLayerSince = "since"
+
+	MsgAnchorUnavailable     = "This case keeps no sealed image (in-memory), so it holds nothing a checkpoint could have committed to."
+	MsgAnchorSealFingerprint = "That value is one of this case's seal fingerprints, not a checkpoint digest. Check it with the custody report in an event's drawer."
+	MsgAnchorNotFound        = "This case holds no checkpoint with that digest. It is another case's, or this case's checkpoint record was rewritten or removed after the digest was published."
+	MsgAnchorChainUnread     = "The case's checkpoint record could not be read, so the digest could not be looked for: %s"
+	MsgAnchorChainBroken     = "Checkpoint %d carries that digest, but the record does not hold together up to it, so it was changed after it was written: %s"
+	MsgAnchorMatches         = "Checkpoint %d, made %s, carries the digest you hold, and the case still holds everything it committed to."
+	MsgAnchorDescends        = "Checkpoint %d, made %s, carries the digest you hold, and the case still holds the histories it committed to. The image is a later seal that names that one as an ancestor; the seals between rest on the case's own record."
+	MsgAnchorUnplaced        = "Checkpoint %d, made %s, carries the digest you hold, but rohy cannot place the case's image against the seal it names."
+	MsgAnchorBroken          = "Checkpoint %d, made %s, carries the digest you hold, and the case no longer holds what it committed to."
+	MsgAnchorIncomplete      = "Checkpoint %d, made %s, carries the digest you hold, but some of what it committed to could not be read, so the check is incomplete."
+
+	MsgAnchorImageSame       = "The case's image is the seal checkpoint %d names."
+	MsgAnchorImageResigned   = "The case's image is the seal checkpoint %d names, but it carries a different signature from the one the checkpoint recorded."
+	MsgAnchorImageDescends   = "The case's image descends from the seal checkpoint %d names, through seals the case records itself."
+	MsgAnchorImageRolledBack = "The case's image does not descend from the seal checkpoint %d names: the case's history shows it was rolled back or forked."
+	MsgAnchorImageUnplaced   = "The case's image is not the seal checkpoint %d names, and the case's history cannot trace it back to that seal."
+	MsgAnchorImageNone       = "The case has no image now, but checkpoint %d named one."
+	MsgAnchorImageNoSeal     = "Checkpoint %d was made before the case was first sealed, so it names no image."
+
+	MsgAnchorHeld       = "The case still holds the %d %s checkpoint %d covered, unchanged."
+	MsgAnchorHeldMore   = "%d more have been added since."
+	MsgAnchorHeldNone   = "Checkpoint %d covered no %s."
+	MsgAnchorChanged    = "The %s checkpoint %d covered were changed, removed or reordered: %s"
+	MsgAnchorShrank     = "The case holds %d %s, and checkpoint %d covered %d. Nothing legitimately removes them."
+	MsgAnchorUnreadable = "The %s could not be read far enough to check: %s"
+
+	AnchorNounAudit    = "audit entries"
+	AnchorNounLedger   = "removal records"
+	AnchorNounGrants   = "grant records"
+	AnchorNounSegments = "retained log segments"
+
+	MsgAnchorSinceNothing  = "Nothing has been recorded since checkpoint %d."
+	MsgAnchorSince         = "Since checkpoint %d: %s. Everything after it rests on the case's own record; publish a new checkpoint to close the window."
+	MsgAnchorSinceSealed   = "the case was sealed again"
+	MsgAnchorSinceCount    = "%d %s"
+	MsgAnchorSinceUnsealed = "%d log records not yet sealed"
+	MsgAnchorReceipts      = "The case records it as published: %s. That is the case's own record; the anchor is where to confirm it."
+	MsgAnchorNoReceipt     = "The case records no receipt for it."
+
+	AnchorEstablishes = "Everything checkpoint %d committed to is still in the case, unchanged: the seal it names, %d audit entries and %d removal records."
+	AnchorNotWhen     = "When the digest was published, or by whom. That is on the anchor you got it from."
+	AnchorNotAfter    = "Anything recorded after the checkpoint, including writes not yet sealed when it was made."
+	AnchorNotTrue     = "That anything the case holds is true. A checkpoint shows records were not changed, not that they are right."
 )
 
 // --- Annotation layers (v0.2.0) ---
@@ -2594,6 +2754,17 @@ const (
 	// and the file's own comment says so.
 	RootsSubdir    = "roots"
 	RootsStateFile = "roots.json"
+	// ReceiptsFile, beside the fingerprint history, holds what the analyst recorded about where each
+	// checkpoint's digest was published (item 42). 🔒 The case's own record: a receipt in it is only
+	// a pointer to follow, never a witness.
+	ReceiptsFile       = "receipts.json"
+	ReceiptsDocVersion = 1
+	ReceiptsMax        = 1000
+	ReceiptsMaxBytes   = 1 << 20
+	ReceiptRefMax      = 512
+	// ReceiptTimeSlack bounds a receipt's time: not after now, nor before its checkpoint was
+	// captured, by more than this. A guard against a mistyped date, not a check of either clock.
+	ReceiptTimeSlack = 24 * time.Hour
 	// RootsDocVersion guards the document format. 2 (item 41) records who sealed and the seal's
 	// signature; this build reads 1 as well, and an older build keeps a 2 aside rather than drop
 	// the new fields by writing it back.

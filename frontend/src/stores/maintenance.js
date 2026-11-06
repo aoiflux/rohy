@@ -14,6 +14,7 @@ import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
 import { CHANNELS, SEAL_STATE, UI } from '../lib/consts/index.js';
 import { outcomeView, redactionFailure } from '../lib/maintenance/redaction.js';
+import { download } from '../lib/export.js';
 
 const empty = () => ({
   /** @type {{total:number,current:number,stale:number}|null} */
@@ -51,6 +52,10 @@ const empty = () => ({
   redactions: 0,
   /** @type {any[]|null} redactions that did not finish; null until read. */
   pending: null,
+  /** @type {any|null} the case's checkpoints and their receipts (item 42); null until read. */
+  checkpoints: null,
+  /** @type {any|null} what the last publish did: its statement, the seal it ran, its gaps. */
+  published: null,
   error: '',
 });
 
@@ -148,6 +153,76 @@ function create() {
       fail(e);
       return null;
     }
+  }
+
+  /** loadCheckpoints reads the case's checkpoints and receipts. Cheap. */
+  async function loadCheckpoints() {
+    try {
+      const checkpoints = await api.checkpoints();
+      update((s) => ({ ...s, checkpoints }));
+      return checkpoints;
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /** publishCheckpoint seals if needed, records a checkpoint and saves its statement (item 42).
+   *
+   *  🔒 The statement is saved here, wherever the publish was started, and the digest stays on the
+   *  page whether or not the save worked: a checkpoint the case holds and the analyst never received
+   *  can never be published. A seal may have run, so it counts as one. */
+  async function publishCheckpoint() {
+    if (busy()) return null;
+    update((s) => ({ ...s, running: 'publish', error: '', lastResult: '', published: null }));
+    let published;
+    try {
+      published = await api.publishCheckpoint();
+    } catch (e) {
+      update((s) => ({ ...s, seals: s.seals + 1 }));
+      fail(e);
+      return null;
+    }
+    update((s) => ({
+      ...s,
+      running: '',
+      lastResult: 'publish',
+      published,
+      seals: published?.sealed ? s.seals + 1 : s.seals,
+      image: published?.sealed ? null : s.image,
+    }));
+    if (published?.document) download(published.file_name, 'application/json', published.document);
+    await loadCheckpoints();
+    await loadForensics();
+    if (get({ subscribe }).report) {
+      try {
+        const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
+        update((s) => ({ ...s, report }));
+      } catch (e) {
+        fail(e);
+      }
+    }
+    return published;
+  }
+
+  /** saveStatement saves the statement of an earlier checkpoint again. A read. */
+  async function saveStatement(seq) {
+    try {
+      const exp = await api.checkpointStatement(seq);
+      if (exp?.document) download(exp.file_name, 'application/json', exp.document);
+      return exp;
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+  }
+
+  /** recordReceipt records what the anchor gave back, then re-reads the checkpoints. Throws, so the
+   *  form can keep what was typed and say why it was refused. */
+  async function recordReceipt(seq, ref, publishedAt) {
+    const out = await api.recordCheckpointReceipt(seq, ref, publishedAt);
+    await loadCheckpoints();
+    return out;
   }
 
   /** compact folds the WAL into a new image, then re-reads the posture — compaction is what
@@ -297,6 +372,10 @@ function create() {
     verify,
     compact,
     exportFingerprint,
+    loadCheckpoints,
+    publishCheckpoint,
+    saveStatement,
+    recordReceipt,
     backfill: () => run('backfill', api.backfillCorrelationKeys),
     repair: () => run('repair', api.repairRelationIndex),
     rebuild: () => run('rebuild', api.rebuildIndexes),

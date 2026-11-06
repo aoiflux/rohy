@@ -55,6 +55,15 @@ func sealAndRecord(store *graphene.Store, hist *custody.Store, force bool) (Seal
 	}
 	sealMu.Lock()
 	defer sealMu.Unlock()
+	return sealAndRecordLocked(store, hist, force)
+}
+
+// sealAndRecordLocked is sealAndRecord for a caller that already holds sealMu: a checkpoint seals
+// first and publishes under the same hold, so no other seal lands between the two.
+func sealAndRecordLocked(store *graphene.Store, hist *custody.Store, force bool) (SealOutcome, error) {
+	if store == nil {
+		return SealOutcome{State: consts.SealStateUnavailable}, nil
+	}
 	if !force {
 		unsealed, err := store.Unsealed()
 		if errors.Is(err, graphene.ErrForensicsUnavailable) {

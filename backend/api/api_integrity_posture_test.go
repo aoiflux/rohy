@@ -144,7 +144,7 @@ func writeActionOffered(a string) bool {
 	switch a {
 	case consts.IntegrityActionBackfill, consts.IntegrityActionRepair, consts.IntegrityActionRebuild,
 		consts.IntegrityActionIngest, consts.IntegrityActionCompact, consts.IntegrityActionFinishRedaction,
-		consts.IntegrityActionSignCase:
+		consts.IntegrityActionSignCase, consts.IntegrityActionPublishCheckpoint, consts.IntegrityActionRecordReceipt:
 		return true
 	}
 	return false
