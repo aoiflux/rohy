@@ -315,6 +315,7 @@ export namespace api {
 	    cancelled: boolean;
 	    sealed?: SealOutcome;
 	    seal_error?: string;
+	    error?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new BackfillOutcome(source);
@@ -330,6 +331,7 @@ export namespace api {
 	        this.cancelled = source["cancelled"];
 	        this.sealed = this.convertValues(source["sealed"], SealOutcome);
 	        this.seal_error = source["seal_error"];
+	        this.error = source["error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1147,6 +1149,22 @@ export namespace api {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	
+	    }
+	}
+	export class MaintenanceState {
+	    pass: string;
+	    stoppable: boolean;
+	    seq: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MaintenanceState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pass = source["pass"];
+	        this.stoppable = source["stoppable"];
+	        this.seq = source["seq"];
 	    }
 	}
 	export class ReceiptRecorded {

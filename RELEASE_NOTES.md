@@ -276,6 +276,10 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   and the caption now says so.
 - **Stop was offered during a case check**, where it did nothing, and could stop a backfill started
   from the Rules page instead. It is now offered only while a correlation backfill runs.
+- **The Maintenance page shows a backfill started from the Rules page**, with its progress, Stop
+  and its result. Stop goes away once the backfill starts sealing what it rewrote, because the seal
+  cannot be stopped. A backfill that fails after its seal worked now says in its error that the
+  case was sealed and its fingerprint has changed.
 - **The relationship heatmap kept the timeline's old range.** After the timeline reloaded over a
   changed case (*Group by*, *Retry*), the strip's columns no longer sat over the histogram's. It now
   follows the timeline's range, and a *Retry* that changed nothing does not fetch it again.
@@ -366,7 +370,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,207 Go tests, 10 fuzz targets and 65 benchmarks; 855 frontend tests; 58 extension tests.**
+- **1,212 Go tests, 10 fuzz targets and 65 benchmarks; 875 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 
@@ -387,8 +391,6 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 
 ### Known issues
 
-- **A backfill started from the Rules page is not shown on the Maintenance page**, and Stop is not
-  offered for it there. During the seal at the end of a backfill, Stop is shown and does nothing.
 - **Layouts force the lowest id, not a node on the cycle.** A graph with a cycle can need more forced
   placements than it has cycles, and an event can land in the same column as its cause. The note
   counts the forced placements correctly.

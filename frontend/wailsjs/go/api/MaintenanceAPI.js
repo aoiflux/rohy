@@ -58,6 +58,10 @@ export function IsRunningMaintenance() {
   return window['go']['api']['MaintenanceAPI']['IsRunningMaintenance']();
 }
 
+export function MaintenanceState() {
+  return window['go']['api']['MaintenanceAPI']['MaintenanceState']();
+}
+
 export function PendingRedactions() {
   return window['go']['api']['MaintenanceAPI']['PendingRedactions']();
 }

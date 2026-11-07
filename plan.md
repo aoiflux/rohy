@@ -4126,6 +4126,8 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - Damaged canvas (set aside on delete, read by the case check): 5 new Go test functions, 1,199 → 1,204;
   3 new frontend test cases, 852 → 855.
 - Error codes (annotate refusals, heatmap grouping): 3 new Go test functions, 1,204 → 1,207.
+- Backfill visibility (`maintenance:state`, Stop withdrawn for the seal, failed-pass error): 5 new
+  Go test functions, 1,207 → 1,212; 20 new frontend test cases, 855 → 875.
 
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
@@ -4145,8 +4147,8 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
   - The "restored from" note is not part of a link's identity in a restore (the owner's fix named
     it). Confirm.
   - ✅ The pre-run backfill copy (`BACKFILL_STALE_DETAIL`, `MAINT_PROJECTION_STALE`) now says the
-    fingerprint will change. Still open: a pass that fails after a good seal does not say so in its
-    error.
+    fingerprint will change. ✅ A pass that fails after a good seal now says so in its error
+    (see *Maintenance page* below).
   - The layout note says "the lowest internal id", which the page does not show.
 - ✅ **Error codes:** every `annotate` refusal now wraps `annotate.ErrInvalid` with its message
   unchanged, and the write bindings code a refusal or an unknown layer `parse_error` and any other
@@ -4183,9 +4185,22 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
   `TestASetAsideCanvasIsReported`, `TestDeleteEventSetsADamagedCanvasAsideAndCarriesOn`, and three
   cases in `stores/graph.test.js`. *Load* still does not move a damaged canvas aside: the graph opens
   empty with *Save layout* off until a delete moves the file or a person does.
-- **Maintenance page:** a backfill started from the Rules page is not shown there (it never asks
-  `isRunningMaintenance()` on mount), and Stop stays shown, doing nothing, during the backfill's
-  seal.
+- ✅ **Maintenance page:** a backfill started from the Rules page was not shown there, and Stop
+  stayed shown, doing nothing, during the backfill's seal. Every pass that takes the maintenance
+  lock now names itself (`consts.MaintenancePass*`), and the binding publishes
+  `MaintenanceState{pass, stoppable, seq}` on `maintenance:state` at each change, and returns it
+  from `MaintenanceState()`. A bare `isRunningMaintenance()` would have said only that something
+  was running, never which pass or when it ended. The page asks on mount (`syncRunning`). An idle
+  page takes on a pass it did not start and shows its result from `maintenance:complete`. Stop is
+  shown only for a backfill while `stoppable`, which the binding clears when the pass returns,
+  before the seal. A failed pass's rejection now names a seal that worked
+  (`MsgBackfillSealedBeforeFailure`), and the outcome carries the same `error`. Tests:
+  `TestMaintenanceStateNamesTheBackfillAndWhenStopReachesIt`, `TestEveryMaintenancePassNamesItself`,
+  `TestARefusedPassEmitsNoState`, `TestAFailedBackfillCarriesItsErrorInTheCompleteEvent`,
+  `TestAFailedBackfillSaysWhatItRewroteWasSealed`. On the frontend: 10 store cases, 5 banner cases,
+  2 parity cases (every Go pass has a running line, and the channel names agree) and 3 Stop cases.
+  `isRunningMaintenance()` stays, unused by the page. A backfill that starts while the page runs a
+  pass of its own is taken on at its next state, the seal.
 - **Layout:** restricting forcing to nodes on a cycle is the planned later fix. The test expectations
   it changes are commented in `TestSequenceCountsForcedPlacementsNotCycles` and
   `TestLineageForcedRootNoteClaimsNothingAboutItsParent`.

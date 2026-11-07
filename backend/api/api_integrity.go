@@ -205,7 +205,7 @@ func (g graphRegistryAdapter) List() []*caseintegrity.GraphInfo {
 // 🔒 Explicit, and only ever additive: it registers what is missing and removes nothing. Integrity
 // reports; repairing is a separate act the analyst chooses.
 func (a *MaintenanceAPI) RepairRelationIndex() (int, error) {
-	if err := a.begin(); err != nil {
+	if err := a.begin(consts.MaintenancePassRepair); err != nil {
 		return 0, err
 	}
 	defer a.finish()
@@ -456,7 +456,7 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 // reasons, although the rest of that check takes no lock.
 func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
 	// A reader: in a read-only session this is the check the analyst most needs.
-	if err := a.beginRead(); err != nil {
+	if err := a.beginRead(consts.MaintenancePassVerify); err != nil {
 		return graphene.ImageCheck{}, err
 	}
 	defer a.finish()
@@ -482,7 +482,7 @@ func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
 // the integrity report offers for an image in an older format (no digest, pre-v3 leaves), and an
 // unchanged case is exactly where that image lives. The new fingerprint is recorded either way.
 func (a *MaintenanceAPI) CompactCase() error {
-	if err := a.begin(); err != nil {
+	if err := a.begin(consts.MaintenancePassCompact); err != nil {
 		return err
 	}
 	defer a.finish()
@@ -499,7 +499,7 @@ func (a *MaintenanceAPI) CompactCase() error {
 // RebuildIndexes re-derives the property index from the stored records. It is the fix offered for
 // `index_damaged`, and it is the heaviest thing this binding does.
 func (a *MaintenanceAPI) RebuildIndexes() error {
-	if err := a.begin(); err != nil {
+	if err := a.begin(consts.MaintenancePassRebuild); err != nil {
 		return err
 	}
 	defer a.finish()

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { UI } from '../lib/consts/index.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { CHANNELS, UI } from '../lib/consts/index.js';
 
 // The API is stubbed so the interesting behaviours — one pass at a time, and re-checking after a
 // fix — can be driven without a backend. Both are things a wrong answer makes invisible: a second
@@ -58,6 +60,10 @@ vi.mock('../lib/api/index.js', () => ({
   verifyImage: vi.fn(async () => ({ digest: 'match', roots_checked: true })),
   publishCheckpoint: vi.fn(async () => ({ sealed: false })),
   checkpoints: vi.fn(async () => []),
+  maintenanceState: vi.fn(async () => {
+    if (state.failState) throw new Error('state unreadable');
+    return state.backendState;
+  }),
   // Captures the listeners the store attaches, so a backend event can be delivered by hand.
   on: vi.fn((channel, handler) => {
     handlers[channel] = handler;
@@ -89,6 +95,8 @@ beforeEach(() => {
     backfillThrows: null,
     checkGate: null,
     failPosture: false,
+    backendState: { pass: '', stoppable: false, seq: 0 },
+    failState: false,
   });
   maintenance.reset();
 });
@@ -472,5 +480,135 @@ describe('the done banner after a backfill', () => {
       expect(UI.MAINT_DONE[key], key).toBeTruthy();
     }
     expect(UI.MAINT_DONE.backfill_partial_sealed).toContain(UI.MAINT_DONE.backfill_partial);
+  });
+});
+
+// A backfill started on the Rules page holds the backend's maintenance lock without this store
+// knowing. The backend says which pass holds it on maintenance:state, and on request.
+describe('a pass this page did not start', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  const deliver = (st) => handlers[CHANNELS.MAINTENANCE_STATE](st);
+
+  it('is shown when the page asks on mount, with Stop when Stop reaches it', async () => {
+    state.backendState = { pass: 'backfill', stoppable: true, seq: 3 };
+    await maintenance.syncRunning();
+    const s = get(maintenance);
+    expect(s.running).toBe('backfill');
+    expect(s.stoppable).toBe(true);
+  });
+
+  it('is let go when the backend goes idle, and the correlation status is read again', async () => {
+    state.backendState = { pass: 'backfill', stoppable: true, seq: 3 };
+    await maintenance.syncRunning();
+    const reads = state.statusReads;
+    deliver({ pass: '', stoppable: false, seq: 4 });
+    await flush();
+    const s = get(maintenance);
+    expect(s.running).toBe('');
+    expect(s.stoppable).toBe(false);
+    expect(state.statusReads).toBe(reads + 1);
+  });
+
+  it('is shown when it starts while the page is open', async () => {
+    await maintenance.syncRunning();
+    deliver({ pass: 'backfill', stoppable: false, seq: 1 });
+    deliver({ pass: 'backfill', stoppable: true, seq: 2 });
+    expect(get(maintenance).running).toBe('backfill');
+    expect(get(maintenance).stoppable).toBe(true);
+  });
+
+  // 🔒 Stop reaches the pass over the events and not the seal after it.
+  it('stops offering Stop for the seal after the pass', async () => {
+    state.backendState = { pass: 'backfill', stoppable: true, seq: 3 };
+    await maintenance.syncRunning();
+    deliver({ pass: 'backfill', stoppable: false, seq: 4 });
+    const s = get(maintenance);
+    expect(s.running).toBe('backfill');
+    expect(s.stoppable).toBe(false);
+  });
+
+  // The states are emitted outside the backend's lock, so one can arrive after a later one.
+  it('drops a state older than the last one it took', async () => {
+    state.backendState = { pass: 'backfill', stoppable: true, seq: 5 };
+    await maintenance.syncRunning();
+    deliver({ pass: '', stoppable: false, seq: 4 });
+    expect(get(maintenance).running).toBe('backfill');
+  });
+
+  it('shows the banner of a backfill it took on, without counting its seal twice', async () => {
+    state.backendState = { pass: 'backfill', stoppable: true, seq: 1 };
+    await maintenance.syncRunning();
+    const seals = get(maintenance).seals;
+    handlers[CHANNELS.MAINTENANCE_COMPLETE]({ projected: 4, sealed: { state: 'sealed' } });
+    deliver({ pass: '', stoppable: false, seq: 2 });
+    await flush();
+    const s = get(maintenance);
+    expect(s.lastResult).toBe('backfill_sealed');
+    expect(s.error).toBe('');
+    // The page that started it takes the seal in (noteSeal), so counting it here would count twice.
+    expect(s.seals).toBe(seals);
+  });
+
+  it('shows a failed backfill it took on as failed', async () => {
+    state.backendState = { pass: 'backfill', stoppable: true, seq: 1 };
+    await maintenance.syncRunning();
+    handlers[CHANNELS.MAINTENANCE_COMPLETE]({ projected: 1, error: 'disk full' });
+    deliver({ pass: '', stoppable: false, seq: 2 });
+    await flush();
+    const s = get(maintenance);
+    expect(s.lastResult).toBe('');
+    expect(s.error).toBe('disk full');
+  });
+
+  // 🔒 The page's own pass is its own: a check runs beside a Rules page backfill (a check takes no
+  // maintenance lock), and the page must keep showing the check it started.
+  it('never takes over a pass the page started', async () => {
+    await maintenance.syncRunning();
+    let open;
+    state.checkGate = new Promise((r) => (open = r));
+    const pending = maintenance.check(false);
+    deliver({ pass: 'backfill', stoppable: true, seq: 1 });
+    expect(get(maintenance).running).toBe('check');
+    open();
+    await pending;
+    expect(get(maintenance).running).toBe('');
+  });
+
+  it("ignores the complete event of the page's own backfill, which reports through its promise", async () => {
+    await maintenance.syncRunning();
+    let open;
+    state.gate = new Promise((r) => (open = r));
+    const pending = maintenance.backfill();
+    deliver({ pass: 'backfill', stoppable: true, seq: 1 });
+    handlers[CHANNELS.MAINTENANCE_COMPLETE]({ projected: 1, error: 'from somewhere else' });
+    expect(get(maintenance).error).toBe('');
+    deliver({ pass: '', stoppable: false, seq: 2 });
+    expect(get(maintenance).running).toBe('backfill');
+    open();
+    await pending;
+    expect(get(maintenance).lastResult).toBe('backfill');
+  });
+
+  it('shows why when the state cannot be read, and stays idle', async () => {
+    state.failState = true;
+    await maintenance.syncRunning();
+    const s = get(maintenance);
+    expect(s.running).toBe('');
+    expect(s.error).toContain('state unreadable');
+  });
+});
+
+// The backend names its passes on maintenance:state; each must be a run kind this page has a line for.
+describe('maintenance pass parity', () => {
+  const src = readFileSync(fileURLToPath(new URL('../../../backend/consts/consts.go', import.meta.url)), 'utf8');
+
+  it('every backend maintenance pass has a running line', () => {
+    const passes = [...src.matchAll(/\bMaintenancePass\w+\s*=\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(passes.length).toBeGreaterThan(4);
+    expect(passes.filter((p) => !UI.MAINT_RUNNING[p])).toEqual([]);
+  });
+
+  it('listens on the channel the backend publishes on', () => {
+    expect(src).toContain(`EventMaintenanceState = "${CHANNELS.MAINTENANCE_STATE}"`);
   });
 });

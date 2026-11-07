@@ -174,8 +174,8 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,207 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
-**855 frontend test cases** and **58 extension tests**.
+**1,212 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**875 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -2393,10 +2393,42 @@ rules:
   when no seal ran) and `seal_error`. The page drops its image verdict when the
   seal ran (`noteSeal`), and says the fingerprint has changed.
 
-Stop reaches the pass, not the seal: `Compact` takes no context, so a Stop
-pressed during the seal does nothing. A Stop pressed then cannot turn a failed
-pass into a stopped one either, because the binding reads the pass's own
-`Cancelled` flag, not the context. (`TestABackfillSealsWhatItRewroteAndRecordsTheSeal`,
+Stop reaches the pass, not the seal: `Compact` takes no context. The binding
+clears its cancellation as soon as the pass returns and says so on
+`maintenance:state` (below), so the page withdraws Stop before the seal begins. A
+late Stop cannot turn a failed pass into a stopped one either, because the
+binding reads the pass's own `Cancelled` flag, not the context.
+
+A pass that fails after a seal that worked says so in its rejection: the error
+carries `what the pass rewrote before it failed was sealed, so the case's
+fingerprint has changed` (`backfillFailure`), beside the seal's own problem if it
+was not recorded. The rejection is all the starting page receives. The same text
+rides on `maintenance:complete` as the outcome's `error`, for a page that did not
+start the pass (`TestAFailedBackfillSaysWhatItRewroteWasSealed`,
+`TestAFailedBackfillCarriesItsErrorInTheCompleteEvent`).
+
+**`maintenance:state`.** Every pass that takes the maintenance lock names itself
+(`consts.MaintenancePass*`: backfill, repair, rebuild, compact, verify, publish).
+The binding publishes `MaintenanceState{pass, stoppable, seq}` when a pass starts,
+when a backfill's cancellation is installed or cleared, and when the pass ends;
+`MaintenanceState()` returns the same value on request. A refused pass publishes
+nothing. The emit runs outside the binding's mutex, because an emitter may call
+straight back in, so one pass's end and the next one's start can arrive in either
+order; `seq` rises with every change and the page drops a lower one. The
+Maintenance page asks on mount (`syncRunning`) and listens from then on. An idle
+page takes on a pass it did not start (`adopted`): a backfill from the Rules page
+shows its banner, progress and, while `stoppable`, Stop, and its outcome arrives on
+`maintenance:complete`. A pass the page started stays its own, because its promise
+ends it and its re-check may still run after the backend is idle. Stop is shown
+only when the pass shown is a backfill and `stoppable` is true, so a check running
+beside a Rules page backfill still offers none
+(`TestMaintenanceStateNamesTheBackfillAndWhenStopReachesIt`,
+`TestEveryMaintenancePassNamesItself`, `TestARefusedPassEmitsNoState`; the
+"a pass this page did not start" cases in `stores/maintenance.test.js`;
+`routes/MaintenanceView.stop.test.js`). A backfill that starts while the page runs
+a pass of its own is taken on at its next state, the seal.
+
+(`TestABackfillSealsWhatItRewroteAndRecordsTheSeal`,
 `TestABackfillThatRewroteNothingDoesNotSeal`, `TestAStoppedBackfillStillSealsWhatItCompleted`,
 `TestABackfillSealsBeforeItGivesBackTheMaintenanceLock`, `TestABackfillDoesNotSealAPoisonedCase`,
 `TestABackfillDoesNotSealACasePoisonedWhileItWaitedToSeal`,
@@ -2712,11 +2744,9 @@ refused rather than queued, and after a fix the page runs the check again at the
 **Not done, or not yet true.**
 
 - **A check cannot be stopped.** `CheckIntegrity` passes `context.Background()` to `Run`, and
-  `CancelMaintenance` reaches only a backfill, so the Maintenance page offers Stop only while a
-  backfill runs (it gates on the store's `backfill` run kind). Stop stays shown, and does nothing,
-  while the seal at the end of a backfill runs (§18.2).
-- **A backfill started from the Rules page is not shown on the Maintenance page.** The page does not
-  ask on mount whether a pass is running, so it shows no progress and no Stop for it.
+  `CancelMaintenance` reaches only a backfill's pass over the events, so the Maintenance page offers
+  Stop only while the pass it shows is a backfill and `maintenance:state` says Stop reaches it, which
+  ends when the seal begins (§18.2).
 - While a deep check verifies the image (~0.6 s at 100k), a backfill, **Seal case**, a rebuild, a
   repair, a checkpoint publish or the image button is refused as "a maintenance task is already
   running", and a redaction is refused because the case is busy. The maintenance store shows itself
@@ -2796,7 +2826,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,207 Go test functions**, 10 fuzz targets, 65 benchmarks, **855 frontend test
+**1,212 Go test functions**, 10 fuzz targets, 65 benchmarks, **875 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:

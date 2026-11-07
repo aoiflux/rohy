@@ -36,6 +36,8 @@ export function ForensicStatus():Promise<graphene.ForensicStatus>;
 
 export function IsRunningMaintenance():Promise<boolean>;
 
+export function MaintenanceState():Promise<api.MaintenanceState>;
+
 export function PendingRedactions():Promise<Array<redaction.Entry>>;
 
 export function PickKeyFile(arg1:boolean):Promise<string>;

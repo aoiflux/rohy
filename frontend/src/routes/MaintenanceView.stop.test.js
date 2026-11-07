@@ -71,9 +71,44 @@ describe('routes / MaintenanceView — Stop', () => {
     gates.backfill = deferred();
     pending = maintenance.backfill();
     expect(get(maintenance).running).toBe('backfill');
+    maintenance.onState({ pass: 'backfill', stoppable: true, seq: 1 });
 
     const { body } = render(MaintenanceView);
     expect(body).toContain(UI.MAINT_RUNNING.backfill);
     expect(body).toContain(UI.MAINT_CANCEL);
+  });
+
+  // 🔒 Stop reaches the pass over the events, not the seal after it. A Stop shown through the seal
+  // did nothing, which reads as a seal refusing to stop.
+  it('withdraws Stop for the seal after the pass, and keeps showing the backfill', () => {
+    gates.backfill = deferred();
+    pending = maintenance.backfill();
+    maintenance.onState({ pass: 'backfill', stoppable: true, seq: 1 });
+    maintenance.onState({ pass: 'backfill', stoppable: false, seq: 2 });
+
+    const { body } = render(MaintenanceView);
+    expect(body).toContain(UI.MAINT_RUNNING.backfill);
+    expect(body).not.toContain(UI.MAINT_CANCEL);
+  });
+
+  it('shows a backfill started on the Rules page, with Stop for it', () => {
+    maintenance.onState({ pass: 'backfill', stoppable: true, seq: 1 });
+    expect(get(maintenance).running).toBe('backfill');
+
+    const { body } = render(MaintenanceView);
+    expect(body).toContain(UI.MAINT_RUNNING.backfill);
+    expect(body).toContain(UI.MAINT_CANCEL);
+  });
+
+  // The owner's case again, with the Rules page backfill running beside the check: Stop would reach
+  // that backfill, not the check this page shows.
+  it('offers no Stop during a check even while a Rules page backfill can be stopped', () => {
+    gates.check = deferred();
+    pending = maintenance.check(false);
+    maintenance.onState({ pass: 'backfill', stoppable: true, seq: 1 });
+
+    const { body } = render(MaintenanceView);
+    expect(body).toContain(UI.MAINT_RUNNING.check);
+    expect(body).not.toContain(UI.MAINT_CANCEL);
   });
 });

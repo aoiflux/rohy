@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backfillNotice } from './backfill.js';
+import { backfillBanner, backfillNotice } from './backfill.js';
 import { UI } from '../consts/index.js';
 
 describe('the rules page line after a backfill', () => {
@@ -52,5 +52,49 @@ describe('the rules page line after a backfill', () => {
       kind: 'error',
       text: `${UI.BACKFILL_PARTIAL} ${UI.BACKFILL_SEALED} not recorded: x`,
     });
+  });
+});
+
+describe('the Maintenance page banner after a backfill', () => {
+  it('names the result, and says when the case was sealed', () => {
+    expect(backfillBanner({ projected: 3 })).toEqual({ lastResult: 'backfill', error: '' });
+    expect(backfillBanner({ projected: 3, sealed: { state: 'sealed' } })).toEqual({
+      lastResult: 'backfill_sealed',
+      error: '',
+    });
+  });
+
+  it('names a stopped pass as stopped', () => {
+    expect(backfillBanner({ cancelled: true })).toEqual({ lastResult: 'backfill_partial', error: '' });
+    expect(backfillBanner({ cancelled: true, sealed: { state: 'sealed' } })).toEqual({
+      lastResult: 'backfill_partial_sealed',
+      error: '',
+    });
+  });
+
+  it('shows a seal problem beside the result, not instead of it', () => {
+    expect(backfillBanner({ projected: 2, sealed: { state: 'sealed' }, seal_error: 'not recorded' })).toEqual({
+      lastResult: 'backfill_sealed',
+      error: 'not recorded',
+    });
+  });
+
+  // 🔒 A page that did not start the pass gets no rejection, only the outcome. A failed pass must
+  // read as failed there, never as fields filled in.
+  it('shows a failed pass as its error, with no done banner', () => {
+    expect(backfillBanner({ projected: 1, sealed: { state: 'sealed' }, error: 'disk full' })).toEqual({
+      lastResult: '',
+      error: 'disk full',
+    });
+  });
+
+  it('every result it names has a banner line', () => {
+    const results = [
+      { projected: 1 },
+      { projected: 1, sealed: { state: 'sealed' } },
+      { cancelled: true },
+      { cancelled: true, sealed: { state: 'sealed' } },
+    ].map((r) => backfillBanner(r).lastResult);
+    for (const key of results) expect(UI.MAINT_DONE[key], key).toBeTruthy();
   });
 });

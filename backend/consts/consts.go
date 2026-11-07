@@ -1072,6 +1072,10 @@ const (
 	// proportional to the case size must show movement rather than looking hung.
 	EventMaintenanceProgress = "maintenance:progress"
 	EventMaintenanceComplete = "maintenance:complete"
+	// EventMaintenanceState carries which pass holds the maintenance lock and whether Stop reaches
+	// it, on every change, so a page that did not start the pass can show it and offer Stop only
+	// while Stop can do something.
+	EventMaintenanceState = "maintenance:state"
 	// Case sealing (v0.2.0 Phase 8, plan §14.2): the compaction that runs at the end of an
 	// ingest. It gets its own channel rather than riding on the ingest events because it is a
 	// distinct step with a distinct meaning — the ingest is over, and what it wrote is being
@@ -1123,6 +1127,23 @@ const (
 
 // MsgMaintenanceInProgress guards against two concurrent maintenance passes over one store.
 const MsgMaintenanceInProgress = "a maintenance task is already running"
+
+// MsgBackfillSealedBeforeFailure goes with a backfill that failed after the seal that followed it
+// worked. The rejection is all the page receives, and without this it could not know the case's
+// fingerprint moved.
+const MsgBackfillSealedBeforeFailure = "what the pass rewrote before it failed was sealed, so the case's fingerprint has changed"
+
+// The passes that take the maintenance lock, as the maintenance:state channel names them. Each is
+// also a run kind of the Maintenance page's store, whose UI.MAINT_RUNNING has a line for it
+// (a vitest checks the two agree).
+const (
+	MaintenancePassBackfill = "backfill"
+	MaintenancePassRepair   = "repair"
+	MaintenancePassRebuild  = "rebuild"
+	MaintenancePassCompact  = "compact"
+	MaintenancePassVerify   = "verify"
+	MaintenancePassPublish  = "publish"
+)
 
 // MsgRuleRunInProgress guards against two concurrent builds racing on the same graphs.
 const MsgRuleRunInProgress = "a rule run is already in progress"

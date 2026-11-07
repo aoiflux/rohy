@@ -116,7 +116,7 @@ func (a *MaintenanceAPI) Checkpoints() (CheckpointList, error) {
 // received can never be published, so every later problem is a gap on the reply. Before then, every
 // failure is an error and no digest is handed out.
 func (a *MaintenanceAPI) PublishCheckpoint() (CheckpointPublished, error) {
-	if err := a.begin(); err != nil {
+	if err := a.begin(consts.MaintenancePassPublish); err != nil {
 		return CheckpointPublished{}, err
 	}
 	defer a.finish()

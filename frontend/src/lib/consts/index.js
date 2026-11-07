@@ -23,6 +23,7 @@ export const CHANNELS = Object.freeze({
   // Case maintenance: opt-in work proportional to the store, which must show movement.
   MAINTENANCE_PROGRESS: 'maintenance:progress',
   MAINTENANCE_COMPLETE: 'maintenance:complete',
+  MAINTENANCE_STATE: 'maintenance:state',
   // Case sealing (plan §14.2): the compaction after an ingest that gives what it wrote a
   // fingerprint. Its own channel because it is a distinct step that can take seconds.
   CASE_SEALING: 'case:sealing',

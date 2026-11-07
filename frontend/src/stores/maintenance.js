@@ -15,6 +15,7 @@ import * as api from '../lib/api/index.js';
 import { errorCode } from '../lib/api/errors.js';
 import { CHANNELS, ERROR_CODES, SEAL_STATE, UI } from '../lib/consts/index.js';
 import { outcomeView, redactionFailure } from '../lib/maintenance/redaction.js';
+import { backfillBanner } from '../lib/maintenance/backfill.js';
 import { download } from '../lib/export.js';
 
 const empty = () => ({
@@ -40,6 +41,12 @@ const empty = () => ({
   image: null,
   /** Which pass is in flight: '' | 'check' | 'backfill' | 'repair' | 'rebuild' | 'verify' | 'compact'. */
   running: '',
+  /** The pass `running` names when this page did not start it, '' otherwise: a backfill from the
+   *  Rules page, taken on from maintenance:state. Only a pass taken on is let go by that channel. */
+  adopted: '',
+  /** Whether Stop reaches the backend's running pass (maintenance:state). The page offers Stop only
+   *  when this is true and the pass it shows is a backfill. */
+  stoppable: false,
   /** @type {{done:number,total:number}|null} backfill progress, while one runs. */
   progress: null,
   /** The last thing that finished, so the view can confirm rather than just stop showing a spinner. */
@@ -112,6 +119,8 @@ function create() {
   function wire() {
     if (wired) return;
     wired = true;
+    api.on(CHANNELS.MAINTENANCE_STATE, onState);
+    api.on(CHANNELS.MAINTENANCE_COMPLETE, onComplete);
     api.on(CHANNELS.CASE_SEALED, (outcome) => {
       // "unchanged" moved nothing, so there is nothing to refresh.
       if (!outcome || outcome.state !== SEAL_STATE.SEALED) return;
@@ -120,6 +129,66 @@ function create() {
       update((s) => ({ ...s, image: null }));
       loadForensics();
     });
+  }
+
+  /** The seq of the last maintenance:state taken. States are emitted outside the backend's lock,
+   *  so one pass's end and the next one's start can arrive in either order. */
+  let stateSeq = 0;
+
+  /**
+   * onState takes in which pass holds the backend's maintenance lock.
+   *
+   * 🔒 A pass this page started stays this page's: its promise ends it, and its re-check may still
+   * run after the backend is idle. Only an idle page takes a pass on, and only a pass taken on is let
+   * go here. A check takes no maintenance lock, so a Rules page backfill can run beside one; the
+   * page keeps showing the check, and the view withholds Stop because the pass shown is not the
+   * backfill. A backfill that starts while the page is busy is taken on at its next state, the seal.
+   * @param {{pass?: string, stoppable?: boolean, seq?: number}|null|undefined} st
+   */
+  function onState(st) {
+    if (!st || typeof st.seq !== 'number' || st.seq < stateSeq) return;
+    stateSeq = st.seq;
+    const pass = st.pass || '';
+    const stoppable = Boolean(pass && st.stoppable);
+    const s = get({ subscribe });
+    if (pass && (s.running === '' || s.adopted)) {
+      const fresh = s.adopted !== pass;
+      update((v) => ({
+        ...v,
+        running: pass,
+        adopted: pass,
+        stoppable,
+        ...(fresh ? { progress: null, lastResult: '', error: '' } : {}),
+      }));
+      return;
+    }
+    if (!pass && s.adopted) {
+      const was = s.adopted;
+      update((v) => ({ ...v, running: '', adopted: '', stoppable: false, progress: null }));
+      if (was === 'backfill') loadStatus();
+      return;
+    }
+    update((v) => ({ ...v, stoppable }));
+  }
+
+  /** onComplete shows the outcome of a backfill this page took on. Its own backfill reports through
+   *  its promise. The seal is not counted here: the page that started the pass takes it in
+   *  (noteSeal), and counting it twice would drop a custody report for nothing. */
+  function onComplete(res) {
+    if (get({ subscribe }).adopted !== 'backfill') return;
+    const { lastResult, error } = backfillBanner(res);
+    update((s) => ({ ...s, lastResult, error }));
+  }
+
+  /** syncRunning asks the backend which pass is running, so a page opened mid-run shows it instead
+   *  of looking idle. Listening starts first, so no change between the two is missed. */
+  async function syncRunning() {
+    wire();
+    try {
+      onState(await api.maintenanceState());
+    } catch (e) {
+      note(e);
+    }
   }
 
   /** loadForensics reads the posture. Cheap, and worth knowing before anything else on the page is
@@ -342,13 +411,10 @@ function create() {
         throw e;
       }
       noteSeal(res?.sealed);
-      const sealed = res?.sealed?.state === SEAL_STATE.SEALED;
       // run() merges this into the state. 🔒 A seal that did not finish cleanly is shown beside the
       // result, never instead of it: what the pass rewrote is durable. A stopped pass is named as
       // stopped, so the banner never says the fields were filled in when only part of them were.
-      let lastResult = sealed ? 'backfill_sealed' : 'backfill';
-      if (res?.cancelled) lastResult = sealed ? 'backfill_partial_sealed' : 'backfill_partial';
-      return { lastResult, error: res?.seal_error ?? '' };
+      return backfillBanner(res);
     });
   }
 
@@ -448,6 +514,8 @@ function create() {
     backfill,
     noteSeal,
     noteFailedBackfill,
+    syncRunning,
+    onState,
     repair: () => run('repair', api.repairRelationIndex),
     rebuild: () => run('rebuild', api.rebuildIndexes),
 
@@ -457,7 +525,10 @@ function create() {
       api.cancelMaintenance().catch(() => {});
     },
     clearError: () => update((s) => ({ ...s, error: '' })),
-    reset: () => set(empty()),
+    reset: () => {
+      stateSeq = 0;
+      set(empty());
+    },
   };
 }
 

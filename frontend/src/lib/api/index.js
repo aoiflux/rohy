@@ -467,7 +467,8 @@ export function correlationKeyStatus() {
  * `maintenance:progress` while it runs, and is safe to cancel — the pass is resumable, so a
  * cancelled run is continued by running it again. A pass that rewrote any event then seals the
  * case: `sealed` is that seal, and `seal_error` why it failed, was not recorded or was not run.
- * @returns {Promise<{examined:number, projected:number, already_current:number, failed:number, cancelled:boolean, sealed?:{state:string, snapshot?:string, signed?:boolean}, seal_error?:string}>}
+ * A pass that failed rejects; the outcome on `maintenance:complete` then carries the same `error`.
+ * @returns {Promise<{examined:number, projected:number, already_current:number, failed:number, cancelled:boolean, sealed?:{state:string, snapshot?:string, signed?:boolean}, seal_error?:string, error?:string}>}
  */
 export function backfillCorrelationKeys() {
   return call(MAINTENANCE, 'BackfillCorrelationKeys');
@@ -484,6 +485,15 @@ export function cancelMaintenance() {
 /** Whether a maintenance pass is in flight, so a view opened mid-run shows the right state. */
 export function isRunningMaintenance() {
   return call(MAINTENANCE, 'IsRunningMaintenance');
+}
+
+/**
+ * Which pass holds the maintenance lock ('' when none) and whether Stop reaches it. The same state
+ * is published on `maintenance:state` at every change; `seq` orders the two.
+ * @returns {Promise<{pass:string, stoppable:boolean, seq:number}>}
+ */
+export function maintenanceState() {
+  return call(MAINTENANCE, 'MaintenanceState');
 }
 
 // --- Case integrity (P30). Reads and reports; the fixes are separate, explicit calls. Nothing

@@ -338,7 +338,7 @@ func TestRepairIsSeparateFromTheReport(t *testing.T) {
 
 func TestRepairRefusesWhileAnotherPassRuns(t *testing.T) {
 	api, _ := integrityFixture(t)
-	if err := api.begin(); err != nil {
+	if err := api.begin(consts.MaintenancePassBackfill); err != nil {
 		t.Fatal(err)
 	}
 	defer api.finish()

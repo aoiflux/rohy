@@ -2,8 +2,8 @@
  * The correlation backfill's outcome on the rules page (BackfillCorrelationKeys).
  *
  * The pass and the seal the backend runs after it are both decided in Go. What lives here is how the
- * outcome becomes the one line the rules page shows; the Maintenance page shows it as a banner
- * (stores/maintenance.js).
+ * outcome becomes the one line the rules page shows (backfillNotice) and the banner the Maintenance
+ * page shows (backfillBanner, used by stores/maintenance.js).
  */
 import { SEAL_STATE, UI } from '../consts/index.js';
 
@@ -31,4 +31,22 @@ export function backfillNotice(res) {
   if (res?.cancelled) return { kind: gap ? 'error' : 'info', text: UI.BACKFILL_PARTIAL + sealed + gap };
   const done = `${UI.BACKFILL_DONE} ${res?.projected ?? 0}${sealed ? `.${sealed}` : ''}`;
   return { kind: gap ? 'error' : 'success', text: done + gap };
+}
+
+/**
+ * backfillBanner is the Maintenance page's banner for a backfill outcome: the MAINT_DONE key, and
+ * the error shown beside it. Used for the page's own backfill and for one it took on from another
+ * page (maintenance:complete).
+ *
+ * 🔒 A failed pass (`error`, carried only on maintenance:complete) has no done banner: a page that
+ * did not start the pass gets no rejection, and must not read the outcome as fields filled in.
+ * @param {any} res
+ * @returns {{lastResult: string, error: string}}
+ */
+export function backfillBanner(res) {
+  if (res?.error) return { lastResult: '', error: res.error };
+  const sealed = res?.sealed?.state === SEAL_STATE.SEALED;
+  let lastResult = sealed ? 'backfill_sealed' : 'backfill';
+  if (res?.cancelled) lastResult = sealed ? 'backfill_partial_sealed' : 'backfill_partial';
+  return { lastResult, error: res?.seal_error ?? '' };
 }

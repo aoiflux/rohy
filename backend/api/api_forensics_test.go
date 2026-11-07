@@ -274,7 +274,7 @@ func TestVerifyImageMatchesOnAnUntouchedSealedCase(t *testing.T) {
 // unable to tell which pass is responsible (§14.2).
 func TestWholeStoreActionsRefuseWhileAnotherPassRuns(t *testing.T) {
 	store, _, maint := forensicCase(t)
-	if err := maint.begin(); err != nil {
+	if err := maint.begin(consts.MaintenancePassBackfill); err != nil {
 		t.Fatal(err)
 	}
 	if err := maint.CompactCase(); err == nil {
@@ -301,7 +301,7 @@ func TestADeepCheckLeavesTheImageToARunningPass(t *testing.T) {
 	if err := maint.CompactCase(); err != nil {
 		t.Fatal(err)
 	}
-	if err := maint.begin(); err != nil {
+	if err := maint.begin(consts.MaintenancePassBackfill); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(maint.finish)
