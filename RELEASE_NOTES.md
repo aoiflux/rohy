@@ -291,6 +291,11 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   same millisecond.
 - **A layout refused for the node cap, an unknown profile, field or grouping is the request's
   fault.** It was coded `internal_error`; it is now `parse_error`. The message is unchanged.
+- **Annotation and heatmap errors say whose fault they are.** An annotation or layer the store
+  refuses (no name, an unknown kind, an event with no hash, a limit reached, a layer that is not
+  there) and an unknown heatmap grouping are now `parse_error`. A failed write of the annotation file
+  or a failed heatmap read is now `persistence_error`. Both were `internal_error`, which reads as
+  rohy's fault. The messages are unchanged.
 - **A correction to the v0.2.0 notes:** the *Resource* layout makes one column per value of the
   correlation field chosen beside it (`logon_id` unless another is chosen): a session, an account, a
   process, an address or a service. No correlation field holds the host, so there is no column per
@@ -361,7 +366,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,204 Go tests, 10 fuzz targets and 65 benchmarks; 855 frontend tests; 58 extension tests.**
+- **1,207 Go tests, 10 fuzz targets and 65 benchmarks; 855 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 

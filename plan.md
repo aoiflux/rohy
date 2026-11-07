@@ -4125,6 +4125,7 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - Restore lock (case lock alone, index repair first): 3 new Go test functions, 1,196 → 1,199.
 - Damaged canvas (set aside on delete, read by the case check): 5 new Go test functions, 1,199 → 1,204;
   3 new frontend test cases, 852 → 855.
+- Error codes (annotate refusals, heatmap grouping): 3 new Go test functions, 1,204 → 1,207.
 
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
@@ -4147,10 +4148,17 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
     fingerprint will change. Still open: a pass that fails after a good seal does not say so in its
     error.
   - The layout note says "the lowest internal id", which the page does not show.
-- **Error codes:** the annotate bindings code a failed write `internal_error` (only
-  `DeleteAnnotation` uses `persistence_error`); a split needs a validation sentinel in `annotate`.
-  `RelationHeatmap` codes an unknown grouping `internal_error`, the code of a store failure; a fix
-  needs a graphene sentinel for `MsgHeatmapUnknownGroup`.
+- ✅ **Error codes:** every `annotate` refusal now wraps `annotate.ErrInvalid` with its message
+  unchanged, and the write bindings code a refusal or an unknown layer `parse_error` and any other
+  failure `persistence_error` (`annotateError`). `RelationHeatmap`'s unknown grouping wraps
+  `graphene.ErrUnknownHeatmapGroup` and is coded `parse_error`; a store failure is
+  `persistence_error`, as in `Timeline`. Tests: `TestEveryRefusalIsMarkedInvalid`,
+  `TestAMissingLayerOrAFailedWriteIsNotARefusal`,
+  `TestAnnotateBindingsTellARefusedRequestFromAFailedWrite`, and the sentinel and code asserted in
+  `TestItemLimit`, `TestLayerLimit`, `TestHeatmapRefusesAnUnknownGroupingAndNamesTheSet` and
+  `TestRelationHeatmapRefusesAnUnknownGrouping`. The heatmap's store-failure code has no test: an
+  open store does not fail that read on demand. Seen in passing, not changed: `DeleteGraph` codes
+  the last graph and an unknown graph `internal_error`.
 - ✅ **Restore:** a crash between `InsertRelations`' edge commit and its index step left a link the
   next apply wrote again, and a restore that planned beside a rule rebuild, a hand-drawn link or a
   maintenance pass could write a duplicate. `ApplyRestore` now holds the case lock alone and runs

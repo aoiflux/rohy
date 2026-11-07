@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"time"
 
 	"rohy/backend/annotate"
@@ -108,6 +109,16 @@ type LayerRequest struct {
 	Z       int    `json:"z"`
 }
 
+// annotateError codes a failed annotation write. A request the store refused, or one naming a
+// layer that is not there, is parse_error: the request's fault, which the analyst can change. Any
+// other failure is persistence_error: the sidecar could not be read or written.
+func annotateError(err error) error {
+	if errors.Is(err, annotate.ErrInvalid) || errors.Is(err, annotate.ErrNotFound) {
+		return AsError(consts.ErrCodeParse, err)
+	}
+	return AsError(consts.ErrCodePersistence, err)
+}
+
 // SaveLayer adds a layer, or updates the one named by ID.
 func (a *AnnotateAPI) SaveLayer(req LayerRequest) (*annotate.Layer, error) {
 	release, busy := theCase.share(consts.CaseActivityAnnotation)
@@ -122,7 +133,7 @@ func (a *AnnotateAPI) SaveLayer(req LayerRequest) (*annotate.Layer, error) {
 	if req.ID == "" {
 		l, err := a.notes.AddLayer(gid, req.Name, req.Colour, time.Now().UTC())
 		if err != nil {
-			return nil, AsError(consts.ErrCodeInternal, err)
+			return nil, annotateError(err)
 		}
 		return l, nil
 	}
@@ -130,7 +141,7 @@ func (a *AnnotateAPI) SaveLayer(req LayerRequest) (*annotate.Layer, error) {
 		ID: req.ID, Name: req.Name, Colour: req.Colour, Visible: req.Visible, Z: req.Z,
 	})
 	if err != nil {
-		return nil, AsError(consts.ErrCodeInternal, err)
+		return nil, annotateError(err)
 	}
 	return l, nil
 }
@@ -165,7 +176,7 @@ func (a *AnnotateAPI) DeleteLayer(graphID uint64, layerID string) (LayerDeletion
 	}
 	n, err := a.notes.DeleteLayer(a.graphID(graphID), layerID)
 	if err != nil {
-		return LayerDeletion{}, AsError(consts.ErrCodeInternal, err)
+		return LayerDeletion{}, annotateError(err)
 	}
 	return LayerDeletion{Annotations: n}, nil
 }
@@ -188,7 +199,7 @@ func (a *AnnotateAPI) SaveAnnotation(req AnnotationRequest) (*annotate.Item, err
 	}
 	it, err := a.notes.Put(a.graphID(req.GraphID), req.Item, time.Now().UTC())
 	if err != nil {
-		return nil, AsError(consts.ErrCodeInternal, err)
+		return nil, annotateError(err)
 	}
 	return it, nil
 }

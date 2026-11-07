@@ -404,9 +404,11 @@ func TestRelationHeatmapScopesToTheActiveGraphUnlessAsked(t *testing.T) {
 }
 
 func TestRelationHeatmapRefusesAnUnknownGrouping(t *testing.T) {
+	// The request's fault, so parse_error. It was internal_error, which reads as rohy's fault.
 	api, graphID, _ := layoutFixture(t)
-	if _, err := api.RelationHeatmap(HeatmapRequest{GraphID: graphID, GroupBy: "vibes"}); err == nil {
-		t.Fatal("an unknown grouping must be refused")
+	_, err := api.RelationHeatmap(HeatmapRequest{GraphID: graphID, GroupBy: "vibes"})
+	if codeOf(err) != consts.ErrCodeParse {
+		t.Fatalf("RelationHeatmap = %v (code %q), want parse_error", err, codeOf(err))
 	}
 }
 

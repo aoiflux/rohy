@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -212,7 +213,11 @@ func (a *GraphAPI) RelationHeatmap(req HeatmapRequest) (graphene.HeatmapSummary,
 		To:      req.To,
 	})
 	if err != nil {
-		return graphene.HeatmapSummary{}, AsError(consts.ErrCodeInternal, err)
+		// An unknown grouping is the request's fault; anything else is the store's, as in Timeline.
+		if errors.Is(err, graphene.ErrUnknownHeatmapGroup) {
+			return graphene.HeatmapSummary{}, AsError(consts.ErrCodeParse, err)
+		}
+		return graphene.HeatmapSummary{}, AsError(consts.ErrCodePersistence, err)
 	}
 	return out, nil
 }

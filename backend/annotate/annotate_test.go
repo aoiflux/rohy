@@ -2,6 +2,7 @@ package annotate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,8 +211,8 @@ func TestItemLimit(t *testing.T) {
 			t.Fatalf("put %d: %v", i, err)
 		}
 	}
-	if _, err := s.Put(7, region(0, 0, 10, 10, ""), annBase); err == nil {
-		t.Fatal("past the cap must be refused")
+	if _, err := s.Put(7, region(0, 0, 10, 10, ""), annBase); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("past the cap = %v, want a refusal marked ErrInvalid", err)
 	}
 	// An UPDATE past the cap must still work: the limit is on how many exist, not on editing.
 	doc, _ := s.Get(7)
@@ -263,8 +264,8 @@ func TestLayerLimit(t *testing.T) {
 			t.Fatalf("add %d: %v", i, err)
 		}
 	}
-	if _, err := s.AddLayer(7, "one more", "", annBase); err == nil {
-		t.Fatal("past the layer cap must be refused")
+	if _, err := s.AddLayer(7, "one more", "", annBase); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("past the layer cap = %v, want a refusal marked ErrInvalid", err)
 	}
 }
 
@@ -677,5 +678,82 @@ func TestOverlongLayerNameIsCutBetweenCharacters(t *testing.T) {
 	}
 	if len(doc.Layers) != 1 || doc.Layers[0].Name != want {
 		t.Errorf("stored layers = %+v, want one named %q", doc.Layers, want)
+	}
+}
+
+// TestEveryRefusalIsMarkedInvalid pins that a request the store refuses can be told from a store
+// that failed, so the binding codes the first parse_error and the second persistence_error. The
+// message is the refusal's own, unchanged. The two limits are checked in TestItemLimit and
+// TestLayerLimit.
+func TestEveryRefusalIsMarkedInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+		do   func(s *Store) error
+	}{
+		{"layer with no name", consts.MsgAnnotationLayerName, func(s *Store) error {
+			_, err := s.AddLayer(7, "  ", "", annBase)
+			return err
+		}},
+		{"rename to no name", consts.MsgAnnotationLayerName, func(s *Store) error {
+			l, err := s.AddLayer(7, "Initial access", "", annBase)
+			if err != nil {
+				return err
+			}
+			l.Name = ""
+			_, err = s.UpdateLayer(7, *l)
+			return err
+		}},
+		{"text too long", fmt.Sprintf(consts.MsgAnnotationTextLong, consts.MaxAnnotationText), func(s *Store) error {
+			_, err := s.Put(7, note("hash-a", strings.Repeat("x", consts.MaxAnnotationText+1)), annBase)
+			return err
+		}},
+		{"unknown kind", fmt.Sprintf(consts.MsgAnnotationBadKind, "doodle", strings.Join(consts.AnnotationKinds, ", ")), func(s *Store) error {
+			_, err := s.Put(7, Item{Kind: "doodle", Anchor: Anchor{Kind: consts.AnchorWorld}}, annBase)
+			return err
+		}},
+		{"unknown anchor", fmt.Sprintf(consts.MsgAnnotationBadAnchor, "vibes", strings.Join(consts.AnchorKinds, ", ")), func(s *Store) error {
+			_, err := s.Put(7, Item{Kind: consts.AnnotationNote, Anchor: Anchor{Kind: "vibes"}}, annBase)
+			return err
+		}},
+		{"event anchor with no hash", consts.MsgAnnotationNeedsHash, func(s *Store) error {
+			_, err := s.Put(7, Item{Kind: consts.AnnotationNote, Anchor: Anchor{Kind: consts.AnchorEvent}}, annBase)
+			return err
+		}},
+		{"arrow with one end", consts.MsgAnnotationNeedsTarget, func(s *Store) error {
+			_, err := s.Put(7, Item{Kind: consts.AnnotationArrow, Anchor: Anchor{Kind: consts.AnchorEvent, Hash: "hash-a"}}, annBase)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.do(openStore(t))
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("err = %v, want a refusal marked ErrInvalid", err)
+			}
+			if err.Error() != tc.want {
+				t.Errorf("message = %q, want %q unchanged", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// TestAMissingLayerOrAFailedWriteIsNotARefusal pins the other side: an unknown layer is ErrNotFound
+// (the binding codes it parse_error too, since the request named it), and a write that failed is
+// neither, so it is coded the disk's fault.
+func TestAMissingLayerOrAFailedWriteIsNotARefusal(t *testing.T) {
+	s := openStore(t)
+	it := note("hash-a", "x")
+	it.Layer = "layer-nope"
+	if _, err := s.Put(7, it, annBase); !errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		t.Errorf("unknown layer = %v, want ErrNotFound and not ErrInvalid", err)
+	}
+	if _, err := s.Put(7, note("hash-a", "first"), annBase); err != nil {
+		t.Fatal(err)
+	}
+	blockSidecar(t, filepath.Join(s.dir, "7.json"))
+	_, err := s.Put(7, note("hash-b", "second"), annBase)
+	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
+		t.Errorf("failed write = %v, want an error that is neither a refusal nor a missing layer", err)
 	}
 }

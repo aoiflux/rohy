@@ -1,6 +1,9 @@
 package api
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +17,13 @@ import (
 )
 
 func annFixture(t *testing.T) (*AnnotateAPI, *graphene.Store, uint64, []*graphene.Event) {
+	t.Helper()
+	return annFixtureAt(t, t.TempDir())
+}
+
+// annFixtureAt is annFixture with the annotation sidecars in notesDir, for a test that must reach
+// the file.
+func annFixtureAt(t *testing.T, notesDir string) (*AnnotateAPI, *graphene.Store, uint64, []*graphene.Event) {
 	t.Helper()
 	store := graphene.OpenInMemory()
 	t.Cleanup(func() { store.Close() })
@@ -34,7 +44,7 @@ func annFixture(t *testing.T) (*AnnotateAPI, *graphene.Store, uint64, []*graphen
 	if err != nil {
 		t.Fatal(err)
 	}
-	notes, err := annotate.Open(t.TempDir())
+	notes, err := annotate.Open(notesDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,5 +299,89 @@ func TestDeletingAGraphTakesItsSidecarsWithIt(t *testing.T) {
 	}
 	if len(doc.Items) != 0 {
 		t.Errorf("%d annotations outlived their graph", len(doc.Items))
+	}
+}
+
+// TestAnnotateBindingsTellARefusedRequestFromAFailedWrite pins the codes: a request the store
+// refuses, or one that names a layer that is not there, is parse_error, the request's fault; a
+// write that failed is persistence_error, the disk's. Every write binding coded both
+// internal_error, which reads as rohy's fault.
+func TestAnnotateBindingsTellARefusedRequestFromAFailedWrite(t *testing.T) {
+	notesDir := t.TempDir()
+	api, _, graphID, _ := annFixtureAt(t, notesDir)
+	refused := map[string]func() error{
+		"SaveLayer with no name": func() error {
+			_, err := api.SaveLayer(LayerRequest{GraphID: graphID, Name: " "})
+			return err
+		},
+		"SaveLayer on an unknown layer": func() error {
+			_, err := api.SaveLayer(LayerRequest{GraphID: graphID, ID: "layer-nope", Name: "x"})
+			return err
+		},
+		"DeleteLayer on an unknown layer": func() error {
+			_, err := api.DeleteLayer(graphID, "layer-nope")
+			return err
+		},
+		"SaveAnnotation of an unknown kind": func() error {
+			_, err := api.SaveAnnotation(AnnotationRequest{GraphID: graphID, Item: annotate.Item{
+				Kind: "doodle", Anchor: annotate.Anchor{Kind: consts.AnchorWorld},
+			}})
+			return err
+		},
+		"SaveAnnotation on an unknown layer": func() error {
+			_, err := api.SaveAnnotation(AnnotationRequest{GraphID: graphID, Item: annotate.Item{
+				Kind: consts.AnnotationNote, Layer: "layer-nope", Anchor: annotate.Anchor{Kind: consts.AnchorWorld},
+			}})
+			return err
+		},
+	}
+	for name, do := range refused {
+		if err := do(); codeOf(err) != consts.ErrCodeParse {
+			t.Errorf("%s = %v (code %q), want parse_error", name, err, codeOf(err))
+		}
+	}
+
+	// A layer to update and delete, and a note, then a directory where the sidecar was, so the
+	// rename that finishes every later write fails.
+	layer, err := api.SaveLayer(LayerRequest{GraphID: graphID, Name: "Initial access"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.SaveAnnotation(AnnotationRequest{GraphID: graphID, Item: annotate.Item{
+		Kind: consts.AnnotationNote, Anchor: annotate.Anchor{Kind: consts.AnchorWorld},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	sidecar := filepath.Join(notesDir, fmt.Sprintf("%d.json", graphID))
+	if err := os.Remove(sidecar); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(sidecar, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	failed := map[string]func() error{
+		"SaveLayer (add)": func() error {
+			_, err := api.SaveLayer(LayerRequest{GraphID: graphID, Name: "Lateral movement"})
+			return err
+		},
+		"SaveLayer (update)": func() error {
+			_, err := api.SaveLayer(LayerRequest{GraphID: graphID, ID: layer.ID, Name: "Renamed", Visible: true})
+			return err
+		},
+		"DeleteLayer": func() error {
+			_, err := api.DeleteLayer(graphID, layer.ID)
+			return err
+		},
+		"SaveAnnotation": func() error {
+			_, err := api.SaveAnnotation(AnnotationRequest{GraphID: graphID, Item: annotate.Item{
+				Kind: consts.AnnotationNote, Anchor: annotate.Anchor{Kind: consts.AnchorWorld},
+			}})
+			return err
+		},
+	}
+	for name, do := range failed {
+		if err := do(); codeOf(err) != consts.ErrCodePersistence {
+			t.Errorf("%s = %v (code %q), want persistence_error", name, err, codeOf(err))
+		}
 	}
 }

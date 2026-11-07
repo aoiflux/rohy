@@ -35,6 +35,22 @@ import (
 // ErrNotFound is returned for a layer or annotation id that does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalid marks a request the store refuses: a field it does not accept, or a limit reached.
+// The binding codes it parse_error, the request's fault; any other failure is the disk's.
+var ErrInvalid = errors.New("annotation request refused")
+
+// refusal is a refused request. Its message is the refusal's own, so wrapping it in ErrInvalid
+// changes nothing the analyst reads.
+type refusal struct{ msg string }
+
+func (r refusal) Error() string { return r.msg }
+func (r refusal) Unwrap() error { return ErrInvalid }
+
+// refuse builds a refusal, formatted like fmt.Errorf.
+func refuse(format string, args ...any) error {
+	return refusal{fmt.Sprintf(format, args...)}
+}
+
 // Layer groups annotations so they can be shown, hidden and ordered together.
 type Layer struct {
 	ID      string `json:"id"`
@@ -183,11 +199,11 @@ func (s *Store) AddLayer(graphID uint64, name, colour string, now time.Time) (*L
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, errors.New(consts.MsgAnnotationLayerName)
+		return nil, refuse(consts.MsgAnnotationLayerName)
 	}
 	name = utils.CapRunes(name, consts.MaxLayerNameLen)
 	if len(doc.Layers) >= consts.MaxAnnotationLayers {
-		return nil, fmt.Errorf(consts.MsgAnnotationLayerLimit, consts.MaxAnnotationLayers)
+		return nil, refuse(consts.MsgAnnotationLayerLimit, consts.MaxAnnotationLayers)
 	}
 
 	next := cloneDoc(doc)
@@ -219,7 +235,7 @@ func (s *Store) UpdateLayer(graphID uint64, l Layer) (*Layer, error) {
 		}
 		name := strings.TrimSpace(l.Name)
 		if name == "" {
-			return nil, errors.New(consts.MsgAnnotationLayerName)
+			return nil, refuse(consts.MsgAnnotationLayerName)
 		}
 		name = utils.CapRunes(name, consts.MaxLayerNameLen)
 		next := cloneDoc(doc)
@@ -343,7 +359,7 @@ func (s *Store) Put(graphID uint64, it Item, now time.Time) (*Item, error) {
 	}
 
 	if len(next.Items) >= consts.MaxAnnotationItems {
-		return nil, fmt.Errorf(consts.MsgAnnotationItemLimit, consts.MaxAnnotationItems)
+		return nil, refuse(consts.MsgAnnotationItemLimit, consts.MaxAnnotationItems)
 	}
 	it.ID = newID("a", now, len(next.Items), func(id string) bool { return hasItem(next, id) })
 	it.CreatedAt = now
@@ -434,17 +450,17 @@ func (s *Store) ensureDefaultLayer(doc *Document, now time.Time) (*Layer, error)
 func validate(it *Item) error {
 	it.Text = strings.TrimSpace(it.Text)
 	if utf8.RuneCountInString(it.Text) > consts.MaxAnnotationText {
-		return fmt.Errorf(consts.MsgAnnotationTextLong, consts.MaxAnnotationText)
+		return refuse(consts.MsgAnnotationTextLong, consts.MaxAnnotationText)
 	}
 	if !known(consts.AnnotationKinds, it.Kind) {
-		return fmt.Errorf(consts.MsgAnnotationBadKind, it.Kind, strings.Join(consts.AnnotationKinds, ", "))
+		return refuse(consts.MsgAnnotationBadKind, it.Kind, strings.Join(consts.AnnotationKinds, ", "))
 	}
 	if err := validAnchor(it.Anchor); err != nil {
 		return err
 	}
 	if it.Kind == consts.AnnotationArrow {
 		if it.To == nil {
-			return errors.New(consts.MsgAnnotationNeedsTarget)
+			return refuse(consts.MsgAnnotationNeedsTarget)
 		}
 		if err := validAnchor(*it.To); err != nil {
 			return err
@@ -460,12 +476,12 @@ func validate(it *Item) error {
 
 func validAnchor(a Anchor) error {
 	if !known(consts.AnchorKinds, a.Kind) {
-		return fmt.Errorf(consts.MsgAnnotationBadAnchor, a.Kind, strings.Join(consts.AnchorKinds, ", "))
+		return refuse(consts.MsgAnnotationBadAnchor, a.Kind, strings.Join(consts.AnchorKinds, ", "))
 	}
 	if a.Kind == consts.AnchorEvent && strings.TrimSpace(a.Hash) == "" {
 		// 🔒 Without the hash there is nothing to follow the event by, and the annotation would
 		// attach to whatever node id happened to be reused.
-		return errors.New(consts.MsgAnnotationNeedsHash)
+		return refuse(consts.MsgAnnotationNeedsHash)
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package graphene
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -54,6 +55,17 @@ type HeatmapQuery struct {
 	To   *time.Time
 }
 
+// ErrUnknownHeatmapGroup marks a heatmap request whose grouping the store does not offer: the
+// request's fault, not the store's.
+var ErrUnknownHeatmapGroup = errors.New("unknown heatmap grouping")
+
+// unknownHeatmapGroup carries MsgHeatmapUnknownGroup as its own message, so marking it changes
+// nothing the analyst reads.
+type unknownHeatmapGroup struct{ msg string }
+
+func (e unknownHeatmapGroup) Error() string { return e.msg }
+func (e unknownHeatmapGroup) Unwrap() error { return ErrUnknownHeatmapGroup }
+
 // RelationHeatmap buckets a graph's relations over time.
 //
 // 🔒 A relation is placed at its LATER ENDPOINT'S timestamp — the moment the relationship became
@@ -66,8 +78,8 @@ func (s *Store) RelationHeatmap(q HeatmapQuery) (HeatmapSummary, error) {
 		groupBy = consts.DefaultHeatmapGroup
 	}
 	if !validHeatmapGroup(groupBy) {
-		return HeatmapSummary{}, fmt.Errorf(consts.MsgHeatmapUnknownGroup, groupBy,
-			strings.Join(consts.HeatmapGroups, ", "))
+		return HeatmapSummary{}, unknownHeatmapGroup{fmt.Sprintf(consts.MsgHeatmapUnknownGroup, groupBy,
+			strings.Join(consts.HeatmapGroups, ", "))}
 	}
 	buckets := q.Buckets
 	if buckets <= 0 {

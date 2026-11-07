@@ -1,6 +1,8 @@
 package graphene
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +215,13 @@ func TestHeatmapRefusesAnUnknownGroupingAndNamesTheSet(t *testing.T) {
 	_, err := s.RelationHeatmap(HeatmapQuery{GraphID: graphID, Buckets: 60, GroupBy: "vibes"})
 	if err == nil {
 		t.Fatal("an unknown grouping must be refused rather than silently defaulted")
+	}
+	// Marked, so the binding codes it the request's fault rather than a store failure.
+	if !errors.Is(err, ErrUnknownHeatmapGroup) {
+		t.Errorf("err = %v, want it marked ErrUnknownHeatmapGroup", err)
+	}
+	if want := fmt.Sprintf(consts.MsgHeatmapUnknownGroup, "vibes", strings.Join(consts.HeatmapGroups, ", ")); err.Error() != want {
+		t.Errorf("message = %q, want %q unchanged", err.Error(), want)
 	}
 	for _, g := range consts.HeatmapGroups {
 		if !strings.Contains(err.Error(), g) {

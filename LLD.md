@@ -174,7 +174,7 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,204 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**1,207 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
 **855 frontend test cases** and **58 extension tests**.
 
 ---
@@ -1819,6 +1819,10 @@ screen, whose columns no longer line up; one that leaves the extent where it was
 changed nothing) asks nothing. Switching the heatmap off drops the matrix too, so switching it back
 on asks again. An answer that a newer request overtook is dropped.
 
+An unknown grouping is refused with `MsgHeatmapUnknownGroup`, which names the groupings on offer and
+wraps `graphene.ErrUnknownHeatmapGroup`. The binding codes it `parse_error`, the request's fault, and
+any other failure `persistence_error`, as `Timeline` does. Both used to be `internal_error`.
+
 **Not done.** A small graph pays the whole-case scan. No automated test drives the page's effect,
 because the view tests render on the server, where effects do not run: `heatmapNext` is tested on
 its own.
@@ -2064,9 +2068,15 @@ Writes hold the case lock shared, like snapshots; reads take none.
 
 **Not done.** Regions and arrows render, but only notes can be created, from the layer panel. The
 panel cannot edit or delete one note, rename a layer or change its colour, though the bindings exist.
-The file is written by rename without an fsync. `SaveLayer`, `DeleteLayer` and `SaveAnnotation` code
-a failed write `internal_error`, the same code as a refused input; only `DeleteAnnotation` codes it
-`persistence_error`. A layer name cut by an earlier build keeps the U+FFFD that the byte cut left.
+The file is written by rename without an fsync. A layer name cut by an earlier build keeps the
+U+FFFD that the byte cut left.
+
+**Error codes.** Every refusal in `annotate` (a field it does not accept, or a limit reached) wraps
+`annotate.ErrInvalid` and keeps its message as it was. The write bindings code a refusal, or a layer
+id that is not there (`ErrNotFound`), `parse_error`: the request's fault, which the analyst can
+change. Any other failure is `persistence_error`, the sidecar's (`annotateError`;
+`TestEveryRefusalIsMarkedInvalid`, `TestAnnotateBindingsTellARefusedRequestFromAFailedWrite`). They
+coded both `internal_error`, which reads as rohy's fault.
 
 ---
 
@@ -2786,7 +2796,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,204 Go test functions**, 10 fuzz targets, 65 benchmarks, **855 frontend test
+**1,207 Go test functions**, 10 fuzz targets, 65 benchmarks, **855 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:
