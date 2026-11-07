@@ -4122,6 +4122,7 @@ unchanged. The gate passes 11/11.
 
 After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - Rollback (graph registry, rule overrides): 4 new Go test functions, 1,192 → 1,196.
+- Restore lock (case lock alone, index repair first): 3 new Go test functions, 1,196 → 1,199.
 
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
@@ -4148,10 +4149,14 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
   `DeleteAnnotation` uses `persistence_error`); a split needs a validation sentinel in `annotate`.
   `RelationHeatmap` codes an unknown grouping `internal_error`, the code of a store failure; a fix
   needs a graphene sentinel for `MsgHeatmapUnknownGroup`.
-- **Restore:** a crash between `InsertRelations`' edge commit and its index step leaves a link the
-  next preview offers again (`ApplyRestore` could run `RepairRelationIndex` first). A restore, a rule
-  rebuild and `CreateRelation` hold the case lock only shared, so a restore that plans mid-rebuild
-  can still write a duplicate.
+- ✅ **Restore:** a crash between `InsertRelations`' edge commit and its index step left a link the
+  next apply wrote again, and a restore that planned beside a rule rebuild, a hand-drawn link or a
+  maintenance pass could write a duplicate. `ApplyRestore` now holds the case lock alone and runs
+  `RepairRelationIndex` before it plans; a failed repair refuses the restore before any write.
+  The cost: a restore is refused while an ingest or a capture runs. Tests:
+  `TestARestoreAfterACrashMidRestoreDoesNotDrawTheLinkAgain`, `TestARestoreHoldsTheCaseAlone`,
+  `TestARestoreThatCannotRepairTheIndexWritesNothing`. A preview still writes nothing, so after a
+  crash it can still offer the link; applying it writes nothing.
 - **Canvas writes:** `ApplyRestore` and the whole-canvas *Save layout* load, change and save outside
   one hold of the layout mutex, so either can put a pruned id back. It is harmless while reads skip
   gone ids; closing it needs a `layout.Update(graphID, fn)`. An unreadable `canvas-<n>.json` makes

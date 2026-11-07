@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -212,13 +213,26 @@ func (a *SnapshotAPI) PreviewRestore(graphID uint64, id string) (snapshot.Plan, 
 // with the rule provenance the snapshot recorded. rohy asserting a link today is a different
 // claim from a rule having inferred it then, and an edge that wore the old provenance would be
 // indistinguishable from one the current rules produced.
+//
+// 🔒 It holds the case ALONE, as a redaction does. It reads the graph's links, works out which are
+// missing, and writes those; a rule run clearing and re-writing links, a link drawn by hand, or a
+// maintenance pass rebuilding the index between the read and the write would make it draw one
+// twice. A restore takes seconds, so it is refused while an ingest or a capture runs rather than
+// letting one of them in.
+//
+// 🔒 It repairs the link index before it plans, as every rule run does (graphbuild). A restore
+// that crashed after committing an edge and before registering it left a link the graph's list
+// cannot see, and planning without the repair would offer it again and write it twice.
 func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
-	release, busy := theCase.share(consts.CaseActivityRestore)
+	release, busy := theCase.exclusive(consts.CaseActivityRestore)
 	if busy != nil {
 		return RestoreResult{}, busy
 	}
 	defer release()
 	var out RestoreResult
+	if _, err := a.store.RepairRelationIndex(); err != nil {
+		return out, AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgRestoreRepairFailed, err))
+	}
 	doc, live, rels, err := a.restoreInputs(req.GraphID, req.ID)
 	if err != nil {
 		return out, err

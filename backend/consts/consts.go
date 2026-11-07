@@ -1503,6 +1503,10 @@ const (
 	MaxSnapshotLabelLen = 200
 )
 
+// MsgRestoreRepairFailed refuses a restore whose link-index repair failed. Planning without it
+// could offer a link an earlier crash left half-registered, and write it a second time.
+const MsgRestoreRepairFailed = "the restore did not start: rohy could not first repair the link index, so it might draw a link that is already there: %v"
+
 // Restore outcomes. Every item in a snapshot lands in exactly one of these, and the total is
 // always reported — nothing is dropped silently.
 const (

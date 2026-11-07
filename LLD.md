@@ -174,7 +174,7 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,196 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**1,199 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
 **852 frontend test cases** and **58 extension tests**.
 
 ---
@@ -1901,8 +1901,18 @@ flowchart LR
    label;
 3. **commits those links once**, in one `InsertRelations` batch.
 
-Taking, deleting and applying hold the case lock shared (§18.4), so they are refused while a
-redaction runs and in a read-only session (§18.5). Listing and previewing take no lock.
+Taking and deleting hold the case lock shared (§18.4), so they are refused while a redaction runs
+and in a read-only session (§18.5). Listing and previewing take no lock.
+
+**Applying holds the case lock alone**, as a redaction does, and runs `RepairRelationIndex` before
+it plans. It reads the graph's links and writes the missing ones, so anything else writing links in
+between could make it draw one twice: a rule run between `DeleteGraphRelations` and
+`InsertRelations`, a link drawn by hand, or a maintenance pass rebuilding the index. A restore that
+crashed after `InsertRelations` committed its edges, but before it registered them, left a link
+`RelationsByGraph` cannot see. The repair makes that link visible again, so it is not offered a
+second time. A restore takes seconds, so it is refused while an ingest or a capture runs, and every
+other write is refused while it runs. A repair that fails refuses the restore before it writes
+anything, including the layout.
 
 **Why it was built that way.**
 
@@ -1954,15 +1964,8 @@ redaction runs and in a read-only session (§18.5). Listing and previewing take 
 
 - Snapshot thumbnails.
 - `Save` writes a temporary file and renames it without an fsync; only `Scrub` writes durably.
-- **A restore can still race into a duplicate.** `ApplyRestore`, a rule run and `CreateRelation`
-  each hold the case lock only shared. A restore that plans while a rule rebuild sits between
-  `DeleteGraphRelations` and `InsertRelations`, or beside a hand edit or a second apply, can write a
-  copy next to the link the other writes. The panel's busy flag covers only the panel.
-- **A crash can make a re-created link look absent.** `InsertRelations` commits the edges, then
-  registers their graph index entries in a second step. A crash between the two leaves a link
-  `RelationsByGraph` cannot see, so the next preview offers it again, and the next repair
-  (`RepairRelationIndex`, run at every graph build) shows the first copy beside the second.
-  `ApplyRestore` does not run the repair first.
+- **A preview after a crash can still offer a link again.** The preview writes nothing, so it does
+  not repair; applying it repairs first and writes nothing twice.
 - `TakeSnapshot` lists the canvas's ids from a map, so the order of `nodes[]` in the file varies
   between two snapshots of the same canvas.
 - `store_version` is recorded and never compared (see the table above).
@@ -2250,7 +2253,7 @@ Small and deliberate. Here is the whole of it:
 | Sidecar stores           | UI reads while the pipeline writes                                     | `sync.Mutex` per store, over reads as well as writes (the layout store's since v0.3.0, §14) |
 | Pause gate               | UI flips, pipeline observes                                            | mutex plus **replaced** channels, so a waiter cannot latch a stale one |
 | Cancellation             | everywhere                                                             | one `context.Context` per run, checked at batch and rule boundaries  |
-| Case lock                | every write to the case shares it; a redaction holds it alone          | `api.theCase`: try-only, names its holders in the refusal (§18.4); also the write gate of a read-only session (§18.5) |
+| Case lock                | every write to the case shares it; a redaction or a restore holds it alone | `api.theCase`: try-only, names its holders in the refusal (§18.4); also the write gate of a read-only session (§18.5) |
 | Store open               | a call before the session waits; shutdown releases it                  | mutex + `atomic.Bool` ready, retryable; `Close` holds the open's mutex (§18.5) |
 | Key slot                 | a mid-session unlock while commits sign                                | `sync.RWMutex`; `KeyID` never changes, so a commit cannot mix two keys |
 
@@ -2454,8 +2457,9 @@ The invariants, each a test:
   which a stripped event has left; `toNode` refuses an event read as redacted; a finding written on
   a redacted hash keeps no descriptor.
 - **Nothing races it.** Every binding that writes the case, or a copy of an event's content,
-  shares `api.theCase`; a redaction takes it alone. Both sides only try, so nothing waits behind a
-  redaction and a redaction never starts unattended behind a long ingest.
+  shares `api.theCase`; a redaction takes it alone, as a snapshot restore does (§14.5). Both sides
+  only try, so nothing waits behind a redaction and a redaction never starts unattended behind a
+  long ingest.
 - **Every step can be run again.** Finishing a redaction is running it again: what landed does
   nothing, what did not lands. A failure stops at its step; later steps report "not reached".
 - **The definition of done is checked on disk.** The end-to-end test searches every file under the
@@ -2765,7 +2769,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,196 Go test functions**, 10 fuzz targets, 65 benchmarks, **852 frontend test
+**1,199 Go test functions**, 10 fuzz targets, 65 benchmarks, **852 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:

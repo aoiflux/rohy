@@ -17,6 +17,12 @@ func snapFixture(t *testing.T) (*SnapshotAPI, *graphene.Store, *layout.Store, ui
 	t.Helper()
 	store := graphene.OpenInMemory()
 	t.Cleanup(func() { store.Close() })
+	return snapFixtureOn(t, store)
+}
+
+// snapFixtureOn is snapFixture over a store the test chose.
+func snapFixtureOn(t *testing.T, store *graphene.Store) (*SnapshotAPI, *graphene.Store, *layout.Store, uint64, []*graphene.Event) {
+	t.Helper()
 
 	base := time.Date(2026, 7, 27, 14, 0, 0, 0, time.UTC)
 	events := []*graphene.Event{

@@ -259,6 +259,11 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   or one a rule found again after the rules were re-run was offered again, and restoring a second
   time drew it twice. A link is now matched by the two events it joins, its direction and its type,
   and one restore writes a link once even when the snapshot recorded it twice.
+- **A restore could still draw a link twice** when it ran beside a rule run, a hand-drawn link or a
+  maintenance pass, or after an earlier restore crashed part way through. A restore now runs alone
+  and repairs the link index before it looks at what is there. It is refused while anything else is
+  writing the case, an ingest or a live capture included, and other changes are refused for the few
+  seconds it runs.
 - **The layout note counted cycles it had not found.** When no event was free to place next,
   *Sequence* and *Lineage* forced one and reported each as a broken cycle, or as a group with no root.
   One cycle could read as two, and *Lineage* said every event in a group had a parent inside it when
@@ -352,7 +357,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,196 Go tests, 10 fuzz targets and 65 benchmarks; 852 frontend tests; 58 extension tests.**
+- **1,199 Go tests, 10 fuzz targets and 65 benchmarks; 852 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 
@@ -376,8 +381,6 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A damaged canvas file blocks deleting events.** While one canvas file cannot be read, every
   event deletion reports an error naming it. The event is deleted and every other canvas is updated,
   but the card stays until the file is fixed or removed.
-- **A restore can still offer a link again** after a crash in the middle of applying it, and a
-  restore applied while rules run or a link is drawn can still draw one link twice.
 - **A backfill started from the Rules page is not shown on the Maintenance page**, and Stop is not
   offered for it there. During the seal at the end of a backfill, Stop is shown and does nothing.
 - **Layouts force the lowest id, not a node on the cycle.** A graph with a cycle can need more forced

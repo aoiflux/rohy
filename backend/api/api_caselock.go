@@ -20,7 +20,8 @@ import (
 //
 // So every write to the case, and to the sidecars that hold copies of event content, holds the
 // lock SHARED; a redaction holds it ALONE. Shared holders never exclude each other, so the
-// concurrency rohy had before is unchanged.
+// concurrency rohy had before is unchanged. A snapshot restore also holds it alone, for a
+// different race: it reads the graph's links and writes the missing ones back (ApplyRestore).
 //
 // 🔒 Both sides only TRY. A refusal says what is running instead of waiting behind it: an ingest
 // or a live capture holds the lock for as long as it runs, which can be hours, and a redaction
@@ -110,7 +111,8 @@ func (l *caseLock) take(what string, writes bool) (func(), error) {
 	}, nil
 }
 
-// exclusive takes the lock alone, for what. Only redactions take it, and a redaction writes.
+// exclusive takes the lock alone, for what. A redaction takes it, and so does a snapshot restore,
+// which reads the graph's links and writes the missing ones back (ApplyRestore). Both write.
 func (l *caseLock) exclusive(what string) (func(), error) {
 	if err := l.writable(); err != nil {
 		return nil, err
