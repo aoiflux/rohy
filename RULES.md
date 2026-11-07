@@ -171,7 +171,7 @@ scope is meaningless without `match_fields` anyway, and a `sequence` rule has no
 rule that sets `match_scope: "global"` still loads — the field is preserved, like any field its
 algorithm does not read — but it is matched per computer, exactly as an older build matches it,
 and both the editor and `rohyctl validate` warn that the field has no effect. (v0.2.0 read it
-for `sequence` by mistake; the fix shipped in v0.3.0.)
+for `sequence` by mistake; the fix is in v0.3.0.)
 
 **Version-bump policy** (what forces a new `format_version`):
 

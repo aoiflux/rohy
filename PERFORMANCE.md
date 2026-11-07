@@ -309,7 +309,8 @@ open, not just the query.**
 
 ## 10. Upgrading GrapheneDB
 
-The v0.2.0 → v0.3.0 upgrade produced one trap worth generalising.
+The versions in this section are GrapheneDB's own, not rohy's. Its v0.2.0 → v0.3.0 upgrade
+produced one trap worth generalising.
 
 **A changed signature can hide a changed contract.** `GetNodes` went from two
 return values to three. The compiler caught the arity — but the _contract_ also
@@ -321,7 +322,7 @@ The obvious fix (add a third variable, discard `missing`) compiles, passes every
 existing test, and silently turns index/store divergence into a short page in
 the events list.
 
-### Record: v0.3.0 → v0.4.0
+### Record: GrapheneDB v0.3.0 → v0.4.0
 
 Purely additive by signature — nothing removed, nothing changed shape. `OpenWithOptions`,
 `Forensics`, `StorageStats`, `ShouldCompact`, `Tx.As`/`Tx.Attributed`, and the `Signer` /

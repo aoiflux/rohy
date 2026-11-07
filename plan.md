@@ -106,7 +106,8 @@ partial. Building it found that `rohyctl validate` failed on every real rules fo
 the app's `rules-state.json` as a rule. The testbench's dead filter read is gone: it covers the whole
 case on purpose now (owner, 2026-11-07). **What is left:** #36 ½.
 
-**#36 landed 2026-11-07** (§15.15): the docs caught up with v0.3.0, which is stamped **"Perseus"**
+**#36 landed 2026-11-07** (§15.15): the docs caught up with v0.3.0, the next release (not yet
+tagged), which is stamped **"Perseus"**
 (owner, 2026-11-07). The last three §11.2 benchmarks were written and measured, and two of their
 claims did not hold as stated: layout's wait is the read, not the arrangement, and the backfill's
 memory grows with the case because the engine holds every rewritten node until a compaction. **Every
@@ -3008,6 +3009,11 @@ Stated here so it is not only in `graphene/SECURITY.md`, and so the UI copy has 
 Not part of the v0.2.0 plan above; recorded here so the decisions have one place until v0.3.0
 gets its own plan. Owner decisions are marked **(owner)**.
 
+**Release status (owner, 2026-11-08):** the current release is v0.2.0 "Andromeda". v0.3.0 "Perseus"
+is the next release and is not tagged. Every remaining fix goes into v0.3.0; there is no v0.3.1,
+just as there was no v0.2.1 (§15.2). The README and RELEASE_NOTES mark v0.3.0 as unreleased; drop
+those markers when it is tagged.
+
 ### 15.1 What landed
 
 - **Network vocabulary.** `dst_ip`, `dst_port`, `protocol` appended (13 slots,
@@ -4115,17 +4121,22 @@ the Rules line names a seal that was not recorded as a seal), and 8 for the owne
 unchanged. The gate passes 11/11.
 
 **Still open:**
+- **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
+  before it is tagged, except two: restricting layout forcing to cycle nodes, which needs its own
+  design pass, and the hand check of WebKit's `maxlength` on macOS and Linux, which waits until
+  after the tag. The "restored from" note stays out of a link's identity.
 - **Owner questions:**
   - ✅ *Save layout* after a failed load: done before the tag. *Save layout* and *Keep* stay
     disabled until the active graph's mapping has loaded in full (`graph.readMapping` throws on a
     failed read, `markMappingLoaded` unlocks only the graph still showing, and `saveLayout` refuses
     otherwise). The backfill notice now also says the fingerprint will change.
   - `graphreg.Store`'s mutators and `rules.Registry.SetEnabled` change memory before the write and
-    never roll back: the same defect as the annotation cache. Fix now, or record?
+    never roll back: the same defect as the annotation cache. Fixing in v0.3.0.
   - The "restored from" note is not part of a link's identity in a restore (the owner's fix named
     it). Confirm.
-  - The pre-run backfill copy (`BACKFILL_STALE_DETAIL`, `MAINT_PROJECTION_STALE`) does not say the
-    fingerprint will change. A pass that fails after a good seal does not say so in its error either.
+  - ✅ The pre-run backfill copy (`BACKFILL_STALE_DETAIL`, `MAINT_PROJECTION_STALE`) now says the
+    fingerprint will change. Still open: a pass that fails after a good seal does not say so in its
+    error.
   - The layout note says "the lowest internal id", which the page does not show.
 - **Error codes:** the annotate bindings code a failed write `internal_error` (only
   `DeleteAnnotation` uses `persistence_error`); a split needs a validation sentinel in `annotate`.

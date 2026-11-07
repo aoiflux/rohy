@@ -9,7 +9,7 @@
 Ingest EVTX logs, map how events relate, and correlate them with rules you
 control — entirely on your own machine.
 
-`v0.3.0` "Perseus" · Windows / Linux / macOS · Go + Wails + Svelte
+`v0.3.0` "Perseus" (in development; current release `v0.2.0` "Andromeda") · Windows / Linux / macOS · Go + Wails + Svelte
 
 </div>
 
@@ -351,7 +351,7 @@ rule bundle export, auto-layout profiles, clusters, the relationship heatmap,
 replay, snapshots, annotation layers, the case check on the Maintenance page,
 `rohyctl`, and the algorithms explainer page.
 
-**Delivered in v0.3.0** — forensic integrity: every seal recorded and its
+**Coming in v0.3.0** (not yet released) — forensic integrity: every seal recorded and its
 history checked, per-event proofs checked with `rohyctl verify-proof`, a custody
 report per event, attributable redaction, analyst attribution and signed seals,
 checkpoints published outside the case, and an integrity check that states what

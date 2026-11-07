@@ -1159,7 +1159,8 @@ export const UI = Object.freeze({
   MAINT_PROJECTION_STALE:
     'events were ingested before rohy recorded correlation fields. Field, temporal and lineage ' +
     'rules cannot match them until this is filled in — they will report zero, which is not the ' +
-    'same as a clean result.',
+    'same as a clean result. Filling them in seals the case, so its fingerprint changes: keep the ' +
+    'new one.',
   MAINT_FAILED: 'That did not work:',
   MAINT_DISMISS: 'Dismiss',
 
