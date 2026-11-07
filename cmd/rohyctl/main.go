@@ -31,6 +31,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -56,6 +58,11 @@ Usage:
 
 A path may be a file or a directory; directories are searched for .json files.
 With no path, validate and format read from stdin.
+
+Flags for validate:
+  --json         print one JSON report on stdout instead of a line per problem: every
+                 file, its errors and warnings, each with its code, field, line and
+                 column (1-based, columns in characters)
 
 Flags for format:
   -w, --write    rewrite files in place
@@ -123,6 +130,7 @@ func run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 func cmdValidate(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	asJSON := fs.Bool("json", false, "print one JSON report instead of lines")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -130,6 +138,9 @@ func cmdValidate(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	sources, code := gather(fs.Args(), stdin, stderr)
 	if code != exitOK {
 		return code
+	}
+	if *asJSON {
+		return validateJSON(sources, stdout, stderr)
 	}
 
 	failed := 0
@@ -151,6 +162,65 @@ func cmdValidate(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 
 	fmt.Fprintf(stdout, "%s\n", checkedSummary(len(sources), failed))
 	if failed > 0 {
+		return exitProblem
+	}
+	return exitOK
+}
+
+// jsonOutputVersion numbers the shape of `validate --json`. It changes only when a reader of
+// the old shape would misread the new one; adding a field does not change it.
+const jsonOutputVersion = 1
+
+// jsonReport is `validate --json`: the problems of every file, located as the editor locates
+// them (1-based lines, columns in runes), for a program to place rather than a person to read.
+// It is the same check as the text output, never a second one.
+type jsonReport struct {
+	OutputVersion int        `json:"output_version"`
+	Files         []jsonFile `json:"files"`
+	Checked       int        `json:"checked"`
+	Failed        int        `json:"failed"`
+}
+
+type jsonFile struct {
+	Name     string                  `json:"name"`
+	Valid    bool                    `json:"valid"`
+	Errors   []rules.ValidationError `json:"errors"`
+	Warnings []rules.ValidationError `json:"warnings"`
+}
+
+// validateJSON writes the report for sources. Only a failure to write is reported on stderr:
+// stdout holds one document or nothing, so a reader never parses half of one.
+func validateJSON(sources []source, stdout, stderr io.Writer) int {
+	report := jsonReport{OutputVersion: jsonOutputVersion, Files: make([]jsonFile, 0, len(sources))}
+	for _, src := range sources {
+		r := rules.ValidateSource(src.data)
+		report.Files = append(report.Files, jsonFile{
+			Name:  src.name,
+			Valid: r.Valid,
+			// Empty lists, never null: a reader that checks the shape would refuse null, and
+			// one that does not would crash on it.
+			Errors:   append([]rules.ValidationError{}, r.Errors...),
+			Warnings: append([]rules.ValidationError{}, r.Warnings...),
+		})
+		if !r.Valid {
+			report.Failed++
+		}
+	}
+	report.Checked = len(sources)
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // "<stdin>" stays readable; nothing here is bound for HTML
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(report); err != nil {
+		fmt.Fprintf(stderr, "encoding the report: %v\n", err)
+		return exitUsage
+	}
+	if _, err := stdout.Write(buf.Bytes()); err != nil {
+		fmt.Fprintf(stderr, "writing the report: %v\n", err)
+		return exitUsage
+	}
+	if report.Failed > 0 {
 		return exitProblem
 	}
 	return exitOK
@@ -429,6 +499,12 @@ func gather(paths []string, stdin io.Reader, stderr io.Writer) ([]source, int) {
 			if d.IsDir() || !strings.EqualFold(filepath.Ext(path), ".json") {
 				return nil
 			}
+			// The rules directory keeps the rules' on/off toggles beside them. It is not a rule,
+			// and the loader and the importer both pass it by; a walk that read it would fail
+			// every run over a real rules directory. Named on the command line, it is still read.
+			if d.Name() == consts.RuleStateFile {
+				return nil
+			}
 			found = append(found, path)
 			return nil
 		})
@@ -449,7 +525,7 @@ func gather(paths []string, stdin io.Reader, stderr io.Writer) ([]source, int) {
 		}
 	}
 	if len(out) == 0 {
-		fmt.Fprintln(stderr, "no .json files found in the given paths")
+		fmt.Fprintf(stderr, "no rule files found in the given paths (%s is skipped in a directory: it is not a rule)\n", consts.RuleStateFile)
 		return nil, exitUsage
 	}
 	return out, exitOK

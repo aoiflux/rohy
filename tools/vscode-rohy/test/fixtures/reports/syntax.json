@@ -1,0 +1,21 @@
+{
+  "output_version": 1,
+  "files": [
+    {
+      "name": "<stdin>",
+      "valid": false,
+      "errors": [
+        {
+          "code": "syntax",
+          "index": -1,
+          "line": 3,
+          "col": 4,
+          "message": "not a valid rule file: invalid character '\"' after object key:value pair"
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "checked": 1,
+  "failed": 1
+}

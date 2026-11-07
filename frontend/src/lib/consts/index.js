@@ -812,7 +812,7 @@ export const UI = Object.freeze({
   RULE_TESTBENCH_SAMPLES: 20,
   TESTBENCH_RUN: 'Run against this case',
   TESTBENCH_RUNNING: 'Running…',
-  TESTBENCH_BLURB: 'Nothing is written. This shows what the rule would produce.',
+  TESTBENCH_BLURB: 'Nothing is written. This shows what the rule would produce across the whole case.',
   TESTBENCH_IDLE: 'Run the rule to see what it would match, before saving it.',
   TESTBENCH_FIX_FIRST: 'Fix the problems above first — a rule that will not load cannot be run.',
   TESTBENCH_MATCHES: 'matches',

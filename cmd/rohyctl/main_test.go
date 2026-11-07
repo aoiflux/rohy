@@ -142,6 +142,53 @@ func TestValidateWalksADirectoryInAStableOrder(t *testing.T) {
 	}
 }
 
+func TestADirectoryWalkSkipsTheRuleStateFile(t *testing.T) {
+	// rules-state.json sits in the rules directory beside the rules and holds their on/off
+	// toggles. The loader and the importer both skip it; a CLI that read it as a rule failed
+	// every run over a real rules directory — and `format -w` would have rewritten it.
+	dir := t.TempDir()
+	write(t, dir, "a.json", validRule)
+	write(t, dir, "rules-state.json", `{"a": false}`)
+	sub := filepath.Join(dir, "nested")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, sub, "rules-state.json", `{"b": true}`)
+
+	code, out, _ := exec(t, "", "validate", dir)
+	if code != exitOK || !strings.Contains(out, "checked 1 file, all valid") {
+		t.Fatalf("validate over a rules directory: exit %d, %q", code, out)
+	}
+	pretty := strings.ReplaceAll(validRule, "\n", "\r\n") // anything but the canonical form
+	write(t, dir, "a.json", pretty)
+	code, out, _ = exec(t, "", "format", "--check", dir)
+	if code != exitProblem || strings.Contains(out, "rules-state.json") {
+		t.Fatalf("format --check looked at the state file: exit %d, %q", code, out)
+	}
+}
+
+func TestAFolderWithOnlyTheStateFileSaysWhyNothingWasChecked(t *testing.T) {
+	// A case with no rules of its own still has the state file. "No .json files" would be
+	// false — there is one — and would send the reader looking for the wrong problem.
+	dir := t.TempDir()
+	write(t, dir, "rules-state.json", `{"a": false}`)
+	code, _, errOut := exec(t, "", "validate", dir)
+	if code != exitUsage || !strings.Contains(errOut, "rules-state.json is skipped") {
+		t.Fatalf("exit %d, stderr %q", code, errOut)
+	}
+}
+
+func TestAStateFileNamedOnTheCommandLineIsStillChecked(t *testing.T) {
+	// Skipping is for a directory walk, where the file is incidental. Named explicitly, it is
+	// what was asked about, and silently checking nothing would answer a different question.
+	dir := t.TempDir()
+	path := write(t, dir, "rules-state.json", `{"a": false}`)
+	code, out, _ := exec(t, "", "validate", path)
+	if code != exitProblem || !strings.Contains(out, "checked 1 file") {
+		t.Fatalf("exit %d, %q", code, out)
+	}
+}
+
 func TestValidateOnTheRealBuiltInLibrary(t *testing.T) {
 	// The library the application ships. If this ever fails, a built-in has been written that the
 	// loader would reject — which the app would surface as a rule silently missing.

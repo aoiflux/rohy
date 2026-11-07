@@ -142,6 +142,14 @@ rohy/
 │   ├── stores/              Svelte stores — all app state
 │   └── lib/                 api/ · consts/ · rules/ · filter · shortcuts · export
 │
+├── cmd/rohyctl/             CLI over the portable files: validate (lines, or --json),
+│                            format, explain, verify-proof. Never opens a case
+├── tools/
+│   ├── genschema/           Writes the rule JSON Schema from the editor descriptor
+│   ├── profile/             Profiles ingest, build and open on the disk backend
+│   └── vscode-rohy/         VS Code extension: rohyctl's check and format in the
+│                            editor, the schema when rohyctl is absent (§10.3)
+│
 ├── build-all.{sh,ps1}       Full six-target matrix build
 ├── build.{sh,ps1}           Single-target release build
 └── .github/workflows/       ci.yml · release.yml
@@ -1058,6 +1066,30 @@ Line and column are 1-based and **counted in runes**, so a description with
 non-ASCII characters does not shift the caret. Both are `0` when a problem cannot
 be located — a field absent from the file has no position in it.
 
+Outside the application the same function has two more readers. `rohyctl validate`
+calls `ValidateSource` and prints each problem as `file:line:col`; with `--json`
+it prints them as one report for a program to place. The VS Code extension in
+[tools/vscode-rohy](tools/vscode-rohy/README.md) is that program: it sends the
+buffer on stdin as it is typed and underlines what comes back. It is a reader,
+not a fourth validator. When `rohyctl` is absent it falls back to the generated
+JSON Schema and says so in the status bar, because the schema cannot express what
+depends on the algorithm.
+
+Two details of that boundary are easy to get wrong:
+
+- **Columns are runes; VS Code counts UTF-16 units.** A character outside the
+  Basic Multilingual Plane is one of the first and two of the second, so the
+  extension walks the line character by character rather than adding the column
+  to the line's start.
+- **Lines are counted by `\n` only.** VS Code also breaks at a lone `\r`. The
+  extension turns a problem into a text offset and lets the document convert it,
+  so the two never count lines differently.
+
+The report is a contract with its own version (`output_version`). The rules in
+`tools/vscode-rohy/test/fixtures/rules` and the reports beside them are read by
+both test suites: Go pins what `rohyctl` prints, and the extension places those
+exact reports on those rules.
+
 Alongside it, [schema.go](backend/rules/schema.go) describes the format **as
 data**: every field's prose, kind, allowed values and bounds, derived from the
 same constants the validator reads and served to the frontend over a binding. The
@@ -1936,6 +1968,8 @@ CI on every platform before any artefact is packaged.
 | Lifecycle           | `api_lifecycle_test.go`                                     | startup/shutdown ordering, including drain-before-close   |
 | Reflection          | `rules/schema_test.go`                                      | every `Spec` field is documented in the editor descriptor |
 | Crash / idempotency | `graphene_*` + `evtx_*`                                     | an interrupted build re-runs without duplicating          |
+| Contract            | `cmd/rohyctl/validatejson_test.go` + `tools/vscode-rohy/test/fixtures` | `rohyctl validate --json` prints what the extension reads |
+| Extension           | `tools/vscode-rohy/test/` (`npm test`, Node's own runner)    | which files are checked, when, and which answer is kept — through a fake VS Code API |
 
 Two testing choices worth copying:
 
@@ -1967,6 +2001,11 @@ flowchart TD
 ```
 
 Every build job runs `go test ./backend/...` **and** `npm test` before it builds.
+
+The VS Code extension is not part of this matrix. It is a separate package with no
+dependencies, built by hand with `npx @vscode/vsce package` in `tools/vscode-rohy`;
+its tests run in the local gate, and a CI job for it is deferred with the other CI
+additions.
 
 Two guarantees are inherited from the local build scripts and must not be
 weakened in CI:

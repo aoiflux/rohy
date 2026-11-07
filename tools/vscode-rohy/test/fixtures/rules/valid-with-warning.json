@@ -1,0 +1,11 @@
+{
+  "format_version": 1,
+  "name": "Failed Logons Then Success",
+  "description": "Three failures then a success.",
+  "relation_type": "correlation",
+  "algorithm": "sequence",
+  "channels": ["Security"],
+  "sequence": ["4625", "4625", "4625", "4624"],
+  "labels": ["", "", "then succeeds"],
+  "x_reviewed_by": "someone"
+}

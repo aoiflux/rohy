@@ -1,0 +1,7 @@
+{
+  "description": "Ünïcode 🔥", "algorithm": "bogus",
+  "name": "Wide characters",
+  "relation_type": "correlation",
+  "channels": ["Security"],
+  "sequence": ["4625", "4624"]
+}

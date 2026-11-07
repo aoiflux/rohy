@@ -13,6 +13,7 @@
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
 import { rules } from './rules.js';
+import { emptyFilter } from './events.js';
 import { EDITOR_MODES, RULE_SOURCES, UI } from '../lib/consts/index.js';
 import {
   createDocument,
@@ -252,12 +253,17 @@ function create() {
    * The buffer is sent as-is, so a rule that has never been saved can be tried. Unparseable
    * text is not an error here; the result carries the located problems the editor already
    * shows, and no evaluation is attempted.
+   *
+   * It runs over the whole case — what a build from the Rules page reads unless its scope box
+   * is ticked — so the counts it shows are the ones a default build will produce. The events
+   * page's filter is deliberately not applied: a dry run narrower than the build it predicts
+   * would report matches the build then disagrees with.
    */
-  async function testbench(filter = {}) {
+  async function testbench() {
     const state = get(store);
     update((s) => ({ ...s, testing: true, error: null }));
     try {
-      const result = await api.dryRunRule(state.doc.text, filter, UI.RULE_TESTBENCH_SAMPLES);
+      const result = await api.dryRunRule(state.doc.text, emptyFilter(), UI.RULE_TESTBENCH_SAMPLES);
       update((s) => (s.open ? { ...s, testing: false, test: result } : s));
       return result;
     } catch (err) {

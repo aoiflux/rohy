@@ -1,0 +1,79 @@
+{
+  "name": "vscode-rohy",
+  "displayName": "rohy rules",
+  "description": "Checks and formats rohy correlation rule files with rohyctl — the check the application loads them with — and with the rule schema when rohyctl is not installed.",
+  "version": "0.3.0",
+  "publisher": "rohy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aoiflux/rohy",
+    "directory": "tools/vscode-rohy"
+  },
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Formatters"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:json"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "rohyctl checks files on this machine."
+    }
+  },
+  "contributes": {
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "**/rohy-data/rules/*.json",
+          "**/backend/rules/builtin/*.json",
+          "!**/rules-state.json"
+        ],
+        "url": "./schemas/rohy-rule.schema.json"
+      }
+    ],
+    "configuration": {
+      "title": "rohy",
+      "properties": {
+        "rohy.rohyctlPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "The absolute path of the `rohyctl` to check rule files with. Empty means the first `rohyctl` on `PATH`. Read from user settings only, so an opened folder cannot choose the program that is run over its files."
+        },
+        "rohy.ruleFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "More glob patterns for rule files, beyond the application's rules folder (`rohy-data/rules`) and its built-in library. A pattern with no root matches anywhere: `rules/*.json` is any `rules` folder. Files matched only here are checked and formatted by `rohyctl`; the schema's hover and completion cover only the default folders."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "rohy.showLog",
+        "title": "Show Log",
+        "category": "rohy"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

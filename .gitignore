@@ -32,3 +32,6 @@ __pycache__/
 
 # tools/profile output (go run ./tools/profile)
 /profiles/
+
+# The VS Code extension package, built by npx @vscode/vsce package.
+tools/vscode-rohy/*.vsix

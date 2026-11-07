@@ -446,6 +446,19 @@ Three things are worth knowing before you save:
   file, so a refused save changes nothing on disk. A file that already failed to load can be
   opened with **Fix** from the load-errors panel and repaired in place.
 
+### Editing rules outside the application
+
+`rohyctl validate <path>` runs the loader's check over files or folders; a folder's
+`rules-state.json` is skipped, as the loader skips it. `rohyctl format --check` holds files to
+the house style. Both suit a CI job or a pre-commit hook.
+
+The VS Code extension in [tools/vscode-rohy](tools/vscode-rohy/README.md) brings the same
+check into the editor. With `rohyctl` installed, it underlines problems as you type, and
+**Format Document** lays a rule out in the house style. Without `rohyctl`, it checks files
+against the rule schema and says so in the status bar. The schema cannot express what
+depends on the algorithm, so a file with no problems may still not load. The extension checks
+`rohy-data/rules/*.json` by default; the `rohy.ruleFiles` setting adds other folders.
+
 ### Adding a validation rule
 
 Validation is implemented twice on purpose: in Go, which decides whether a rule loads, and

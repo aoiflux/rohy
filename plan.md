@@ -34,10 +34,10 @@ P3 Pipeline/caching  ███████████████████�
 P4 Editor            ████████████████████ 100%  9/9    #23 ✅ (§15.13)
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
-P7 Tooling           ████████████████░░░░  80%  4/5    #33 ✅ (§15.12), #34 ✅ (§15.11); #32b extension ⬜; #36 docs ½
+P7 Tooling           ██████████████████░░  90%  4½/5   #32b ✅ (§15.14), #33 ✅ (§15.12), #34 ✅ (§15.11); #36 docs ½
 P8 Forensic          ████████████████████ 100%  7/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #42 ✅ (§15.10), #43 ✅ (§15.9)
 ───────────────────────────────────────────────────────
-Overall              ███████████████████░  98%  46/47
+Overall              ███████████████████░  99%  46½/47
 Definition of done   ██████████████████░░  91%  10/11  the integration path: the suite exists (#34), CI does not run it (minimal CI); proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43 (+ the window, #42)
 ```
 
@@ -98,6 +98,13 @@ and can format a rule as it saves it. The bar above said only the live duration 
 that check, the problems gutter and click-to-jump had in fact shipped, and bracket matching and
 format-on-save had not. The Overall line had rounded P4's half item up; 46/47 is now exact. **P4 is
 complete. What is left:** P7's #32b and #36 ½.
+
+**#32b landed 2026-11-07** (§15.14): a VS Code extension in `tools/vscode-rohy` checks rule files as
+they are typed with `rohyctl validate --json`, the loader's own check, and formats them with
+`rohyctl format`; without `rohyctl` it falls back to the generated schema and says the check is
+partial. Building it found that `rohyctl validate` failed on every real rules folder, because it read
+the app's `rules-state.json` as a rule. The testbench's dead filter read is gone: it covers the whole
+case on purpose now (owner, 2026-11-07). **What is left:** #36 ½.
 
 ---
 
@@ -740,7 +747,7 @@ backend/graphlayout     pure layout profiles: relations + metadata in, positions
 backend/snapshot        graph snapshot sidecar ❌
 backend/annotate        graph annotation-layer sidecar ❌
 cmd/rohyctl             CLI: validate, format, explain ✅
-tools/vscode-rohy       editor extension + generated JSON Schema ❌
+tools/vscode-rohy       editor extension + generated JSON Schema ✅
 tools/genschema         go run target emitting the JSON Schema from rules.Describe() ✅
 ```
 
@@ -2382,7 +2389,7 @@ console, which is a Phase 7 item and belongs with the rest of the tooling work.
 
 ### Phase 7 — Tooling, console, hardening (weeks 11–12)
 
-32. ⚠️ `tools/genschema` ✅ + `tools/vscode-rohy` ⬜ (CLI-backed diagnostics when `rohyctl` is on
+32. ✅ `tools/genschema` ✅ + `tools/vscode-rohy` ✅ (CLI-backed diagnostics when `rohyctl` is on
     PATH, JSON Schema fallback otherwise — ⚠️ avoids a third validator implementation).
 
     **`tools/genschema` built** (11 tests) + the `schema-drift` CI job.
@@ -2410,9 +2417,10 @@ console, which is a Phase 7 item and belongs with the rest of the tooling work.
     reads has no "other algorithms" and saying so anyway trains the reader to skip the sentence
     where it carries the warning.
 
-    ⬜ **`tools/vscode-rohy` not built.** It is a separate npm project — extension manifest, a
-    language client, `rohyctl` discovery with the schema as fallback, and its own test suite — and
-    it is the one item in the plan whose value is entirely outside this repository's own build.
+    ✅ **`tools/vscode-rohy` built** (§15.14), with no dependencies. 🔒 It is a reader of
+    `rohyctl validate --json`, not a validator: the check is the loader's. It is not a language
+    server either. `rohyctl` is not one, and a language client would be the extension's only
+    dependency, bought to talk to a process that speaks a different protocol.
 33. ✅ `QueryAPI` read-only console (structured builder, **no expression language** 🔒), §15.12.
 34. ✅ Integration suite; stress + profiling harness (§15.11). The benchmark smoke in CI is
     deferred with the rest of the CI additions.
@@ -3861,3 +3869,73 @@ left for the owner.
 
 **Still open:** no DOM test environment exists, so the key handling is tested through the pure
 functions, and the component wiring was not exercised by hand (`wails dev` cannot be run here).
+
+### 15.14 #32b the VS Code extension (2026-11-07)
+
+**Decisions (owner, 2026-11-07):** rule files are `rohy-data/rules/*.json` and the built-in library
+folder by default, plus a `rohy.ruleFiles` setting; tests use Node's own runner with no dependencies
+(no `@vscode/test-electron`); formatting is included; the testbench covers the whole case.
+
+**Found while building it (fixed):**
+
+| Finding | What held |
+|---|---|
+| 🟡 **`rohyctl validate` failed on every real rules folder** | The folder walk read `rules-state.json`, the app's on/off file, as a broken rule. The loader and the importer skip it; rohyctl did not. `format -w` would have rewritten it. The walk now skips it at any depth, and a state file named on the command line is still checked |
+| No machine-readable output | `validate` printed lines for people. An extension that scraped `file:line:col: kind: message (field) [code]` would break on a message holding `" ["`. `--json` prints one versioned report |
+| 🟡 The testbench read a key that never existed | `prefs.current().filters` is not a prefs key, so a dry run always covered the whole case. That is kept, on purpose: it is what an unscoped build reads, and the button says "Run against this case". The store now passes the build's empty filter itself, and a test sets an events filter to show it stays out |
+
+**Built:**
+- **`rohyctl validate --json`**: `{output_version, files[{name, valid, errors, warnings}], checked,
+  failed}`, with each problem as `rules.ValidationError`. Lists are never `null`. Stdout holds one
+  document or nothing; exit 2 still means nothing was checked, and stdout stays empty.
+- **`tools/vscode-rohy`**, plain CommonJS with `// @ts-check`, with no build step and no
+  dependencies:
+  - **`report.js`** checks the report field by field. 🔒 A report it cannot read is an error, never
+    a file with no problems; that includes a newer `output_version`, a verdict its errors
+    contradict, and an exit code the report contradicts. It places each problem as UTF-16
+    offsets, walking rune columns character by character, so an emoji before an error does not
+    shift it. It counts lines by `\n` alone, as rohyctl does.
+  - **`locate.js`**: the setting, else `PATH`. 🔒 It searches only absolute `PATH` entries itself.
+    The spawner would look in the current directory first on Windows, so a planted `rohyctl.exe`
+    in an opened repository could run. Only `rohyctl.exe` is taken on Windows, never a `.cmd` or
+    `.bat`. A wrong setting is reported; it is never replaced by whatever `PATH` holds.
+  - **`rohyctl.js`**: the text goes on stdin and there is no shell. Each run is bounded at 10 s and
+    8 MiB of output, and is cancelled when the text changes again. A rohyctl from before `--json` is
+    named as too old.
+  - **`controller.js`** takes the VS Code API as a parameter:
+    - It checks the buffer 300 ms after typing pauses, and drops an answer about text that has
+      changed since.
+    - A failed run clears the old squiggles rather than leaving them in wrong places.
+    - The status bar says which check is in use.
+    - It registers a formatter for the rule patterns.
+  - **The manifest:**
+    - It attaches the generated schema to the default folders and excludes the state file.
+    - 🔒 `rohy.rohyctlPath` is machine-scoped, so no folder's settings can name the binary. That is
+      what makes full support for untrusted folders a true claim.
+
+**Tests:**
+- Go: 8 `--json` and state-file tests. A folder holding only the state file says it was skipped, instead of claiming there was no `.json`.
+- Extension (`npm test`, 58 tests):
+  - the report and its placement, including 20 000 seeded random texts that never land a range
+    outside the text or inside a surrogate pair
+  - discovery
+  - the process runner, against a fake rohyctl run as a real child: a 1 MiB rule through the pipes,
+    a hang stopped at the limit, a flood refused, a cancellation
+  - the controller, through a fake VS Code API
+  - the manifest, tied to genschema's output path, to `consts.RuleStateFile` and to the repository
+    licence
+- 2 testbench tests.
+- **One contract, two readers.** The fixtures in `tools/vscode-rohy/test/fixtures` are read by
+  `TestValidateJSONMatchesTheExtensionFixtures` (what rohyctl prints) and by the extension (where
+  those reports land).
+- Every new test was seen failing first, and ten deliberate breaks were each caught. They removed
+  the rune walk, the verdict check, the absolute-`PATH` rule, the stale-answer guard, the clearing
+  after a failed run, the exit-code check, the state-file test, the output cap, the empty lists and
+  the walk's skip.
+- The real `rohyctl` was also driven through the extension's own modules. Every fixture's problem
+  landed on the right token, and a built-in rewritten with tabs and CRLF came back byte-identical.
+
+**Still open:**
+- Packaging was not run: fetching `@vscode/vsce` was refused here.
+- The extension has not run inside a real VS Code. The README lists the five hand checks.
+- The `extension` CI job stays deferred with the other CI additions.

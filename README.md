@@ -243,6 +243,11 @@ changed against the saved file field by field, and its **testbench** dry-runs th
 rule against the current case — how many matches, sampled examples, and what it
 could not consider — without writing an edge.
 
+Outside the application, `rohyctl validate` and `rohyctl format --check` run the
+same check and the same layout from a terminal or a CI job. The
+[VS Code extension](tools/vscode-rohy/README.md) runs that check as you type,
+and falls back to the rule schema when `rohyctl` is not installed.
+
 See [RULES.md](RULES.md) for the complete format — every field, the validation
 rules, the format-version and extensibility contract, and what a rule match does
 and does not establish.

@@ -1,0 +1,22 @@
+{
+  "output_version": 1,
+  "files": [
+    {
+      "name": "<stdin>",
+      "valid": false,
+      "errors": [
+        {
+          "code": "unknown_algorithm",
+          "field": "algorithm",
+          "index": -1,
+          "line": 2,
+          "col": 44,
+          "message": "unknown correlation algorithm \"bogus\""
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "checked": 1,
+  "failed": 1
+}

@@ -14,7 +14,6 @@
   import { projectToForm, isFormEditable, parseText } from '../../lib/rules/document.js';
   import { eventIdsFromRules } from '../../lib/rules/complete.js';
   import { download } from '../../lib/export.js';
-  import { formToFilter } from '../../lib/filter.js';
   import { prefs } from '../../stores/prefs.js';
 
   import Dialog from '../material/Dialog.svelte';
@@ -269,7 +268,7 @@
                 result={$ruleEditor.test}
                 running={$ruleEditor.testing}
                 runnable={problems.errors.length === 0}
-                onrun={() => ruleEditor.testbench(formToFilter(prefs.current().filters || {}))}
+                onrun={() => ruleEditor.testbench()}
               />
             {/if}
           </div>

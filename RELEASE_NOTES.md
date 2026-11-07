@@ -155,12 +155,23 @@ whole answer.
 - **Format on save.** A checkbox in the rule editor lays the rule out in the house style as it is
   saved. It is off unless you turn it on, a rule that fails its check is never rewritten, and field
   order and fields this version does not read are kept.
+- **A VS Code extension for rule files** (`tools/vscode-rohy`). With `rohyctl` installed, it
+  underlines problems as you type, using the check the application loads rules with, and **Format
+  Document** lays a rule out in the house style. Without it, files are checked against the rule
+  schema, and the status bar says that check is partial. It has no dependencies, and it runs only a
+  `rohyctl` named in your user settings or found on `PATH`, never one an opened folder points to.
+- **`rohyctl validate --json`** prints one report for a program to read: every file, with each error
+  and warning's code, field, line and column.
 
 ### Fixed
 
 - **Tab now accepts a suggestion in the raw rule editor.** It used to insert two spaces instead.
   Moving the caret out of the word being completed now closes the list, which used to stay open and
   could write the suggestion where the caret had been.
+- **`rohyctl validate` no longer fails on a rules folder.** It read `rules-state.json`, the file
+  that holds the rules' on/off switches, as a broken rule, so every run over `rohy-data/rules`
+  failed. The application always skipped it; `validate` and `format` now skip it in a folder too,
+  and still check it when it is named on its own.
 
 - **Errors now say whose fault they are.** A failed call used to reach the screen as its message
   alone, so a refused write, a busy case and a disk failure read alike. Each now carries its code,
