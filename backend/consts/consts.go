@@ -1562,6 +1562,8 @@ const (
 	IntegrityOrphanGraph       = "orphan_graph"
 	IntegrityEmptyGraph        = "empty_graph"
 	IntegrityOrphanLayout      = "orphan_layout"
+	IntegrityDamagedLayout     = "damaged_layout"
+	IntegrityKeptLayout        = "kept_layout"
 	IntegrityPayloadTail       = "payload_tail"
 	IntegrityStaleProjection   = "stale_projection"
 	IntegrityMissingChannel    = "missing_channel"
@@ -1687,6 +1689,8 @@ const (
 	MsgIntegrityOrphanGraph   = "graph %d holds %d relation(s) but is not in the graph registry, so nothing in the app can show it."
 	MsgIntegrityEmptyGraph    = "graph %q holds no relations."
 	MsgIntegrityOrphanLayout  = "%d saved canvas layout(s) belong to graphs that no longer exist."
+	MsgIntegrityDamagedLayout = "the saved canvas %s cannot be read: %s. Its graph opens without saved positions, and Save layout stays off for it. The next event delete moves the file aside and keeps it."
+	MsgIntegrityKeptLayout    = "%d saved canvas file(s) could not be read and were moved aside, kept as: %s. Their graphs open without those positions; the files are kept for repair."
 	MsgIntegrityPayloadTail   = "the payload log holds %d byte(s) past the last record referenced by an event — leftovers from an interrupted ingest. They waste space; they cost nothing else."
 	MsgIntegrityStaleProj     = "%d event(s) carry no current correlation projection, so field, temporal and lineage rules cannot match them."
 	MsgIntegrityMissingChan   = "rule %q needs the %q log, which was never ingested — it cannot fire on this case."
@@ -2803,6 +2807,11 @@ const (
 	RootsKeptInfix = ".unreadable-"
 	// RootsKeptStamp is the UTC timestamp layout in a kept document's name.
 	RootsKeptStamp = "20060102T150405Z"
+	// CanvasKeptInfix and CanvasKeptStamp name a saved canvas that does not hold a canvas, moved
+	// aside when an event delete met it: canvas-<n>.json.unreadable-<UTC stamp>. Kept, never
+	// deleted: it is the analyst's work, and a person may be able to repair it.
+	CanvasKeptInfix = RootsKeptInfix
+	CanvasKeptStamp = RootsKeptStamp
 )
 
 // --- Live event XML element/attribute names (rendered by EvtRender) ---

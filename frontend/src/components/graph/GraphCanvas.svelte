@@ -494,8 +494,9 @@
     confirmDel = { open: false, nodeId: null };
     if (id === null) return;
     try {
-      await graph.deleteEvent(id);
-      snackbar.success(UI.EVENT_DELETED);
+      const { setAside } = await graph.deleteEvent(id);
+      if (setAside.length) snackbar.warn(UI.EVENT_DELETED_CANVAS_SET_ASIDE(setAside), { timeout: 0 });
+      else snackbar.success(UI.EVENT_DELETED);
     } catch (err) {
       snackbar.error(String(err && err.message ? err.message : err));
     }

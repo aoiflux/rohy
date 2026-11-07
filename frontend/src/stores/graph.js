@@ -208,14 +208,16 @@ function create() {
   }
 
   // deleteEvent permanently removes an event node (and its edges) from the DB, then
-  // drops it from the canvas.
+  // drops it from the canvas. It returns the saved canvases the delete moved aside because
+  // they could not be read, by the names they are kept under.
   async function deleteEvent(id) {
-    await api.deleteEvent(id);
+    const res = await api.deleteEvent(id);
     update((s) => {
       const nodes = { ...s.nodes };
       delete nodes[id];
       return { ...s, nodes, edges: s.edges.filter((e) => e.from !== id && e.to !== id) };
     });
+    return { setAside: (res && res.set_aside) || [] };
   }
 
   // refreshEvents re-reads every event on the canvas and the active graph's edges, so a redaction

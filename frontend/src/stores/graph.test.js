@@ -22,6 +22,7 @@ vi.mock('../lib/api/index.js', () => ({
   }),
   setActiveGraph: vi.fn(async () => {}),
   createGraph: vi.fn(async (g) => ({ id: 9, ...g })),
+  deleteEvent: vi.fn(async () => ({ set_aside: [] })),
 }));
 
 const { graph } = await import('./graph.js');
@@ -117,5 +118,35 @@ describe('saving a canvas that has not loaded', () => {
     graph.clearCanvas();
     await graph.saveLayout();
     expect(state.saved).toHaveLength(1);
+  });
+});
+
+// Deleting an event moves a damaged saved canvas aside instead of failing (plan §15.16). The store
+// still drops the card, and hands back the kept names so the canvas can say where the file went.
+describe('deleting an event', () => {
+  it('drops the card and returns the canvases set aside', async () => {
+    const api = await import('../lib/api/index.js');
+    await openGraph(2);
+    graph.addNode({ id: 1 }, 10, 10, { animate: false });
+    graph.addNode({ id: 2 }, 20, 20, { animate: false });
+    const kept = ['canvas-3.json.unreadable-20261108T101500Z'];
+    api.deleteEvent.mockResolvedValueOnce({ set_aside: kept });
+    const res = await graph.deleteEvent(1);
+    expect(res.setAside).toEqual(kept);
+    expect(Object.keys(get(graph).nodes)).toEqual(['2']);
+  });
+
+  it('reads a result with nothing set aside as an empty list', async () => {
+    const api = await import('../lib/api/index.js');
+    await openGraph(2);
+    graph.addNode({ id: 1 }, 10, 10, { animate: false });
+    api.deleteEvent.mockResolvedValueOnce({ set_aside: null });
+    expect((await graph.deleteEvent(1)).setAside).toEqual([]);
+  });
+
+  it('names how many files went aside and where', () => {
+    const msg = UI.EVENT_DELETED_CANVAS_SET_ASIDE(['canvas-3.json.unreadable-x', 'canvas-4.json.unreadable-y']);
+    expect(msg).toContain('2');
+    expect(msg).toContain('canvas-3.json.unreadable-x, canvas-4.json.unreadable-y');
   });
 });

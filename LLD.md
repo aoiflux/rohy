@@ -174,8 +174,8 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,199 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
-**852 frontend test cases** and **58 extension tests**.
+**1,204 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**855 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -1523,13 +1523,30 @@ annotations and findings keep their entries. The reasons differ:
 
 The store goes first because a crash between the two steps then leaves a canvas that names a gone
 event, which every canvas read skips (§14.1). The other order could leave an event in the case that
-its canvases no longer show. One canvas that cannot be read or written does not stop the walk: every
-other canvas is still pruned, and `DeleteEvent` returns `persistence_error` with
+its canvases no longer show.
+
+**A damaged canvas is moved aside, and the delete carries on.** A `canvas-<n>.json` that is read but
+does not decode as a canvas, an empty file included, is renamed to
+`canvas-<n>.json.unreadable-<UTC>` (`consts.CanvasKeptInfix`, the same infix a fingerprint history
+kept aside uses), kept byte for byte, and never written over: a second kept file in the same second
+takes a numbered name. `DeleteEvent` returns it in `DeleteEventResult.set_aside`, and the canvas
+says where it went in a warning that stays until dismissed. Moving it loses nothing: no reader could
+use it, and its graph opened without saved positions anyway; after the move the graph opens empty
+and can be saved again. Before this, one damaged file failed every later delete.
+
+A canvas that could not be **read** (an I/O error, not a decode error) or could not be moved or
+written is left alone, because a failed read says nothing about the file. It does not stop the walk:
+every other canvas is still pruned, and `DeleteEvent` returns `persistence_error` with
 `event <id> was deleted, but not every saved canvas could be updated:` and each failing file. The
 message gives no retry advice, because whether a retry helps depends on the file. Deleting the same
 event again runs the prune again, although the store no longer holds it
 (`TestDeleteEventRemovesItFromEveryCanvas`, `TestDeletingAGoneEventAgainFinishesThePrune`,
-`TestDeleteEventReportsACanvasItCouldNotUpdate`).
+`TestDeleteEventSetsADamagedCanvasAsideAndCarriesOn`, and in `layout`
+`TestRemoveNodeSetsADamagedCanvasAsideAndCarriesOn`, `TestRemoveNodeNeverSetsACanvasAsideOverAKeptOne`,
+`TestRemoveNodeReportsACanvasItCouldNotSetAsideAndStillPrunesTheRest`).
+
+The case check reports both: a damaged canvas still in place, and every canvas already moved aside
+(`layout.Survey`, detector 7).
 
 🔒 One mutex in `layout.Store` covers `Save`, `Load`, `Delete`, `RemoveNode` and `MigrateLegacy`, so a
 *Save layout* cannot land between `RemoveNode`'s read and its write and be undone. `Load` takes it
@@ -2604,7 +2621,7 @@ looked at), `deep`, and `errors` — the checks that **could not run**.
 | 3   | Findings audit       | `orphan_findings`, `stale_findings` → warning; `redacted_findings` → info | ingest · review              | one hash set                 |
 | 4   | Dangling relations   | `dangling_relations` → error                                    | review                               | every relation               |
 | 5–6 | Orphan / empty graphs | `orphan_graph` → warning; `empty_graph` → info                 | review                               | one count per graph          |
-| 7   | Orphan layouts       | `orphan_layout` → info                                          | review                               | one folder listing           |
+| 7   | Saved canvases       | `damaged_layout` → warning; `orphan_layout`, `kept_layout` → info | review                             | every canvas file, read      |
 | 8   | Payload tail         | `payload_tail` → info                                           | —                                    | two numbers                  |
 | 9   | Stale projection     | `stale_projection` → warning                                    | **Fill in correlation fields**       | the inventory pass           |
 | 10  | Missing channel      | `missing_channel` → warning; `channel_undeclared` → info        | ingest                               | the inventory pass           |
@@ -2769,7 +2786,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,199 Go test functions**, 10 fuzz targets, 65 benchmarks, **852 frontend test
+**1,204 Go test functions**, 10 fuzz targets, 65 benchmarks, **855 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:
@@ -3076,9 +3093,11 @@ Added with v0.3.0:
 - **`layout.Store` locks its reads.** `Load` takes the mutex because on Windows a rename over an open
   file fails. `RemoveNode` therefore calls the unexported `load` and `save`: the mutex is not
   re-entrant, and calling `Load` under it deadlocks.
-- **One unreadable `canvas-<n>.json` makes every delete report an error.** The event is gone, every
-  other canvas is pruned, and the card stays, until that file is fixed or removed. The case check
-  reads canvas file names only, so nothing else reports the file.
+- **A damaged canvas is told from an unreadable one by the decoder.** `layout`'s `damagedError`
+  marks a file that was read but is not a canvas; only that is moved aside. Any other read failure
+  still fails the delete with the file named, because it says nothing about the file. `Survey`
+  reads without the store's mutex (the check is given a folder), so a read that meets a *Save*'s
+  rename is reported as a read error, never as damage.
 - **`graphlayout` must keep reading nothing.** The binding codes every error it returns `parse_error`,
   the request's fault. A read added inside it would report a failing case as a bad request.
 - **A redacted event has no properties.** It is undated and its fields are blank, so it must be

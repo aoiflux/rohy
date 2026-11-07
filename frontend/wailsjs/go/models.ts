@@ -734,6 +734,18 @@ export namespace api {
 	        this.slot = source["slot"];
 	    }
 	}
+	export class DeleteEventResult {
+	    set_aside: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteEventResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.set_aside = source["set_aside"];
+	    }
+	}
 	export class EventDetail {
 	    id: number;
 	    event_id: string;

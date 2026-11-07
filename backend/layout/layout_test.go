@@ -1,9 +1,11 @@
 package layout
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -161,7 +163,7 @@ func TestRemoveNodeDropsTheIDFromEveryGraphAndNothingElse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.RemoveNode(5); err != nil {
+	if _, err := store.RemoveNode(5); err != nil {
 		t.Fatalf("RemoveNode: %v", err)
 	}
 
@@ -189,17 +191,104 @@ func TestRemoveNodeDropsTheIDFromEveryGraphAndNothingElse(t *testing.T) {
 	}
 }
 
-// TestRemoveNodeReportsAnUnreadableCanvasAndStillPrunesTheRest pins that one bad file neither
-// hides its failure nor stops the walk: the readable canvases still lose the event. os.ReadDir
-// returns names sorted, so the bad canvas-2.json is reached before the readable canvas-3.json,
-// and a walk that stopped at the first failure would leave graph 3 naming the event. A second
-// bad file pins that every failure is reported, not only the first.
-func TestRemoveNodeReportsAnUnreadableCanvasAndStillPrunesTheRest(t *testing.T) {
+// TestRemoveNodeSetsADamagedCanvasAsideAndCarriesOn pins that a canvas file that is not a canvas
+// no longer blocks every later delete. It is moved aside under a name no reader takes for a
+// canvas, kept byte for byte, and reported; the readable canvases still lose the event. os.ReadDir
+// returns names sorted, so the damaged canvas-2.json is reached before the readable canvas-3.json,
+// and a walk that stopped there would leave graph 3 naming the event. An empty file is damaged too.
+func TestRemoveNodeSetsADamagedCanvasAsideAndCarriesOn(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, graphID := range []uint64{1, 3} {
+		if err := store.Save(graphID, &Layout{Nodes: map[uint64]Position{5: {X: 1, Y: 1}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	damaged := map[string]string{"canvas-2.json": "not json", "canvas-4.json": ""}
+	for name, body := range damaged {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	setAside, err := store.RemoveNode(5)
+	if err != nil {
+		t.Fatalf("RemoveNode = %v, want the damaged canvases set aside and no error", err)
+	}
+	if len(setAside) != len(damaged) {
+		t.Fatalf("set aside = %v, want one kept file for each of %d damaged canvases", setAside, len(damaged))
+	}
+	for i, name := range []string{"canvas-2.json", "canvas-4.json"} {
+		kept := setAside[i]
+		if !strings.HasPrefix(kept, name+".unreadable-") {
+			t.Errorf("set aside[%d] = %q, want %s.unreadable-<time>", i, kept, name)
+		}
+		if got, err := os.ReadFile(filepath.Join(dir, kept)); err != nil || string(got) != damaged[name] {
+			t.Errorf("%s was not kept as it was: %q (err %v)", kept, got, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s is still in place (err %v)", name, err)
+		}
+	}
+	for _, graphID := range []uint64{1, 3} {
+		l, err := store.Load(graphID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, held := l.Nodes[5]; held {
+			t.Errorf("readable canvas %d still holds the event: %+v", graphID, l.Nodes)
+		}
+	}
+
+	// The next delete meets nothing damaged and reports nothing.
+	if again, err := store.RemoveNode(6); err != nil || len(again) != 0 {
+		t.Errorf("the next RemoveNode = %v, %v; want nothing set aside and no error", again, err)
+	}
+}
+
+// TestRemoveNodeNeverSetsACanvasAsideOverAKeptOne pins that a second damaged canvas of one graph,
+// set aside in the same second, does not replace the first: os.Rename replaces its target on every
+// platform, which would destroy the copy the first one kept.
+func TestRemoveNodeNeverSetsACanvasAsideOverAKeptOne(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, body := range []string{"first", "second"} {
+		if err := os.WriteFile(filepath.Join(dir, "canvas-2.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		setAside, err := store.RemoveNode(5)
+		if err != nil || len(setAside) != 1 {
+			t.Fatalf("RemoveNode = %v, %v; want one canvas set aside", setAside, err)
+		}
+		kept = append(kept, setAside[0])
+	}
+	if kept[0] == kept[1] {
+		t.Fatalf("both damaged canvases were kept as %s", kept[0])
+	}
+	for i, body := range []string{"first", "second"} {
+		if got, err := os.ReadFile(filepath.Join(dir, kept[i])); err != nil || string(got) != body {
+			t.Errorf("%s = %q (err %v), want %q", kept[i], got, err, body)
+		}
+	}
+}
+
+// TestRemoveNodeReportsACanvasItCouldNotSetAsideAndStillPrunesTheRest pins that a damaged canvas
+// that cannot be moved is reported, not dropped, and does not stop the walk. A second one pins
+// that every failure is reported, not only the first.
+func TestRemoveNodeReportsACanvasItCouldNotSetAsideAndStillPrunesTheRest(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.moveAside = func(string, string) error { return errors.New("access is denied") }
 	for _, graphID := range []uint64{1, 3} {
 		if err := store.Save(graphID, &Layout{Nodes: map[uint64]Position{5: {X: 1, Y: 1}}}); err != nil {
 			t.Fatal(err)
@@ -211,9 +300,12 @@ func TestRemoveNodeReportsAnUnreadableCanvasAndStillPrunesTheRest(t *testing.T) 
 		}
 	}
 
-	err = store.RemoveNode(5)
+	setAside, err := store.RemoveNode(5)
 	if err == nil || !strings.Contains(err.Error(), "canvas-2.json") || !strings.Contains(err.Error(), "canvas-4.json") {
 		t.Errorf("RemoveNode = %v, want an error that names both canvas-2.json and canvas-4.json", err)
+	}
+	if len(setAside) != 0 {
+		t.Errorf("set aside = %v, want nothing: no move succeeded", setAside)
 	}
 	for _, graphID := range []uint64{1, 3} {
 		l, err := store.Load(graphID)
@@ -223,6 +315,53 @@ func TestRemoveNodeReportsAnUnreadableCanvasAndStillPrunesTheRest(t *testing.T) 
 		if _, held := l.Nodes[5]; held {
 			t.Errorf("readable canvas %d still holds the event: %+v", graphID, l.Nodes)
 		}
+	}
+}
+
+// TestSurveyFindsDamagedAndKeptCanvases pins what the integrity check is told: each per-graph
+// canvas that cannot be read as one, and each damaged canvas already set aside. Everything else in
+// the folder is not a canvas and is not reported: a readable canvas, a .tmp, the legacy file and a
+// directory with a canvas's name.
+func TestSurveyFindsDamagedAndKeptCanvases(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"canvas-1.json": `{"nodes":{"5":{"x":1,"y":1}}}`,
+		"canvas-2.json": "not json",
+		"canvas-3.json": "",
+		"canvas-4.json.unreadable-20261108T101500Z":   "kept",
+		"canvas-4.json.unreadable-20261108T101500Z-1": "kept again",
+		"canvas-3.json.tmp":                           "not json",
+		legacyLayoutFile:                              "not json",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "canvas-7.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Survey(dir)
+	if err != nil {
+		t.Fatalf("Survey: %v", err)
+	}
+	var damaged []string
+	for _, d := range got.Damaged {
+		damaged = append(damaged, fmt.Sprintf("%d:%s", d.GraphID, d.File))
+		if d.Reason == "" {
+			t.Errorf("%s carries no reason", d.File)
+		}
+	}
+	if want := []string{"2:canvas-2.json", "3:canvas-3.json"}; !slices.Equal(damaged, want) {
+		t.Errorf("damaged = %v, want %v", damaged, want)
+	}
+	if want := []string{"canvas-4.json.unreadable-20261108T101500Z", "canvas-4.json.unreadable-20261108T101500Z-1"}; !slices.Equal(got.Kept, want) {
+		t.Errorf("kept = %v, want %v", got.Kept, want)
+	}
+
+	if none, err := Survey(filepath.Join(dir, "missing")); err != nil || len(none.Damaged)+len(none.Kept) != 0 {
+		t.Errorf("Survey of a missing folder = %+v, %v; want nothing and no error", none, err)
 	}
 }
 
@@ -250,7 +389,7 @@ func TestConcurrentSaveAndRemoveNodeLeaveAReadableCanvas(t *testing.T) {
 		}(i)
 		go func(i int) {
 			defer wg.Done()
-			if err := store.RemoveNode(uint64(i)); err != nil {
+			if _, err := store.RemoveNode(uint64(i)); err != nil {
 				errs <- fmt.Errorf("RemoveNode: %w", err)
 			}
 		}(i)

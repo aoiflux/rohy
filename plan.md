@@ -2002,7 +2002,7 @@ type Report struct {
 | 4 | Dangling relations | endpoints that no longer resolve | edge walk |
 | 5 | Orphan graphs | `graph_id` values in the store with no registry entry | edge index |
 | 6 | Empty graphs | registry entries with zero relations | edge index |
-| 7 | Orphan layouts | `layout/canvas-*.json` for graphs that no longer exist | dir scan |
+| 7 | Saved canvases | `layout/canvas-*.json` for graphs that no longer exist; a canvas that does not decode; one moved aside ✅ | dir scan, each file read |
 | 8 | Payload tail | walk the length-prefixed log; report orphan bytes after a crash | log walk |
 | 9 | Correlation-key staleness | events below `CorrelationKeyVersion` | node scan |
 | 10 | **Missing channel** | §12.2 | index count |
@@ -4123,6 +4123,8 @@ unchanged. The gate passes 11/11.
 After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - Rollback (graph registry, rule overrides): 4 new Go test functions, 1,192 → 1,196.
 - Restore lock (case lock alone, index repair first): 3 new Go test functions, 1,196 → 1,199.
+- Damaged canvas (set aside on delete, read by the case check): 5 new Go test functions, 1,199 → 1,204;
+  3 new frontend test cases, 852 → 855.
 
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
@@ -4159,9 +4161,20 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
   crash it can still offer the link; applying it writes nothing.
 - **Canvas writes:** `ApplyRestore` and the whole-canvas *Save layout* load, change and save outside
   one hold of the layout mutex, so either can put a pruned id back. It is harmless while reads skip
-  gone ids; closing it needs a `layout.Update(graphID, fn)`. An unreadable `canvas-<n>.json` makes
-  every later `DeleteEvent` fail until it is fixed or removed, and `checkLayouts` checks file names
-  only, so no integrity check reports it.
+  gone ids; closing it needs a `layout.Update(graphID, fn)`.
+- ✅ **Damaged canvas:** a `canvas-<n>.json` that does not decode made every later `DeleteEvent`
+  fail, and `checkLayouts` checked file names only. `RemoveNode` now moves such a file aside as
+  `canvas-<n>.json.unreadable-<UTC>` (never over an earlier kept file), returns the kept names, and
+  carries on; `DeleteEvent` returns them in `DeleteEventResult.set_aside` and the canvas shows a
+  warning that stays until dismissed. A read or move that fails still fails the delete, naming the
+  file. `layout.Survey` lets the case check report `damaged_layout` (warning) and `kept_layout`
+  (info). Tests: `TestRemoveNodeSetsADamagedCanvasAsideAndCarriesOn`,
+  `TestRemoveNodeNeverSetsACanvasAsideOverAKeptOne`,
+  `TestRemoveNodeReportsACanvasItCouldNotSetAsideAndStillPrunesTheRest`,
+  `TestSurveyFindsDamagedAndKeptCanvases`, `TestADamagedCanvasIsReported`,
+  `TestASetAsideCanvasIsReported`, `TestDeleteEventSetsADamagedCanvasAsideAndCarriesOn`, and three
+  cases in `stores/graph.test.js`. *Load* still does not move a damaged canvas aside: the graph opens
+  empty with *Save layout* off until a delete moves the file or a person does.
 - **Maintenance page:** a backfill started from the Rules page is not shown there (it never asks
   `isRunningMaintenance()` on mount), and Stop stays shown, doing nothing, during the backfill's
   seal.

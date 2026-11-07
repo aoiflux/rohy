@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"rohy/backend/consts"
 )
 
 // legacyLayoutFile is the pre-P15 single-graph layout filename. It is migrated into the
@@ -54,6 +58,9 @@ type Store struct {
 	// over, and a file in the middle of that rename cannot be opened, so a Load overlapping a
 	// Save would fail one of the two.
 	mu sync.Mutex
+	// moveAside renames a damaged canvas to its kept name. It is os.Rename; a test replaces it to
+	// make the move fail.
+	moveAside func(oldpath, newpath string) error
 }
 
 // Open returns a layout store rooted at dir, creating the directory if needed.
@@ -61,8 +68,16 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return &Store{dir: dir}, nil
+	return &Store{dir: dir, moveAside: os.Rename}, nil
 }
+
+// damagedError is a canvas file that was read but does not hold a canvas. It keeps the decoder's
+// message as its own, so Load reports what it always did; RemoveNode tells it apart from a read
+// that failed, which says nothing about the file.
+type damagedError struct{ err error }
+
+func (e damagedError) Error() string { return e.err.Error() }
+func (e damagedError) Unwrap() error { return e.err }
 
 // Save writes the layout for one graph, replacing any previous one. The write is atomic
 // (temp file + rename) so a crash mid-write cannot corrupt an existing layout.
@@ -111,7 +126,7 @@ func (s *Store) load(graphID uint64) (*Layout, error) {
 	}
 	var l Layout
 	if err := json.Unmarshal(data, &l); err != nil {
-		return nil, err
+		return nil, damagedError{err}
 	}
 	if l.Nodes == nil {
 		l.Nodes = map[uint64]Position{}
@@ -140,15 +155,21 @@ func (s *Store) Delete(graphID uint64) error {
 // are keyed by hash, they are the analyst's record, and they reattach if the event is ingested
 // again.
 //
+// A file that is not a canvas is moved aside as canvas-<n>.json.unreadable-<UTC>, kept byte for
+// byte, and its kept name returned, so one damaged file does not fail every later delete. Moving
+// it loses nothing: no reader could use it, and the graph opens without saved positions either
+// way. A file that could not be read is left alone, because a failed read says nothing about the
+// file.
+//
 // Every file is visited even when one fails, so one unreadable canvas does not leave the
 // others naming the event; the failures are returned together, each naming its file. A file
 // that does not hold the id is not rewritten.
-func (s *Store) RemoveNode(id uint64) error {
+func (s *Store) RemoveNode(id uint64) (setAside []string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
-		return fmt.Errorf("list saved canvases: %w", err)
+		return nil, fmt.Errorf("list saved canvases: %w", err)
 	}
 	var errs []error
 	for _, e := range entries {
@@ -157,6 +178,16 @@ func (s *Store) RemoveNode(id uint64) error {
 			continue
 		}
 		l, err := s.load(graphID)
+		var damaged damagedError
+		if errors.As(err, &damaged) {
+			kept, moveErr := s.keepAside(e.Name())
+			if moveErr != nil {
+				errs = append(errs, fmt.Errorf("set aside %s, which is not a canvas (%v): %w", e.Name(), err, moveErr))
+				continue
+			}
+			setAside = append(setAside, kept)
+			continue
+		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("read %s: %w", e.Name(), err))
 			continue
@@ -169,7 +200,107 @@ func (s *Store) RemoveNode(id uint64) error {
 			errs = append(errs, fmt.Errorf("write %s: %w", e.Name(), err))
 		}
 	}
-	return errors.Join(errs...)
+	return setAside, errors.Join(errs...)
+}
+
+// keepAside moves a damaged canvas to a kept name no earlier kept file holds, and returns that
+// name. Called under mu.
+func (s *Store) keepAside(name string) (string, error) {
+	base := name + consts.CanvasKeptInfix + time.Now().UTC().Format(consts.CanvasKeptStamp)
+	for i := range keptNameTries {
+		kept := base
+		if i > 0 {
+			kept = fmt.Sprintf("%s-%d", base, i)
+		}
+		// 🔒 Never onto an existing name: os.Rename replaces its target on every platform, which
+		// would destroy a canvas kept earlier to keep this one.
+		if _, err := os.Lstat(filepath.Join(s.dir, kept)); !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err := s.moveAside(filepath.Join(s.dir, name), filepath.Join(s.dir, kept)); err != nil {
+			return "", err
+		}
+		return kept, nil
+	}
+	return "", fmt.Errorf("every kept name for %s from %s to -%d is taken", name, base, keptNameTries-1)
+}
+
+// keptNameTries bounds the numbered kept names tried for one canvas in one second.
+const keptNameTries = 1000
+
+// Damaged is a per-graph canvas file that is there but does not hold a canvas.
+type Damaged struct {
+	GraphID uint64
+	File    string
+	Reason  string
+}
+
+// Findings is what Survey found in a layout folder.
+type Findings struct {
+	// Damaged lists the canvases that cannot be read as one, by file name.
+	Damaged []Damaged
+	// Kept lists the damaged canvases RemoveNode already set aside, by file name.
+	Kept []string
+}
+
+// Survey lists the canvases in dir that the integrity check reports: each per-graph canvas that is
+// not a canvas, and each one already set aside. A missing folder holds neither. A file that cannot
+// be read is returned as an error naming it, not as damage, because a failed read says nothing
+// about the file; the walk carries on past it.
+//
+// It reads without the store's lock, because the check is given a folder, not a Store. A read that
+// meets a Save's rename fails as a read, never as damage.
+func Survey(dir string) (Findings, error) {
+	var out Findings
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return out, fmt.Errorf("list saved canvases: %w", err)
+	}
+	var errs []error
+	for _, e := range entries {
+		if isKeptCanvas(e) {
+			out.Kept = append(out.Kept, e.Name())
+			continue
+		}
+		graphID, ok := graphIDFromFile(e)
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("read %s: %w", e.Name(), err))
+			continue
+		}
+		var l Layout
+		if err := json.Unmarshal(data, &l); err != nil {
+			out.Damaged = append(out.Damaged, Damaged{GraphID: graphID, File: e.Name(), Reason: err.Error()})
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+// isKeptCanvas reports a file keepAside wrote: canvas-<n>.json.unreadable-<anything>.
+func isKeptCanvas(e os.DirEntry) bool {
+	if e.IsDir() {
+		return false
+	}
+	canvas, _, ok := strings.Cut(e.Name(), consts.CanvasKeptInfix)
+	if !ok {
+		return false
+	}
+	rest, ok := strings.CutPrefix(canvas, "canvas-")
+	if !ok {
+		return false
+	}
+	rest, ok = strings.CutSuffix(rest, ".json")
+	if !ok {
+		return false
+	}
+	id, err := strconv.ParseUint(rest, 10, 64)
+	return err == nil && layoutFileFor(id) == canvas
 }
 
 // graphIDFromFile reads the graph id out of a per-graph layout file's name, and reports false

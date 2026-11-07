@@ -285,7 +285,7 @@ func everyCaseWrite(t *testing.T) (*graphene.Store, []*graphene.Event, *EventsAP
 		"DeleteLayer":    func() error { _, err := ann.DeleteLayer(0, "l"); return err },
 		"SaveAnnotation": func() error { _, err := ann.SaveAnnotation(AnnotationRequest{}); return err },
 		"DeleteNote":     func() error { return ann.DeleteAnnotation(0, "x") },
-		"DeleteEvent":    func() error { return g.DeleteEvent(events[0].ID) },
+		"DeleteEvent":    func() error { _, err := g.DeleteEvent(events[0].ID); return err },
 		"CreateRelation": func() error {
 			_, err := g.CreateRelation(RelationRequest{From: events[0].ID, To: events[1].ID})
 			return err
@@ -366,7 +366,7 @@ func TestShortHoldersReleaseOnEveryPath(t *testing.T) {
 	_, _ = b.DryRunRule("not json", EventQuery{}, 1)
 	_ = m.CompactCase()
 	_, _ = m.BackfillCorrelationKeys()
-	_ = g.DeleteEvent(12345)
+	_, _ = g.DeleteEvent(12345)
 	_ = g.DeleteRelation(12345)
 	release, err := theCase.exclusive(consts.CaseActivityRedaction)
 	if err != nil {

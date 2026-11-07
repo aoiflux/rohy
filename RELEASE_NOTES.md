@@ -239,7 +239,11 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   one's until *Save layout*, failed to load, and *Arrange*, *Group* and *Take snapshot* failed with
   it. Pressing *Save layout* on the empty canvas then erased its positions and viewport. Deleting an
   event now removes it from every saved canvas, and a canvas that still names a gone event loads
-  without it. If a canvas file cannot be updated, the error names it; the event is deleted anyway.
+  without it. A canvas file that cannot be read as a canvas is moved aside as
+  `canvas-<n>.json.unreadable-<time>`, kept, and named in a warning, and the delete carries on; that
+  graph opens without its saved positions. The case check reports such a file, and every one moved
+  aside. If a canvas file cannot be updated for another reason, the error names it; the event is
+  deleted anyway.
 - **A canvas that failed to load could be saved over the real one.** If a graph's canvas could not
   be read (a damaged canvas file, a store error), it opened empty, and *Save layout* or *Keep* in
   *Arrange* wrote the empty canvas over the saved positions. Both now stay unavailable until the
@@ -357,7 +361,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,199 Go tests, 10 fuzz targets and 65 benchmarks; 852 frontend tests; 58 extension tests.**
+- **1,204 Go tests, 10 fuzz targets and 65 benchmarks; 855 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 
@@ -378,9 +382,6 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 
 ### Known issues
 
-- **A damaged canvas file blocks deleting events.** While one canvas file cannot be read, every
-  event deletion reports an error naming it. The event is deleted and every other canvas is updated,
-  but the card stays until the file is fixed or removed.
 - **A backfill started from the Rules page is not shown on the Maintenance page**, and Stop is not
   offered for it there. During the seal at the end of a backfill, Stop is shown and does nothing.
 - **Layouts force the lowest id, not a node on the cycle.** A graph with a cycle can need more forced

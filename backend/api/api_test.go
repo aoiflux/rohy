@@ -538,7 +538,7 @@ func TestDeleteEventRemovesItFromEveryCanvas(t *testing.T) {
 		}
 	}
 
-	if err := graph.DeleteEvent(x); err != nil {
+	if _, err := graph.DeleteEvent(x); err != nil {
 		t.Fatalf("DeleteEvent: %v", err)
 	}
 
@@ -576,7 +576,7 @@ func TestDeletingAGoneEventAgainFinishesThePrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := graph.DeleteEvent(x); err != nil {
+	if _, err := graph.DeleteEvent(x); err != nil {
 		t.Fatalf("DeleteEvent of a gone event: %v", err)
 	}
 	got, err := graph.LoadLayout(consts.DefaultGraphID)
@@ -591,12 +591,12 @@ func TestDeletingAGoneEventAgainFinishesThePrune(t *testing.T) {
 	}
 }
 
-func TestDeleteEventReportsACanvasItCouldNotUpdate(t *testing.T) {
-	// The event is gone by the time a canvas fails to update, so the error must say so in a
-	// persistence-coded message that names the file, and the canvases that could be read must
-	// still lose the event. The prune visits the files in name order, so the second graph's
-	// unreadable canvas sits between two readable ones that hold the event: a prune that stopped
-	// at the first failure would leave the third graph naming it.
+func TestDeleteEventSetsADamagedCanvasAsideAndCarriesOn(t *testing.T) {
+	// A damaged canvas used to fail this delete and every later one. It is now moved aside, the
+	// delete succeeds and says where the file went, and the canvases that could be read still lose
+	// the event. The prune visits the files in name order, so the second graph's damaged canvas
+	// sits between two readable ones that hold the event: a prune that stopped there would leave
+	// the third graph naming it.
 	db, x, y := twoEvents(t)
 	dir := t.TempDir()
 	layoutStore, err := layout.Open(dir)
@@ -632,13 +632,19 @@ func TestDeleteEventReportsACanvasItCouldNotUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = graph.DeleteEvent(x)
-	if codeOf(err) != consts.ErrCodePersistence || !strings.Contains(err.Error(), bad) {
-		t.Fatalf("DeleteEvent = %v (code %q), want a persistence error that names %s", err, codeOf(err), bad)
+	res, err := graph.DeleteEvent(x)
+	if err != nil {
+		t.Fatalf("DeleteEvent = %v, want the damaged canvas set aside and no error", err)
+	}
+	if len(res.SetAside) != 1 || !strings.HasPrefix(res.SetAside[0], bad+".unreadable-") {
+		t.Fatalf("set aside = %v, want %s kept under a new name", res.SetAside, bad)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, res.SetAside[0])); err != nil || string(got) != "not json" {
+		t.Errorf("the damaged canvas was not kept as it was: %q (err %v)", got, err)
 	}
 	var nf *store.ErrNotFound
 	if _, err := db.GetEvent(x); !errors.As(err, &nf) {
-		t.Errorf("the event is still in the case after the error: %v", err)
+		t.Errorf("the event is still in the case: %v", err)
 	}
 	for _, graphID := range readable {
 		got, err := graph.LoadLayout(graphID)
@@ -648,6 +654,14 @@ func TestDeleteEventReportsACanvasItCouldNotUpdate(t *testing.T) {
 		if _, held := got.Nodes[x]; held {
 			t.Errorf("readable canvas %d still names the deleted event", graphID)
 		}
+	}
+	if got, err := graph.LoadLayout(g2.ID); err != nil || len(got.Nodes) != 0 {
+		t.Errorf("the second graph = %+v (err %v), want it to open empty once its canvas is aside", got, err)
+	}
+
+	// The next delete meets nothing damaged.
+	if res, err := graph.DeleteEvent(y); err != nil || len(res.SetAside) != 0 {
+		t.Errorf("the next DeleteEvent = %+v, %v; want nothing set aside and no error", res, err)
 	}
 }
 

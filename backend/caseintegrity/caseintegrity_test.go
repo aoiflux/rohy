@@ -302,6 +302,65 @@ func TestOrphanLayoutsAreCounted(t *testing.T) {
 	}
 }
 
+// TestADamagedCanvasIsReported pins that the check reads each canvas, not only its name. A
+// damaged canvas used to pass the check and fail every event delete; nothing said which file.
+func TestADamagedCanvasIsReported(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"canvas-1.json": "not json", "canvas-2.json": "{}"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deps := healthy()
+	deps.Graphs = &fakeGraphs{list: []*GraphInfo{{ID: 1, Name: "Default"}, {ID: 2, Name: "Second"}}}
+	deps.LayoutDir = dir
+	rep := Run(context.Background(), deps, Options{})
+	var damaged []Finding
+	for _, f := range rep.Findings {
+		if f.Code == consts.IntegrityDamagedLayout {
+			damaged = append(damaged, f)
+		}
+	}
+	if len(damaged) != 1 {
+		t.Fatalf("damaged findings = %+v, want one, for canvas-1.json", damaged)
+	}
+	f := damaged[0]
+	if f.Severity != consts.IntegritySevWarn || f.Subject != "canvas-1.json" || f.Action != consts.IntegrityActionReview {
+		t.Errorf("finding = %+v, want a warning on canvas-1.json that asks for review", f)
+	}
+	if !strings.Contains(f.Message, "canvas-1.json") || !strings.Contains(f.Message, "moves the file aside") {
+		t.Errorf("message = %q, want the file and what happens to it", f.Message)
+	}
+	if has(rep, consts.IntegrityKeptLayout) != nil {
+		t.Error("nothing was set aside, yet a kept canvas was reported")
+	}
+}
+
+// TestASetAsideCanvasIsReported pins that a canvas an event delete moved aside is reported on every
+// later check, with its kept name, like a fingerprint history kept aside.
+func TestASetAsideCanvasIsReported(t *testing.T) {
+	dir := t.TempDir()
+	kept := "canvas-1.json.unreadable-20261108T101500Z"
+	for _, name := range []string{kept, "canvas-1.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deps := healthy()
+	deps.LayoutDir = dir
+	rep := Run(context.Background(), deps, Options{})
+	f := has(rep, consts.IntegrityKeptLayout)
+	if f == nil {
+		t.Fatal("a canvas set aside was not reported")
+	}
+	if f.Severity != consts.IntegritySevInfo || f.Count != 1 || !strings.Contains(f.Message, kept) {
+		t.Errorf("finding = %+v, want one kept canvas, named, as information", f)
+	}
+	if has(rep, consts.IntegrityDamagedLayout) != nil || has(rep, consts.IntegrityOrphanLayout) != nil {
+		t.Errorf("a kept file was read as a damaged or orphan canvas: %v", codes(rep))
+	}
+}
+
 func TestPayloadTailIsWasteNotDamage(t *testing.T) {
 	deps := healthy()
 	deps.PayloadSize = 4096

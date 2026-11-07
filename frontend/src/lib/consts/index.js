@@ -1370,6 +1370,8 @@ export const UI = Object.freeze({
     'This permanently removes the event and all its links from the case database. This cannot be undone.',
   LINK_DELETED: 'Link deleted.',
   EVENT_DELETED: 'Event deleted from database.',
+  EVENT_DELETED_CANVAS_SET_ASIDE: (files) =>
+    `Event deleted from database. ${files.length} saved canvas file(s) could not be read and were moved aside, kept as: ${files.join(', ')}. Their graphs open without those positions.`,
 
   LABEL_FILE_PATH: 'EVTX file path',
   LABEL_IDEMPOTENT: 'Deduplicate identical events (count occurrences)',

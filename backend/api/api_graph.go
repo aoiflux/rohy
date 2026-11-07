@@ -356,19 +356,30 @@ func (a *GraphAPI) DeleteRelation(id uint64) error {
 	return nil
 }
 
+// DeleteEventResult says what a delete did beyond removing the event.
+type DeleteEventResult struct {
+	// SetAside names each saved canvas that did not hold a canvas, by the name it was moved to
+	// and kept under. Its graph now opens without saved positions.
+	SetAside []string `json:"set_aside"`
+}
+
 // DeleteEvent removes an event node, cascades to its relations, and removes it from every
 // graph's saved canvas. This is destructive (forensic evidence is removed from the case DB);
 // callers must confirm intent in the UI. Idempotent on a missing id.
-func (a *GraphAPI) DeleteEvent(id uint64) error {
+//
+// A saved canvas that does not hold a canvas is moved aside and named in the result, so one
+// damaged file does not fail every delete (layout.Store.RemoveNode).
+func (a *GraphAPI) DeleteEvent(id uint64) (DeleteEventResult, error) {
+	var out DeleteEventResult
 	release, busy := theCase.share(consts.CaseActivityGraphEdit)
 	if busy != nil {
-		return busy
+		return out, busy
 	}
 	defer release()
 	if err := a.store.DeleteEvent(id); err != nil {
 		var nf *store.ErrNotFound
 		if !errors.As(err, &nf) {
-			return AsError(consts.ErrCodePersistence, err)
+			return out, AsError(consts.ErrCodePersistence, err)
 		}
 		// Already gone. The prune still runs: deleting again is how a delete whose prune
 		// failed is finished.
@@ -377,11 +388,13 @@ func (a *GraphAPI) DeleteEvent(id uint64) error {
 	// event, which GetEventRecords skips; the other order could leave an event in the case
 	// that its canvases no longer show.
 	if a.layout != nil {
-		if err := a.layout.RemoveNode(id); err != nil {
-			return AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgEventDeletedCanvasStale, id, err))
+		setAside, err := a.layout.RemoveNode(id)
+		out.SetAside = setAside
+		if err != nil {
+			return out, AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgEventDeletedCanvasStale, id, err))
 		}
 	}
-	return nil
+	return out, nil
 }
 
 // SaveLayout persists a graph's canvas node positions and viewport so a mapping session

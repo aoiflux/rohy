@@ -18,7 +18,7 @@ export function CreateGraph(arg1:api.GraphRequest):Promise<graphreg.Graph>;
 
 export function CreateRelation(arg1:api.RelationRequest):Promise<graphene.Relation>;
 
-export function DeleteEvent(arg1:number):Promise<void>;
+export function DeleteEvent(arg1:number):Promise<api.DeleteEventResult>;
 
 export function DeleteGraph(arg1:number):Promise<void>;
 

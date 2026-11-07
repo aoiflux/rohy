@@ -25,6 +25,7 @@ import (
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
+	"rohy/backend/layout"
 	"rohy/backend/rules"
 )
 
@@ -513,7 +514,11 @@ func checkGraphs(rep *Report, deps Deps) {
 }
 
 func checkLayouts(rep *Report, deps Deps) {
-	if deps.LayoutDir == "" || deps.Graphs == nil {
+	if deps.LayoutDir == "" {
+		return
+	}
+	checkLayoutContents(rep, deps.LayoutDir)
+	if deps.Graphs == nil {
 		return
 	}
 	entries, err := os.ReadDir(deps.LayoutDir)
@@ -544,6 +549,31 @@ func checkLayouts(rep *Report, deps Deps) {
 			Code: consts.IntegrityOrphanLayout, Severity: consts.IntegritySevInfo,
 			Message: fmt.Sprintf(consts.MsgIntegrityOrphanLayout, orphans),
 			Action:  consts.IntegrityActionReview, Count: orphans,
+		})
+	}
+}
+
+// checkLayoutContents reads every saved canvas, not only its name. A canvas that does not hold one
+// opens its graph without positions and is moved aside by the next event delete; one already moved
+// aside is reported on every check, as a fingerprint history kept aside is.
+func checkLayoutContents(rep *Report, dir string) {
+	found, err := layout.Survey(dir)
+	if err != nil {
+		rep.note("could not read every saved canvas: " + err.Error())
+	}
+	for _, d := range found.Damaged {
+		rep.add(Finding{
+			Code: consts.IntegrityDamagedLayout, Severity: consts.IntegritySevWarn,
+			Subject: d.File,
+			Message: fmt.Sprintf(consts.MsgIntegrityDamagedLayout, d.File, d.Reason),
+			Action:  consts.IntegrityActionReview,
+		})
+	}
+	if n := len(found.Kept); n > 0 {
+		rep.add(Finding{
+			Code: consts.IntegrityKeptLayout, Severity: consts.IntegritySevInfo,
+			Message: fmt.Sprintf(consts.MsgIntegrityKeptLayout, n, strings.Join(found.Kept, ", ")),
+			Action:  consts.IntegrityActionReview, Count: n,
 		})
 	}
 }
