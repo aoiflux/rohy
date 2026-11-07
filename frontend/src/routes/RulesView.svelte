@@ -90,10 +90,15 @@
     return rule.source === RULE_SOURCES.BUILTIN ? UI.RULE_SOURCE_BUILTIN : UI.RULE_SOURCE_USER;
   }
 
-  async function toggle(rule) {
+  // The switch is bound one way, so a click flips the box before the save. When the save fails,
+  // rule.enabled never changes and Svelte has nothing to re-render: put the box back by hand, or it
+  // shows a state that was never saved.
+  async function toggle(rule, input) {
     const next = !rule.enabled;
     if (await rules.setEnabled(rule.id, next)) {
       snackbar.success(next ? UI.RULE_ENABLED : UI.RULE_DISABLED);
+    } else if (input) {
+      input.checked = rule.enabled;
     }
   }
 
@@ -415,7 +420,7 @@
         {#each $rules.list as rule (rule.id)}
           <li class="rule" class:off={!rule.enabled}>
             <label class="toggle">
-              <input type="checkbox" checked={rule.enabled} onchange={() => toggle(rule)} />
+              <input type="checkbox" checked={rule.enabled} onchange={(e) => toggle(rule, e.currentTarget)} />
               <span class="track"><span class="thumb"></span></span>
             </label>
 

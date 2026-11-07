@@ -130,13 +130,14 @@ func (r *Registry) Save(req SaveRequest) (SaveResult, error) {
 		// The retired id's enabled override is meaningless now, and leaving it behind would
 		// silently re-apply to any future rule that happened to slug the same way.
 		r.mu.Lock()
-		if _, ok := r.enabled[target.ID]; ok {
-			delete(r.enabled, target.ID)
+		next := r.enabledDraft()
+		if _, ok := next[target.ID]; ok {
+			delete(next, target.ID)
 			// An explicitly disabled rule stays disabled through a rename; the author changed
 			// the name, not their mind about running it.
-			r.enabled[newID] = target.Enabled
+			next[newID] = target.Enabled
 		}
-		err := r.persistState()
+		err := r.commitEnabled(next)
 		r.mu.Unlock()
 		if err != nil {
 			return SaveResult{}, err

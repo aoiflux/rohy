@@ -1,6 +1,9 @@
 package graphreg
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -183,5 +186,111 @@ func TestEnsureForRuleAdoptsSameNamedUnboundGraph(t *testing.T) {
 	}
 	if adopted.RuleID != "logon-chain" {
 		t.Errorf("adoption did not stamp the rule id")
+	}
+}
+
+// blockWrites makes the next persist fail: a directory where the temporary file goes cannot be
+// written as a file, on every platform. The returned func removes it.
+func blockWrites(t *testing.T, dir string) func() {
+	t.Helper()
+	tmp := filepath.Join(dir, registryFile+".tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Remove(tmp); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// snapshotOf captures everything a caller can observe, plus the next id.
+func snapshotOf(s *Store) string {
+	s.mu.Lock()
+	next := s.s.NextID
+	s.mu.Unlock()
+	b, _ := json.Marshal(struct {
+		Next   uint64
+		Active uint64
+		Graphs []*Graph
+	}{next, s.Active(), s.List()})
+	return string(b)
+}
+
+// 🔒 A write that fails changes nothing: the registry in memory must keep matching the file, or
+// the screen shows a graph, a name or an active graph that a restart would take away.
+func TestAFailedWriteLeavesTheRegistryAsItWas(t *testing.T) {
+	later := t0.Add(time.Hour)
+	cases := map[string]func(s *Store) error{
+		"create": func(s *Store) error { _, err := s.Create("third", "d", later); return err },
+		"rename": func(s *Store) error { _, err := s.Rename(2, "renamed", "new", later); return err },
+		"delete": func(s *Store) error { return s.Delete(2) },
+		"delete active": func(s *Store) error {
+			return s.Delete(1)
+		},
+		"set active":    func(s *Store) error { return s.SetActive(2) },
+		"rule graph":    func(s *Store) error { _, err := s.EnsureForRule("r-new", "New rule", "", later); return err },
+		"adopt by name": func(s *Store) error { _, err := s.EnsureForRule("r-adopt", "second", "", later); return err },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.EnsureDefault(consts.DefaultGraphName, t0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Create("second", "", t0); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetActive(1); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotOf(s)
+
+			unblock := blockWrites(t, dir)
+			if err := mutate(s); err == nil {
+				t.Fatal("the write was blocked, but the change reported success")
+			}
+			if got := snapshotOf(s); got != before {
+				t.Errorf("memory moved after a failed write:\nbefore %s\nafter  %s", before, got)
+			}
+			unblock()
+
+			reopened, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := snapshotOf(reopened); got != before {
+				t.Errorf("the file and memory disagree:\nfile   %s\nmemory %s", got, before)
+			}
+		})
+	}
+}
+
+// A first-run default that cannot be written leaves the registry empty, so the next start tries
+// again instead of believing a graph exists.
+func TestAFailedFirstDefaultLeavesTheRegistryEmpty(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unblock := blockWrites(t, dir)
+	if _, err := s.EnsureDefault(consts.DefaultGraphName, t0); err == nil {
+		t.Fatal("the write was blocked, but the default reported success")
+	}
+	unblock()
+	if n := len(s.List()); n != 0 || s.Active() != 0 {
+		t.Errorf("graphs = %d, active = %d after a failed first write", n, s.Active())
+	}
+	g, err := s.EnsureDefault(consts.DefaultGraphName, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.ID != consts.DefaultGraphID {
+		t.Errorf("the retry got id %d, want %d: the failed write burned an id", g.ID, consts.DefaultGraphID)
 	}
 }

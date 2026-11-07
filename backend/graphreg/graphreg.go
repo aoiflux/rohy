@@ -72,9 +72,31 @@ func Open(dir string) (*Store, error) {
 	return st, nil
 }
 
-// persist atomically writes the registry (temp file + rename).
-func (s *Store) persist() error {
-	data, err := json.MarshalIndent(&s.s, "", "  ")
+// draft returns a deep copy of the registry for a mutator to change. Nothing a mutator does to
+// it is seen until commit writes it.
+func (s *Store) draft() state {
+	d := s.s
+	d.Graphs = make([]*Graph, len(s.s.Graphs))
+	for i, g := range s.s.Graphs {
+		d.Graphs[i] = clone(g)
+	}
+	return d
+}
+
+// commit writes next and, only once the write succeeded, makes it the registry in memory.
+// 🔒 A failed write must change nothing: memory that ran ahead of the file would show a graph,
+// a name or an active graph that the next start takes away.
+func (s *Store) commit(next state) error {
+	if err := s.persist(next); err != nil {
+		return err
+	}
+	s.s = next
+	return nil
+}
+
+// persist atomically writes a registry document (temp file + rename).
+func (s *Store) persist(st state) error {
+	data, err := json.MarshalIndent(&st, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -126,8 +148,9 @@ func (s *Store) SetActive(id uint64) error {
 	if s.findIndex(id) < 0 {
 		return ErrNotFound
 	}
-	s.s.ActiveID = id
-	return s.persist()
+	next := s.draft()
+	next.ActiveID = id
+	return s.commit(next)
 }
 
 // EnsureDefault guarantees at least one graph exists: if the registry is empty it
@@ -137,18 +160,20 @@ func (s *Store) EnsureDefault(name string, now time.Time) (*Graph, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.s.Graphs) == 0 {
-		g := &Graph{ID: s.s.NextID, Name: name, CreatedAt: now, UpdatedAt: now}
-		s.s.NextID++
-		s.s.Graphs = append(s.s.Graphs, g)
-		s.s.ActiveID = g.ID
-		if err := s.persist(); err != nil {
+		next := s.draft()
+		g := &Graph{ID: next.NextID, Name: name, CreatedAt: now, UpdatedAt: now}
+		next.NextID++
+		next.Graphs = append(next.Graphs, g)
+		next.ActiveID = g.ID
+		if err := s.commit(next); err != nil {
 			return nil, err
 		}
 		return clone(g), nil
 	}
 	if s.s.ActiveID == 0 {
-		s.s.ActiveID = s.s.Graphs[0].ID
-		if err := s.persist(); err != nil {
+		next := s.draft()
+		next.ActiveID = next.Graphs[0].ID
+		if err := s.commit(next); err != nil {
 			return nil, err
 		}
 	}
@@ -160,11 +185,12 @@ func (s *Store) EnsureDefault(name string, now time.Time) (*Graph, error) {
 func (s *Store) Create(name, description string, now time.Time) (*Graph, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	g := &Graph{ID: s.s.NextID, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}
-	s.s.NextID++
-	s.s.Graphs = append(s.s.Graphs, g)
-	s.s.ActiveID = g.ID
-	if err := s.persist(); err != nil {
+	next := s.draft()
+	g := &Graph{ID: next.NextID, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}
+	next.NextID++
+	next.Graphs = append(next.Graphs, g)
+	next.ActiveID = g.ID
+	if err := s.commit(next); err != nil {
 		return nil, err
 	}
 	return clone(g), nil
@@ -185,21 +211,22 @@ func (s *Store) EnsureForRule(ruleID, name, description string, now time.Time) (
 			return clone(g), nil
 		}
 	}
-	for _, g := range s.s.Graphs {
+	next := s.draft()
+	for _, g := range next.Graphs {
 		if g.RuleID == "" && g.Name == name {
 			g.RuleID = ruleID
 			g.UpdatedAt = now
-			if err := s.persist(); err != nil {
+			if err := s.commit(next); err != nil {
 				return nil, err
 			}
 			return clone(g), nil
 		}
 	}
 
-	g := &Graph{ID: s.s.NextID, RuleID: ruleID, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}
-	s.s.NextID++
-	s.s.Graphs = append(s.s.Graphs, g)
-	if err := s.persist(); err != nil {
+	g := &Graph{ID: next.NextID, RuleID: ruleID, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}
+	next.NextID++
+	next.Graphs = append(next.Graphs, g)
+	if err := s.commit(next); err != nil {
 		return nil, err
 	}
 	return clone(g), nil
@@ -213,13 +240,14 @@ func (s *Store) Rename(id uint64, name, description string, now time.Time) (*Gra
 	if idx < 0 {
 		return nil, ErrNotFound
 	}
-	s.s.Graphs[idx].Name = name
-	s.s.Graphs[idx].Description = description
-	s.s.Graphs[idx].UpdatedAt = now
-	if err := s.persist(); err != nil {
+	next := s.draft()
+	next.Graphs[idx].Name = name
+	next.Graphs[idx].Description = description
+	next.Graphs[idx].UpdatedAt = now
+	if err := s.commit(next); err != nil {
 		return nil, err
 	}
-	return clone(s.s.Graphs[idx]), nil
+	return clone(next.Graphs[idx]), nil
 }
 
 // Delete removes a graph from the registry. It refuses to remove the last remaining
@@ -236,9 +264,10 @@ func (s *Store) Delete(id uint64) error {
 	if len(s.s.Graphs) == 1 {
 		return ErrLastGraph
 	}
-	s.s.Graphs = append(s.s.Graphs[:idx], s.s.Graphs[idx+1:]...)
-	if s.s.ActiveID == id {
-		s.s.ActiveID = s.s.Graphs[0].ID
+	next := s.draft()
+	next.Graphs = append(next.Graphs[:idx], next.Graphs[idx+1:]...)
+	if next.ActiveID == id {
+		next.ActiveID = next.Graphs[0].ID
 	}
-	return s.persist()
+	return s.commit(next)
 }

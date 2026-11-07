@@ -174,7 +174,7 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,192 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**1,196 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
 **852 frontend test cases** and **58 extension tests**.
 
 ---
@@ -2765,7 +2765,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,192 Go test functions**, 10 fuzz targets, 65 benchmarks, **852 frontend test
+**1,196 Go test functions**, 10 fuzz targets, 65 benchmarks, **852 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:
@@ -3085,10 +3085,12 @@ Added with v0.3.0:
   count only rewrites that committed. A batch that counts before its commit makes a failed pass seal
   writes it did not make. The seal runs under the maintenance lock and takes no context, so Stop does
   nothing during it, although the page still shows Stop.
-- **The annotation and findings caches change only after their write.** The annotation store changes
-  a clone and commits it; findings put the one key back when the write fails. A mutator that changes
-  the held copy first puts the screen ahead of the disk again. `graphreg.Store`'s mutators and
-  `rules.Registry.SetEnabled` still change memory first (plan §15.16).
+- **Every sidecar held in memory changes only after its write.** The annotation store changes a
+  clone and commits it; findings put the one key back when the write fails; `graphreg.Store` changes
+  a `draft()` and `commit` swaps it in after the write; the rules registry does the same with its
+  enabled overrides (`enabledDraft`, `commitEnabled`) for a toggle, a delete and a rename. A mutator
+  that changes the held copy first puts the screen ahead of the disk again. The Rules page's switch
+  is bound one way, so it puts the box back by hand when the save fails.
 - **A restore matches a link by its claim, not only its id.** A snapshot link is present when the
   same edge, or a link of the same type, joins the same two events in the same direction. Both sides
   go through `relationTypeOrDefault`, so changing that fallback, or comparing raw types on one side,

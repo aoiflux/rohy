@@ -4120,6 +4120,9 @@ the Rules line names a seal that was not recorded as a seal), and 8 for the owne
 `lib/consts/limits.test.js`, `stores/graph.test.js`. Fuzz targets (10), benchmarks (65) and extension tests (58) are
 unchanged. The gate passes 11/11.
 
+After the owner's decisions of 2026-11-08, each batch adds its own count here:
+- Rollback (graph registry, rule overrides): 4 new Go test functions, 1,192 → 1,196.
+
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
   before it is tagged, except two: restricting layout forcing to cycle nodes, which needs its own
@@ -4130,8 +4133,11 @@ unchanged. The gate passes 11/11.
     disabled until the active graph's mapping has loaded in full (`graph.readMapping` throws on a
     failed read, `markMappingLoaded` unlocks only the graph still showing, and `saveLayout` refuses
     otherwise). The backfill notice now also says the fingerprint will change.
-  - `graphreg.Store`'s mutators and `rules.Registry.SetEnabled` change memory before the write and
-    never roll back: the same defect as the annotation cache. Fixing in v0.3.0.
+  - ✅ `graphreg.Store`'s mutators and `rules.Registry.SetEnabled` changed memory before the write
+    and never rolled back. Both now change a copy and swap it in after the write; the rule delete
+    and rename paths share it, and the Rules switch flips back on failure. Tests:
+    `TestAFailedWriteLeavesTheRegistryAsItWas` (7 mutators), `TestAFailedFirstDefaultLeavesTheRegistryEmpty`,
+    `TestAFailedToggleWriteLeavesTheRuleAsItWas`, `TestAFailedDeleteStateWriteKeepsTheRule`.
   - The "restored from" note is not part of a link's identity in a restore (the owner's fix named
     it). Confirm.
   - ✅ The pre-run backfill copy (`BACKFILL_STALE_DETAIL`, `MAINT_PROJECTION_STALE`) now says the

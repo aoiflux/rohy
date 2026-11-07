@@ -62,9 +62,30 @@ func (r *Registry) loadState() {
 	}
 }
 
-// persistState atomically writes the enabled overrides.
-func (r *Registry) persistState() error {
-	data, err := json.MarshalIndent(r.enabled, "", "  ")
+// enabledDraft returns a copy of the enabled overrides for a caller to change before
+// commitEnabled writes it.
+func (r *Registry) enabledDraft() map[string]bool {
+	next := make(map[string]bool, len(r.enabled))
+	for id, on := range r.enabled {
+		next[id] = on
+	}
+	return next
+}
+
+// commitEnabled writes next and, only once the write succeeded, makes it the overrides in
+// memory. 🔒 A failed write changes nothing: a toggle the file never got would show on the
+// Rules page and steer every rules run until the next start quietly undid it. Callers hold r.mu.
+func (r *Registry) commitEnabled(next map[string]bool) error {
+	if err := r.persistState(next); err != nil {
+		return err
+	}
+	r.enabled = next
+	return nil
+}
+
+// persistState atomically writes a set of enabled overrides.
+func (r *Registry) persistState(overrides map[string]bool) error {
+	data, err := json.MarshalIndent(overrides, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -201,7 +222,11 @@ func (r *Registry) SetEnabled(id string, enabled bool) error {
 	if found == nil {
 		return ErrRuleNotFound
 	}
+	next := r.enabledDraft()
+	next[id] = enabled
+	if err := r.commitEnabled(next); err != nil {
+		return err
+	}
 	found.Enabled = enabled
-	r.enabled[id] = enabled
-	return r.persistState()
+	return nil
 }

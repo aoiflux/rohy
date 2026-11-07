@@ -275,9 +275,10 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   in English gets, and was refused with no warning. A long tag or layer name was cut by bytes, which
   could split a character; it is now cut between characters, and a cut tag that ends in a space is
   trimmed so it can still be filtered.
-- **A failed finding or annotation save no longer leaves the screen ahead of the disk.** When
-  writing a finding or an annotation failed, the screen kept the change that was never saved. It
-  now shows what the file holds. Deleting one annotation can no longer delete another made in the
+- **A failed save no longer leaves the screen ahead of the disk.** When writing a finding, an
+  annotation, a graph change (create, rename, delete, switch) or a rule's on/off switch failed, the
+  screen kept the change that was never saved, and a restart took it away. It now shows what the
+  file holds, and the rule switch flips back. Deleting one annotation can no longer delete another made in the
   same millisecond.
 - **A layout refused for the node cap, an unknown profile, field or grouping is the request's
   fault.** It was coded `internal_error`; it is now `parse_error`. The message is unchanged.
@@ -351,7 +352,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,192 Go tests, 10 fuzz targets and 65 benchmarks; 852 frontend tests; 58 extension tests.**
+- **1,196 Go tests, 10 fuzz targets and 65 benchmarks; 852 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 

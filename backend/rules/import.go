@@ -101,8 +101,9 @@ func (r *Registry) Delete(id string) error {
 		return ErrRuleProtected
 	}
 	path := target.Path
-	delete(r.enabled, id)
-	err := r.persistState()
+	next := r.enabledDraft()
+	delete(next, id)
+	err := r.commitEnabled(next)
 	r.mu.Unlock()
 	if err != nil {
 		return err
