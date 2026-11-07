@@ -238,6 +238,10 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   it. Pressing *Save layout* on the empty canvas then erased its positions and viewport. Deleting an
   event now removes it from every saved canvas, and a canvas that still names a gone event loads
   without it. If a canvas file cannot be updated, the error names it; the event is deleted anyway.
+- **A canvas that failed to load could be saved over the real one.** If a graph's canvas could not
+  be read (a damaged canvas file, a store error), it opened empty, and *Save layout* or *Keep* in
+  *Arrange* wrote the empty canvas over the saved positions. Both now stay unavailable until the
+  canvas has loaded in full. *Load saved mapping* tries again and keeps anything added meanwhile.
 - **Arrange, Group, Take snapshot and the canvas cards no longer read raw records.** None of them
   shows one, and reading them was most of the wait: *Arrange* on 5 000 events is about four to five
   times faster (see Under the hood). One unreadable raw record no longer empties a canvas; the event
@@ -245,7 +249,8 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **The correlation backfill now seals the case when it rewrote any event**, also when it was
   stopped or failed part way. It used to leave every rewritten event in memory and in the write log
   until the next seal: about 58 MiB at 100 000 events. The seal is recorded in the fingerprint
-  history like every other seal, and the page says the fingerprint has changed. A seal that does not
+  history like every other seal. The notice before the backfill says the fingerprint will change,
+  and the page says when it has. A seal that does not
   finish is shown beside the backfill's result; what the pass rewrote is kept either way.
 - **A snapshot restore could draw the same link twice.** A link counted as still there only while
   it kept the id it had in the snapshot. A link the restore had re-created, one drawn again by hand,
@@ -344,7 +349,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,192 Go tests, 10 fuzz targets and 65 benchmarks; 844 frontend tests; 58 extension tests.**
+- **1,192 Go tests, 10 fuzz targets and 65 benchmarks; 852 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 
@@ -365,9 +370,6 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 
 ### Known issues
 
-- **A canvas that failed to load can still be overwritten.** If a graph's canvas cannot be read (a
-  damaged canvas file, a store error), it opens empty, and *Save layout* then saves the empty canvas
-  over the saved positions. Do not press *Save layout* on a canvas that failed to load.
 - **A damaged canvas file blocks deleting events.** While one canvas file cannot be read, every
   event deletion reports an error naming it. The event is deleted and every other canvas is updated,
   but the card stays until the file is fixed or removed.

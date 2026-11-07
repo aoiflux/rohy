@@ -175,7 +175,7 @@ rohy/
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
 **1,192 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
-**844 frontend test cases** and **58 extension tests**.
+**852 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -1695,10 +1695,11 @@ canvas cards (`GraphAPI.GetEvents`) use the same read.
   planned fix; the expectations it would change are commented in
   `TestSequenceCountsForcedPlacementsNotCycles` and `TestLineageForcedRootNoteClaimsNothingAboutItsParent`.
 - The note names "the lowest internal id", which the page does not show.
-- The toolbar's *Save layout* saves whatever is on the canvas, including a preview never kept. A
-  canvas whose mapping failed to load stays empty, and *Save layout* then writes that empty canvas
-  over its sidecar. A gone event no longer causes this (§14), but an unreadable `canvas-<n>.json` or a
-  store error still can.
+- The toolbar's *Save layout* saves whatever is on the canvas, including a preview never kept.
+  It and *Keep* stay disabled until the active graph's mapping has loaded in full: the graph store
+  records the graph it last read (`mappingFor`), `saveLayout` refuses unless that is the active
+  graph, and a graph switch locks it again. So a canvas whose `canvas-<n>.json` could not be read
+  is never saved over its sidecar.
 - The ▦ grid button still ships, with no preview and no *Put back*.
 
 ### 14.2 Clusters
@@ -2764,8 +2765,8 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,192 Go test functions**, 10 fuzz targets, 65 benchmarks, **844 frontend test
-cases** in 55 files, and **58 extension tests**.
+**1,192 Go test functions**, 10 fuzz targets, 65 benchmarks, **852 frontend test
+cases** in 56 files, and **58 extension tests**.
 
 Where each runs:
 

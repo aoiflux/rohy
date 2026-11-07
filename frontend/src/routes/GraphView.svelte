@@ -128,14 +128,18 @@
   // loadMapping restores the ACTIVE graph: its edges, plus every event that is either an
   // edge endpoint or a placed-but-unlinked member (from the per-graph layout), then the
   // saved positions/viewport. Events are shared, so this only adds nodes to the canvas.
+  // Save layout unlocks only when every read here succeeded for the graph still showing; a failed
+  // or overtaken load leaves it locked, so an empty canvas cannot be saved over the real one.
   async function loadMapping() {
+    const graphId = $graph.activeGraphId;
     try {
-      const rels = (await graph.loadRelations()) || [];
-      const saved = await graph.loadLayout();
+      const { edges: rels, saved } = await graph.readMapping();
       const layoutIds = saved && saved.nodes ? Object.keys(saved.nodes).map(Number) : [];
       const ids = [...new Set([...rels.flatMap((r) => [r.from, r.to]), ...layoutIds])];
       if (ids.length) {
         const evs = await api.getEvents(ids);
+        // The analyst switched graphs while the events were read: these belong to the old one.
+        if (get(graph).activeGraphId !== graphId) return;
         (evs || []).forEach((e, i) => {
           if (!onCanvas.has(e.id)) {
             const p = placeAt(Object.keys($graph.nodes).length + i);
@@ -144,7 +148,9 @@
         });
       }
       // Restore saved node positions + viewport on top of the loaded nodes.
+      if (get(graph).activeGraphId !== graphId) return;
       graph.applyLayout(saved);
+      graph.markMappingLoaded(graphId);
       snackbar.success(`${rels.length} ${UI.MAPPING_LOADED}`);
     } catch (err) {
       snackbar.error(String(err && err.message ? err.message : err));
@@ -213,7 +219,11 @@
 <div class="gv">
 <AppBar route={ROUTES.GRAPH}>
   <Button variant="text" onclick={loadMapping}>{UI.ACTION_LOAD_MAPPING}</Button>
-  <Button variant="text" onclick={saveLayout}>{UI.ACTION_SAVE_LAYOUT}</Button>
+  <Button
+    variant="text"
+    onclick={saveLayout}
+    disabled={!graph.canSaveLayout($graph)}
+    title={graph.canSaveLayout($graph) ? '' : UI.LAYOUT_NOT_LOADED}>{UI.ACTION_SAVE_LAYOUT}</Button>
   <Button variant="text" onclick={() => graph.clearCanvas()}>{UI.ACTION_CLEAR_CANVAS}</Button>
   <Button variant="tonal" onclick={() => theme.toggle()}>
     {$theme === THEMES.DARK ? '☀' : '☾'} {UI.ACTION_TOGGLE_THEME}

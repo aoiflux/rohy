@@ -763,7 +763,8 @@ export const UI = Object.freeze({
   BACKFILL_STALE_DETAIL:
     'They were ingested before rohy extracted correlation fields. Rules using field, temporal or ' +
     'lineage matching will under-report against them until this is filled in. Reading the events ' +
-    'once is all it takes; nothing is re-ingested and nothing is lost.',
+    'once is all it takes; nothing is re-ingested and nothing is lost. The case is sealed ' +
+    'afterwards, so its fingerprint changes: keep the new one.',
   BACKFILL_RUN: 'Fill in correlation fields',
   BACKFILL_RUNNING: 'Reading events for correlation fields, then sealing what changed…',
   BACKFILL_CANCEL: 'Stop',
@@ -1336,6 +1337,11 @@ export const UI = Object.freeze({
   ACTION_SAVE_LAYOUT: 'Save layout',
   ACTION_CLEAR_CANVAS: 'Clear canvas',
   LAYOUT_SAVED: 'Layout saved.',
+  // Saving writes the whole canvas over the saved positions, so a canvas that did not load must
+  // not be saved: it would erase them.
+  LAYOUT_NOT_LOADED:
+    'This canvas has not finished loading, so saving it would erase its saved positions. ' +
+    'Press “Load saved mapping” first.',
 
   GRAPH_EMPTY: 'Add events from the panel to start mapping.',
   GRAPH_CONNECT_HINT: 'Tip: drag from a node’s link handle to another node — or turn on Connect mode to drag from anywhere on a node.',

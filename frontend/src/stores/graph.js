@@ -7,6 +7,7 @@ import * as api from '../lib/api/index.js';
 import { clusters } from './clusters.js';
 import { replay } from './replay.js';
 import { annotations } from './annotations.js';
+import { UI } from '../lib/consts/index.js';
 
 export const LAYOUT = Object.freeze({
   MANUAL: 'manual',
@@ -31,6 +32,11 @@ function initial() {
     // layout above always belong to the active graph.
     graphs: /** @type {any[]} */ ([]),
     activeGraphId: 0,
+    // The graph whose mapping was last read in full, or null. Saving is allowed only while it is
+    // the active graph: a canvas that did not load is empty or partial, and saving it would write
+    // that over the graph's saved positions. A graph switch moves activeGraphId, so it locks again
+    // without anyone having to remember to clear this.
+    mappingFor: /** @type {number|null} */ (null),
     // Ids of items created just now, so the canvas animates an entrance for THOSE only —
     // not for the constant mount/unmount churn of virtualization (P10 / R-AN1).
     fresh: { nodes: /** @type {Set<number>} */ (new Set()), edges: /** @type {Set<number>} */ (new Set()) },
@@ -229,10 +235,29 @@ function create() {
     await loadRelations();
   }
 
+  // readMapping reads the active graph's relations and saved layout, and throws if either read
+  // fails, unlike loadRelations and loadLayout, so the caller can tell "nothing saved" from "could
+  // not read". Relations that arrive after a graph switch are not drawn on the new canvas.
+  async function readMapping() {
+    const id = get(store).activeGraphId;
+    const [rels, saved] = await Promise.all([api.getGraphRelations(id), api.loadLayout(id)]);
+    const edges = rels || [];
+    update((s) => (s.activeGraphId === id ? { ...s, edges } : s));
+    return { edges, saved };
+  }
+
+  // markMappingLoaded unlocks saving once the caller has put the whole mapping on the canvas. A
+  // load that finishes after the analyst moved to another graph unlocks nothing.
+  function markMappingLoaded(graphId) {
+    update((s) => (s.activeGraphId === graphId ? { ...s, mappingFor: graphId } : s));
+  }
+
   // saveLayout persists the active graph's node positions + viewport. The node id set is
   // the graph's canvas membership, so placed-but-unlinked nodes survive reload (P15).
+  // It refuses on a canvas that has not loaded; both Save layout and Arrange's Keep come here.
   async function saveLayout() {
     const s = get(store);
+    if (!canSaveLayout(s)) throw new Error(UI.LAYOUT_NOT_LOADED);
     const nodes = {};
     for (const [id, n] of Object.entries(s.nodes)) {
       nodes[id] = { x: n.x, y: n.y };
@@ -284,11 +309,19 @@ function create() {
     updateRelation,
     deleteRelation,
     deleteEvent,
+    readMapping,
+    markMappingLoaded,
+    canSaveLayout,
     saveLayout,
     loadLayout,
     applyLayout,
     reset: () => set(initial()),
   };
+}
+
+// canSaveLayout says whether the active graph's mapping has loaded, so its canvas may be saved.
+function canSaveLayout(s) {
+  return s.mappingFor !== null && s.mappingFor === s.activeGraphId;
 }
 
 export const graph = create();

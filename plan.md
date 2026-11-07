@@ -4106,19 +4106,20 @@ The memory figures repeat on every run; the time does not.
 
 **Tests:** 52 new Go test functions, 1,140 → 1,192: deleted event 12, caches 9, backfill 9,
 restore 10, layout notes 3, length units 8, and 1 from the whole-diff review (a failed backfill
-still seals what it committed). 49 new frontend tests, 795 → 844, 11 of them from the review (the
+still seals what it committed). 57 new frontend tests, 795 → 852: 11 from the review (the
 Maintenance page stays busy through a deep re-check; a read that fails mid-pass does not free it;
-the Rules line names a seal that was not recorded as a seal). Four new test files, 51 → 55:
+the Rules line names a seal that was not recorded as a seal), and 8 for the owner's follow-up
+(*Save layout* locked until the mapping loads). Five new test files, 51 → 56:
 `lib/maintenance/backfill.test.js`, `routes/MaintenanceView.stop.test.js`, `lib/findings.test.js`,
-`lib/consts/limits.test.js`. Fuzz targets (10), benchmarks (65) and extension tests (58) are
+`lib/consts/limits.test.js`, `stores/graph.test.js`. Fuzz targets (10), benchmarks (65) and extension tests (58) are
 unchanged. The gate passes 11/11.
 
 **Still open:**
 - **Owner questions:**
-  - *Save layout* after a failed load. If a canvas's mapping fails to load for any reason but a
-    gone event (an unreadable `canvas-<n>.json`, a store error), the canvas stays empty, and *Save
-    layout* (or *Keep* in Arrange) writes it over the sidecar. Disable both until the mapping has
-    loaded?
+  - ✅ *Save layout* after a failed load: done before the tag. *Save layout* and *Keep* stay
+    disabled until the active graph's mapping has loaded in full (`graph.readMapping` throws on a
+    failed read, `markMappingLoaded` unlocks only the graph still showing, and `saveLayout` refuses
+    otherwise). The backfill notice now also says the fingerprint will change.
   - `graphreg.Store`'s mutators and `rules.Registry.SetEnabled` change memory before the write and
     never roll back: the same defect as the annotation cache. Fix now, or record?
   - The "restored from" note is not part of a link's identity in a restore (the owner's fix named

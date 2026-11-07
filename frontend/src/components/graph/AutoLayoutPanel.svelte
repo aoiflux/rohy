@@ -114,7 +114,13 @@
   <div class="btns">
     <Button variant="tonal" onclick={preview} disabled={busy || !profile}>{UI.ARRANGE_PREVIEW}</Button>
     {#if original !== null}
-      <Button variant="text" onclick={keep}>{UI.ARRANGE_KEEP}</Button>
+      <!-- Keep saves the whole canvas, so it locks with Save layout while the mapping has not
+           loaded (stores/graph.js canSaveLayout). Put back still works. -->
+      <Button
+        variant="text"
+        onclick={keep}
+        disabled={!graph.canSaveLayout($graph)}
+        title={graph.canSaveLayout($graph) ? '' : UI.LAYOUT_NOT_LOADED}>{UI.ARRANGE_KEEP}</Button>
       <Button variant="text" onclick={revert}>{UI.ARRANGE_REVERT}</Button>
     {/if}
   </div>
