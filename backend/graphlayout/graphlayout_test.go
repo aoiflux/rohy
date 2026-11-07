@@ -45,6 +45,16 @@ func pos(t *testing.T, r Result, id uint64) Point {
 	return p
 }
 
+// groupIDs renders a result's groups as their node lists alone, so a test can pin which nodes
+// share a group without also pinning the labels.
+func groupIDs(r Result) string {
+	ids := make([][]uint64, 0, len(r.Groups))
+	for _, g := range r.Groups {
+		ids = append(ids, g.NodeIDs)
+	}
+	return fmt.Sprint(ids)
+}
+
 // --- the contract every profile shares ---
 
 func TestUnknownProfileNamesTheAcceptedSet(t *testing.T) {
@@ -237,6 +247,70 @@ func TestSequenceBreaksACycleDeterministicallyAndSaysSo(t *testing.T) {
 	}
 }
 
+func TestSequenceCountsForcedPlacementsNotCycles(t *testing.T) {
+	// The ranking forces the lowest remaining id whenever no node is free to go next, and that
+	// node may only sit downstream of a cycle rather than on it, so one cycle can cost two forced
+	// placements. A note that called each of them a cycle would send the analyst looking for a
+	// second cycle the evidence does not contain.
+	cases := []struct {
+		name  string
+		nodes []NodeInfo
+		rels  []*graphene.Relation
+		want  string
+		// sameColumn is an edge the forcing draws inside one column, which reads as "these two
+		// are contemporaneous", so the note must admit to it. Empty when the case does not pin one.
+		sameColumn []uint64
+	}{
+		{
+			// The count of 2, and edge 2->1 landing inside one column, both follow from forcing the
+			// lowest remaining id (1, which is not on the cycle). Both must change when forcing is
+			// restricted to nodes on a cycle.
+			name:       "one cycle with a lower id hanging off it",
+			nodes:      []NodeInfo{dated(1, 20), dated(2, 0), dated(3, 10)},
+			rels:       []*graphene.Relation{edge(2, 3), edge(3, 2), edge(2, 1)},
+			want:       "2 forced placement(s)",
+			sameColumn: []uint64{2, 1},
+		},
+		{
+			// The count of 2 follows from forcing the lowest remaining id (2, which is not on the
+			// cycle) and must change when forcing is restricted to nodes on a cycle.
+			name:  "a root and a cycle feeding one node",
+			nodes: []NodeInfo{dated(1, 0), dated(2, 10), dated(3, 20), dated(4, 30)},
+			rels:  []*graphene.Relation{edge(1, 2), edge(3, 4), edge(4, 3), edge(4, 2)},
+			want:  "2 forced placement(s)",
+		},
+		{
+			name:  "a pure three-node cycle",
+			nodes: []NodeInfo{dated(1, 0), dated(2, 10), dated(3, 20)},
+			rels:  []*graphene.Relation{edge(1, 2), edge(2, 3), edge(3, 1)},
+			want:  "1 forced placement(s)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mustCompute(t, consts.LayoutSequence, tc.nodes, tc.rels, Options{GapX: 100, GapY: 50})
+			if !strings.HasPrefix(got.Note, tc.want) {
+				t.Errorf("note = %q, want it to start with %q", got.Note, tc.want)
+			}
+			if strings.Contains(got.Note, "cycle(s)") {
+				t.Errorf("note counts cycles, but the code counts forced placements: %q", got.Note)
+			}
+			if len(tc.sameColumn) == 0 {
+				return
+			}
+			from, to := tc.sameColumn[0], tc.sameColumn[1]
+			if pos(t, got, from).X != pos(t, got, to).X {
+				t.Fatalf("precondition: edge %d->%d was meant to be drawn inside one column: %d=%v %d=%v",
+					from, to, from, pos(t, got, from), to, pos(t, got, to))
+			}
+			if !strings.Contains(got.Note, "within one column") {
+				t.Errorf("edge %d->%d is drawn inside one column but the note does not say so: %q",
+					from, to, got.Note)
+			}
+		})
+	}
+}
+
 func TestSequenceSaysNothingWhenThereIsNothingToSay(t *testing.T) {
 	// A note that is always present is a note nobody reads.
 	got := mustCompute(t, consts.LayoutSequence,
@@ -332,6 +406,57 @@ func TestLineageAttachesAMultiParentNodeToExactlyOneParent(t *testing.T) {
 	}
 }
 
+func TestLineageMultiParentNodeJoinsTheFirstParentTheWalkEnters(t *testing.T) {
+	// The depth-first walk enters roots earliest first, then each node's children earliest first,
+	// and a node joins whichever of its parents the walk enters first. Neither the lowest id nor
+	// the parent that was claimed first decides it, and these fixtures tell those rules apart.
+	cases := []struct {
+		name       string
+		nodes      []NodeInfo
+		rels       []*graphene.Relation
+		wantGroups string
+		child      uint64
+		parent     uint64
+		wantY      float64
+	}{
+		{
+			// Root 2 is the earliest, so the walk enters it before root 1, the lowest id.
+			name:       "two roots, the earlier one with the higher id",
+			nodes:      []NodeInfo{dated(1, 10), dated(2, 0), dated(3, 20)},
+			rels:       []*graphene.Relation{edge(1, 3), edge(2, 3)},
+			wantGroups: "[[2 3] [1]]",
+			child:      3,
+			parent:     2,
+			wantY:      50,
+		},
+		{
+			// Root 1 claims 3, one of 5's parents, before 4 is even claimed. But the walk enters 4
+			// (through 2, the earlier child of 1) before it enters 3, so 5 joins 4 at depth 3
+			// rather than 3 at depth 2.
+			name:       "a deeper parent entered before a shallower one",
+			nodes:      []NodeInfo{dated(1, 0), dated(2, 1), dated(3, 2), dated(4, 3), dated(5, 4)},
+			rels:       []*graphene.Relation{edge(1, 2), edge(1, 3), edge(2, 4), edge(4, 5), edge(3, 5)},
+			wantGroups: "[[1 2 4 5 3]]",
+			child:      5,
+			parent:     4,
+			wantY:      150,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mustCompute(t, consts.LayoutLineage, tc.nodes, tc.rels, Options{GapX: 100, GapY: 50})
+			if g := groupIDs(got); g != tc.wantGroups {
+				t.Errorf("trees = %s, want %s", g, tc.wantGroups)
+			}
+			c, p := pos(t, got, tc.child), pos(t, got, tc.parent)
+			if c.X != p.X || c.Y != tc.wantY {
+				t.Errorf("node %d at %v, want it directly under parent %d (%v) at y=%v",
+					tc.child, c, tc.parent, p, tc.wantY)
+			}
+		})
+	}
+}
+
 func TestLineageRootsAComponentThatIsEntirelyACycleAndSaysSo(t *testing.T) {
 	nodes := []NodeInfo{dated(2, 10), dated(3, 20)}
 	rels := []*graphene.Relation{edge(2, 3), edge(3, 2)}
@@ -342,6 +467,27 @@ func TestLineageRootsAComponentThatIsEntirelyACycleAndSaysSo(t *testing.T) {
 	}
 	if got.Note == "" {
 		t.Error("choosing an arbitrary root is a judgement call and must be reported")
+	}
+}
+
+func TestLineageForcedRootNoteClaimsNothingAboutItsParent(t *testing.T) {
+	// Node 1 hangs off the 2<->3 cycle, so no root reaches it and it is rooted by force on its
+	// own, while its parent 2 lands in a later tree. A note saying every event in the group has
+	// a parent inside the group would be false for that tree.
+	nodes := []NodeInfo{dated(1, 20), dated(2, 0), dated(3, 10)}
+	rels := []*graphene.Relation{edge(2, 3), edge(3, 2), edge(2, 1)}
+	got := mustCompute(t, consts.LayoutLineage, nodes, rels, Options{})
+
+	// This grouping and the count of 2 follow from forcing the lowest remaining id (1, which is
+	// not on the cycle) and must change when forcing is restricted to nodes on a cycle.
+	if g := groupIDs(got); g != "[[1] [2 3]]" {
+		t.Fatalf("precondition: want node 1 alone and its parent 2 in a later tree, got %s", g)
+	}
+	if !strings.HasPrefix(got.Note, "2 forced placement(s)") {
+		t.Errorf("note = %q, want it to count the 2 forced roots", got.Note)
+	}
+	if strings.Contains(got.Note, "parent inside the group") {
+		t.Errorf("note claims a parent inside the group, which is false for node 1: %q", got.Note)
 	}
 }
 

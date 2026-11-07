@@ -1,5 +1,6 @@
 import { describe as suite, it, expect } from 'vitest';
 import { build, visibleAt, fracToTime, timeToFrac, advance, describe } from './replay.js';
+import { UI } from '../consts/index.js';
 
 const T = (s) => new Date(Date.UTC(2026, 5, 1, 9, 0, s)).toISOString();
 const at = (s) => Date.UTC(2026, 5, 1, 9, 0, s);
@@ -204,5 +205,15 @@ suite('describe', () => {
 
   it('survives a null model', () => {
     expect(describe(null)).toEqual({ playable: false, notes: [] });
+  });
+
+  // 🔒 The caption may only describe what replay does. GraphCanvas filters links by visibleAt and
+  // nothing else, and approximateEdges is read only to count them here, so no link is ever drawn
+  // as a weaker claim. A caption promising one tells the analyst a placed link and an approximate
+  // one look different when they do not.
+  it('captions approximate links by what replay does, not by a weaker drawing the canvas never makes', () => {
+    expect(UI.REPLAY_APPROXIMATE).not.toMatch(/weaker/i);
+    expect(UI.REPLAY_APPROXIMATE).toContain('once both their ends are on screen');
+    expect(UI.REPLAY_APPROXIMATE).toContain('like any other link');
   });
 });

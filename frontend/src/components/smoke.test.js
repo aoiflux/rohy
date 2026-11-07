@@ -22,6 +22,7 @@ import FieldRow from './rules/FieldRow.svelte';
 import GuidedEditorPanel from './rules/GuidedEditorPanel.svelte';
 import CodeArea from './rules/CodeArea.svelte';
 import RawEditorPanel from './rules/RawEditorPanel.svelte';
+import FindingEditor from './events/FindingEditor.svelte';
 
 import { SCENARIOS } from '../lib/learn/algorithms.js';
 import { readFileSync } from 'node:fs';
@@ -610,4 +611,13 @@ describe('query / QueryResult', () => {
     expect(out.body).toContain('(redacted: no value left)');
     expect(out.body).toContain('Showing 3 of 3 values, counting 6.');
   });
+});
+
+describe('events / FindingEditor', () => {
+  // The note's length check lives in lib/findings.js; a broken import of it would leave the drawer
+  // blank with nothing in the build to say so.
+  renders('renders the editor for an event', FindingEditor, {
+    event: { hash_normalized: 'hash-a', event_id: 4624, provider: 'Security', timestamp: '2026-07-14T10:00:00Z' },
+  });
+  renders('renders nothing without an event', FindingEditor, { event: null });
 });

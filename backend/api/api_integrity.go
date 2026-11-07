@@ -61,10 +61,14 @@ func (a *MaintenanceAPI) WithIntegrity(d IntegrityDeps) *MaintenanceAPI {
 // argument rather than always-on for the reason PERFORMANCE.md §12a gives: running it every time
 // taxes every check to re-prove something almost always true.
 //
-// It shares the maintenance cancellation, so a long deep check can be stopped from the same
-// control that stops a backfill — but it does NOT take the running lock, because it writes
-// nothing and a read that blocked on a backfill would leave the analyst unable to find out why
-// their case looks wrong while it is being repaired.
+// It does NOT take the running lock, because it writes nothing and a read that blocked on a
+// backfill would leave the analyst unable to find out why their case looks wrong while it is
+// being repaired. Nor does it share the maintenance cancellation: it runs under
+// context.Background(), so the control that stops a backfill does not stop a check.
+//
+// The deep image verification is the exception to the lock: it goes through VerifyImage, the
+// binding, and takes that lock as the button does. Refused, the report notes the image went
+// unverified and the rest of the check still runs.
 func (a *MaintenanceAPI) CheckIntegrity(deep bool) (caseintegrity.Report, error) {
 	a.mu.Lock()
 	deps, session := a.integrity, a.session
@@ -81,8 +85,9 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps, session *Session) caseintegr
 		out.Events = a.store
 		// The posture checks read the same store through a narrower interface. Attached
 		// separately so a Deps assembled without it reports the posture as unknown rather than
-		// as fine (plan §14.8).
-		out.Forensics = a.store
+		// as fine (plan §14.8). The binding rather than the store, so a deep check verifies the
+		// image under the maintenance lock, as the button does (VerifyImage).
+		out.Forensics = a
 		a.readPosture(&out, d, session)
 	}
 	if d.Findings != nil {
@@ -442,10 +447,13 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 // allocation churn on a 100k case (PERFORMANCE.md §18) — and it is the same work `VerifyOnOpen`
 // would do on every single launch, which is exactly why rohy does not do it that way.
 //
-// It takes the maintenance lock despite writing nothing. That is a departure from CheckIntegrity,
-// which deliberately does not, and the reason is the allocation figure rather than correctness:
-// 449 MB of churn beside a running backfill would make both slower and neither wrong, and the
-// analyst cannot tell which pass is responsible.
+// It takes the maintenance lock despite writing nothing, for two reasons. One is the allocation
+// figure: 449 MB of churn beside a running backfill would make both slower, and the analyst cannot
+// tell which pass is responsible. The other is correctness: the seals run under that lock replace
+// the image file, a backfill's included (it seals what it rewrote before it gives the lock back,
+// BackfillCorrelationKeys), and on Windows an image held open by this read makes the compaction's
+// rename onto it fail. A deep CheckIntegrity verifies the image through this method for both
+// reasons, although the rest of that check takes no lock.
 func (a *MaintenanceAPI) VerifyImage() (graphene.ImageCheck, error) {
 	// A reader: in a read-only session this is the check the analyst most needs.
 	if err := a.beginRead(); err != nil {

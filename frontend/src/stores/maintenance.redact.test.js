@@ -25,9 +25,10 @@ vi.mock('../lib/api/index.js', () => ({
     state.finished.push(id);
     return done(id);
   }),
-  checkIntegrity: vi.fn(async () => {
+  checkIntegrity: vi.fn(async (deep) => {
     state.checks += 1;
-    return { findings: [] };
+    if (state.checkGate) await state.checkGate;
+    return { findings: [], deep };
   }),
   forensicStatus: vi.fn(async () => ({ available: true })),
   on: vi.fn(),
@@ -37,7 +38,7 @@ const { maintenance } = await import('./maintenance.js');
 
 beforeEach(() => {
   maintenance.reset();
-  Object.assign(state, { pending: [], refuse: false, finished: [], checks: 0, redacted: [] });
+  Object.assign(state, { pending: [], refuse: false, finished: [], checks: 0, redacted: [], checkGate: null });
 });
 
 describe('stores/maintenance redaction', () => {
@@ -72,5 +73,24 @@ describe('stores/maintenance redaction', () => {
     const s = get(maintenance);
     expect(s.redactions).toBe(1);
     expect(s.lastResult).toBe('finish_redaction');
+  });
+
+  // 🔒 A deep re-check verifies the image under the backend's maintenance lock, so the page stays
+  // busy until it returns: a button left enabled meanwhile would be refused.
+  it('stays busy until a deep re-check after finishing returns', async () => {
+    await maintenance.check(true);
+    state.pending = [{ id: 3 }];
+    let release;
+    state.checkGate = new Promise((r) => (release = r));
+    const finishing = maintenance.finishRedactions();
+    await vi.waitFor(() => expect(state.checks).toBe(2));
+    expect(get(maintenance).running).toBe('check');
+    expect(get(maintenance).lastResult).toBe('finish_redaction');
+    state.checkGate = null;
+    release();
+    await finishing;
+    const s = get(maintenance);
+    expect(s.running).toBe('');
+    expect(s.report.deep).toBe(true);
   });
 });

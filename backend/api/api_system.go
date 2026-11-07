@@ -53,13 +53,6 @@ func (a *SystemAPI) Startup(ctx context.Context) {
 	a.emit(state)
 }
 
-// setEmitter installs an event sink (tests inject a fake).
-func (a *SystemAPI) setEmitter(e Emitter) {
-	a.mu.Lock()
-	a.emitter = e
-	a.mu.Unlock()
-}
-
 // Stage records progress through initialization and announces it.
 func (a *SystemAPI) Stage(stage string) {
 	a.set(InitState{Phase: consts.InitPhaseInitializing, Stage: stage})

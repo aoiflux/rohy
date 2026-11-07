@@ -261,17 +261,23 @@ func (s *Store) GetEvent(id uint64) (*Event, error) {
 	return e, nil
 }
 
-// GetEvents returns multiple events by node id, in the order given.
-func (s *Store) GetEvents(ids []uint64) ([]*Event, error) {
-	out := make([]*Event, 0, len(ids))
-	for _, id := range ids {
-		e, err := s.GetEvent(id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, nil
+// GetEventRecords returns the stored records of the events named, in the order given, in one
+// batched read. It is the read for a canvas and for everything computed from one: the cards,
+// the layout, the clusters and a snapshot.
+//
+// It reads no cold store: RawXML and ParsedFields stay empty, as on a list row. Every field a
+// canvas reads is on the node, and reading the raw record was ~72% of an Arrange at 5k nodes
+// (PERFORMANCE.md section 21). GetEvent is where the cold fields are paid for.
+//
+// An id that names no event is left out rather than failing the read. A canvas's ids come from
+// its layout sidecar, which can still name an event deleted since it was saved (a crash between
+// DeleteEvent and the sidecar prune, or a sidecar older than the prune). The store never reuses
+// an id, so such an entry can only ever cost its own card, never another event's, and never the
+// whole canvas. An id asked for twice is returned twice.
+func (s *Store) GetEventRecords(ids []uint64) ([]*Event, error) {
+	// The missing ids are dropped on purpose (above): no caller acts on them.
+	out, _, err := s.eventRecords(ids)
+	return out, err
 }
 
 // GetRelation returns a single relation by edge id.
@@ -450,19 +456,4 @@ func (s *Store) RelationsOf(eventID uint64) ([]*Relation, error) {
 		out = append(out, r)
 	}
 	return out, nil
-}
-
-// windowEvents applies offset/limit pagination over an ordered slice.
-func windowEvents(events []*Event, offset, limit int) []*Event {
-	if offset < 0 {
-		offset = 0
-	}
-	if offset >= len(events) {
-		return nil
-	}
-	end := len(events)
-	if limit > 0 && offset+limit < end {
-		end = offset + limit
-	}
-	return events[offset:end]
 }

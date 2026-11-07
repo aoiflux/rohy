@@ -1,10 +1,14 @@
 package graphene
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"rohy/backend/consts"
+
+	"github.com/aoiflux/graphene/store"
 )
 
 // The ordering cache is a correctness hazard as much as a speedup: if it ever survives a
@@ -209,4 +213,99 @@ func TestLegacyDedupCountTreatedAsOne(t *testing.T) {
 	if !f.matchesPostHydration(&Event{DeduplicationCount: consts.DefaultDeduplicationCount}) {
 		t.Errorf("legacy node excluded by the hydrated filter")
 	}
+}
+
+// TestGetEventRecordsLeavesOutWhatIsGoneAndKeepsTheOrderAsked pins the canvas read's contract:
+// an id that names no event costs only its own entry, the rest come back in the order asked, and
+// an id asked for twice comes back twice. The disk store resolves a batch through a different
+// path depending on whether the delete reached the compacted base or still sits in the delta, so
+// both are run beside the in-memory store.
+func TestGetEventRecordsLeavesOutWhatIsGoneAndKeepsTheOrderAsked(t *testing.T) {
+	base := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		open func(t *testing.T) *Store
+		// compactBefore compacts before the delete, so the deleted id is a delta tombstone over
+		// the compacted base. compactAfter compacts after it, so the id is gone from the base.
+		compactBefore, compactAfter bool
+	}{
+		{name: "in memory", open: func(t *testing.T) *Store { return OpenInMemory() }},
+		{name: "disk, deleted before compaction", open: openDisk, compactAfter: true},
+		{name: "disk, deleted after compaction", open: openDisk, compactBefore: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tc.open(t)
+			defer s.Close()
+			ids, err := s.InsertEvents([]*Event{
+				mkEvent("1", "p", "c", "u", base, "ha"),
+				mkEvent("2", "p", "c", "u", base.Add(time.Minute), "hb"),
+				mkEvent("3", "p", "c", "u", base.Add(2*time.Minute), "hc"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, b, c := ids[0], ids[1], ids[2]
+			if tc.compactBefore {
+				if err := s.Compact(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.DeleteEvent(b); err != nil {
+				t.Fatal(err)
+			}
+			if tc.compactAfter {
+				if err := s.Compact(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			got, err := s.GetEventRecords([]uint64{c, b, a, c})
+			if err != nil {
+				t.Fatalf("GetEventRecords: %v", err)
+			}
+			gotIDs := make([]uint64, 0, len(got))
+			for _, e := range got {
+				gotIDs = append(gotIDs, e.ID)
+			}
+			if want := []uint64{c, a, c}; !slices.Equal(gotIDs, want) {
+				t.Fatalf("ids = %v, want %v", gotIDs, want)
+			}
+		})
+	}
+}
+
+// TestHydrateIDsRefusesAnIDTheStoreNoLongerHolds pins the list path's half of the contract that
+// GetEventRecords relaxes. Its ids come from the index, so one that does not resolve means the
+// index and the store disagree, and returning the shorter page would hide that.
+func TestHydrateIDsRefusesAnIDTheStoreNoLongerHolds(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+	base := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
+	ids, err := s.InsertEvents([]*Event{
+		mkEvent("1", "p", "c", "u", base, "ha"),
+		mkEvent("2", "p", "c", "u", base.Add(time.Minute), "hb"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteEvent(ids[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.hydrateIDs(ids)
+	want := fmt.Sprintf(consts.MsgNodesMissing, 1, len(ids), []store.NodeID{store.NodeID(ids[1])})
+	if err == nil || err.Error() != want {
+		t.Fatalf("hydrateIDs = %d events, error %v; want the error %q", len(got), err, want)
+	}
+}
+
+// openDisk opens a disk store in a fresh directory. The caller closes it.
+func openDisk(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

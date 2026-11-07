@@ -544,8 +544,12 @@ const (
 	// FindingsSubdir holds the findings sidecar (rohy-data/findings/findings.json).
 	FindingsSubdir = "findings"
 
-	// MaxFindingNoteLen and MaxFindingTagLen bound what one annotation can hold, so a
-	// runaway paste cannot bloat the sidecar that is rewritten on every edit.
+	// MaxFindingNoteLen and MaxFindingTagLen bound what one annotation can hold, in characters
+	// (runes), so a runaway paste cannot bloat the sidecar that is rewritten on every edit.
+	// Characters, not bytes: a byte bound gave a note in Japanese a third of the room one in
+	// English gets. The editor counts a note in the same unit (frontend lib/findings.js). Its tag
+	// input's maxlength is only a typing aid; findings cuts a longer tag between characters, and
+	// that cut is the backstop.
 	MaxFindingNoteLen = 8000
 	MaxFindingTagLen  = 64
 	MaxFindingTags    = 32
@@ -1039,6 +1043,13 @@ const (
 // returning the shorter set would hand the UI a short page and hide the corruption.
 const MsgNodesMissing = "%d of %d events could not be loaded (missing node ids: %v)"
 
+// MsgEventDeletedCanvasStale reports a delete that removed the event from the case but could not
+// bring every saved canvas up to date. It says the delete happened, because the card stays on the
+// canvas after an error. It gives no retry advice: the wrapped error names the file, and whether
+// deleting again helps depends on why that file failed (a write that may succeed next time, or a
+// canvas that cannot be read at all).
+const MsgEventDeletedCanvasStale = "event %d was deleted, but not every saved canvas could be updated: %w"
+
 // --- Wails event channel names (backend → frontend) ---
 const (
 	EventIngestStarted   = "ingest:started"
@@ -1096,6 +1107,8 @@ const (
 	MsgSealCompactFailed = "sealing the case failed: %w"
 	MsgSealRecordFailed  = "the case was sealed, but its fingerprint could not be recorded in the history: %w"
 	MsgSealPoisoned      = "the seal replaced the case image and then failed (%w). This session's copy no longer matches the image on disk, so nothing more will be written until rohy restarts"
+	// MsgSealRefused is a seal that was not run because the session can no longer write the case.
+	MsgSealRefused = "the case was not sealed: %w"
 )
 
 // --- Rule testbench (v0.2.0) ---
@@ -1482,22 +1495,24 @@ const (
 	SnapshotsSubdir = "snapshots"
 	// SnapshotVersion guards the document format.
 	SnapshotVersion = 1
-	// MaxSnapshotsPerGraph bounds how many are kept. Beyond it the OLDEST is refused rather than
-	// evicted: a snapshot is something an analyst deliberately took, and silently deleting one to
-	// make room for another destroys work without asking.
+	// MaxSnapshotsPerGraph bounds how many are kept. At the cap a new snapshot is refused rather
+	// than the oldest evicted: a snapshot is something an analyst deliberately took, and silently
+	// deleting one to make room for another destroys work without asking.
 	MaxSnapshotsPerGraph = 50
-	// MaxSnapshotLabelLen bounds the analyst's own name for a snapshot.
+	// MaxSnapshotLabelLen bounds the analyst's own name for a snapshot, in characters (runes).
 	MaxSnapshotLabelLen = 200
 )
 
 // Restore outcomes. Every item in a snapshot lands in exactly one of these, and the total is
 // always reported — nothing is dropped silently.
 const (
-	// RestoreApplied means the item was re-applied as it was.
+	// RestoreApplied means the item is still there: a node whose event keeps the id it had (a
+	// restore puts its recorded position back), or a link that is the same edge or a link of the
+	// same type joining the same two events the same way.
 	RestoreApplied = "applied"
-	// RestoreRecreatable means the endpoints resolve but the edge itself is gone. It is OFFERED,
-	// never re-created automatically: re-inserting it makes rohy assert a link today, which is a
-	// different claim from a rule having inferred it then.
+	// RestoreRecreatable means both endpoints resolve but no link of that type joins them in that
+	// direction. It is OFFERED, never re-created automatically: re-inserting it makes rohy assert a
+	// link today, which is a different claim from a rule having inferred it then.
 	RestoreRecreatable = "recreatable"
 	// RestoreUnresolved means an endpoint could not be found by hash at all.
 	RestoreUnresolved = "unresolved"
@@ -2233,7 +2248,8 @@ var (
 )
 
 // Bounds. The sidecar is rewritten on every edit, so a runaway paste must not be able to bloat it,
-// and a canvas buried under four hundred pins is not annotated — it is illegible.
+// and a canvas buried under four hundred pins is not annotated — it is illegible. Text and layer
+// names are counted in characters (runes), the unit the messages name.
 const (
 	MaxAnnotationLayers = 16
 	MaxAnnotationItems  = 200

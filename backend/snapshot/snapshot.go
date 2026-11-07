@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"rohy/backend/consts"
 )
@@ -134,7 +135,7 @@ func (s *Store) Save(doc *Document) error {
 	if doc == nil {
 		return errors.New("nil snapshot")
 	}
-	if len(strings.TrimSpace(doc.Label)) > consts.MaxSnapshotLabelLen {
+	if utf8.RuneCountInString(strings.TrimSpace(doc.Label)) > consts.MaxSnapshotLabelLen {
 		return fmt.Errorf(consts.MsgSnapshotLabelLong, consts.MaxSnapshotLabelLen)
 	}
 	s.mu.Lock()

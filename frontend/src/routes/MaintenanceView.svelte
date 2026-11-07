@@ -126,7 +126,12 @@
   <Button variant="text" onclick={() => maintenance.check(true)} disabled={busy}>
     {UI.MAINT_CHECK_DEEP}
   </Button>
-  {#if busy}
+  <!-- Only a backfill can be stopped: CancelMaintenance reaches nothing else, so Stop beside a
+       check or a fix would do nothing, or cancel a backfill started from the Rules page. Even a
+       backfill stops only in its pass over the events: the seal after that pass runs to the end,
+       and Stop stays shown through it because the run kind does not change. The kind is the
+       store's run kind (run('backfill', …) in stores/maintenance.js). -->
+  {#if $maintenance.running === 'backfill'}
     <Button variant="text" onclick={() => maintenance.cancel()}>{UI.MAINT_CANCEL}</Button>
   {/if}
   <Button variant="tonal" onclick={() => theme.toggle()}>

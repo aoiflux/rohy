@@ -73,7 +73,8 @@ type Result struct {
 	Positions map[uint64]Point `json:"positions"`
 	Groups    []Group          `json:"groups"`
 	// Note is a plain-language caveat about this particular arrangement — undated events set
-	// aside, a cycle broken, a slot nothing carries. Empty when there is nothing to say.
+	// aside, a placement forced by a cycle, a slot nothing carries. Empty when there is nothing
+	// to say.
 	Note string `json:"note,omitempty"`
 }
 

@@ -325,35 +325,48 @@ func (f EventFilter) matchesSortView(v *eventSortView) bool {
 
 // hydrateIDs loads the given ids as events, in the order given, using one batched fetch.
 func (s *Store) hydrateIDs(ids []uint64) ([]*Event, error) {
+	out, missing, err := s.eventRecords(ids)
+	if err != nil {
+		return nil, err
+	}
+	// An unresolvable id means the index still points at a node the store no longer holds;
+	// treating that as a short page would hide the divergence, so it is surfaced as an error
+	// exactly as the read path has always done. GetEventRecords makes the opposite choice over
+	// the same read, because its ids come from a layout sidecar, not from the index.
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(consts.MsgNodesMissing, len(missing), len(ids), missing)
+	}
+	return out, nil
+}
+
+// eventRecords decodes the stored records of ids in one batched fetch, in the order given,
+// and reports the ids the store does not hold. It reads node records only, never the cold
+// store. What a missing id means is the caller's to decide.
+func (s *Store) eventRecords(ids []uint64) ([]*Event, []store.NodeID, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	g, err := s.graph()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nodeIDs := make([]store.NodeID, len(ids))
 	for i, id := range ids {
 		nodeIDs[i] = store.NodeID(id)
 	}
 	// GetNodes returns the nodes it found plus the ids it could not resolve, rather than
-	// failing on the first miss. An unresolvable id means the index still points at a node
-	// the store no longer holds; treating that as a short page would hide the divergence,
-	// so it is surfaced as an error exactly as the read path has always done.
+	// failing on the first miss, and keeps the found nodes in the order asked.
 	nodes, missing, err := g.GetNodes(nodeIDs)
 	if err != nil {
-		return nil, err
-	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf(consts.MsgNodesMissing, len(missing), len(nodeIDs), missing)
+		return nil, nil, err
 	}
 	out := make([]*Event, 0, len(nodes))
 	for _, n := range nodes {
 		e, err := eventFromNode(n)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out = append(out, e)
 	}
-	return out, nil
+	return out, missing, nil
 }

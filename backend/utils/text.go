@@ -25,3 +25,23 @@ func DisplayName(s string, max int) (string, bool) {
 	}
 	return s, true
 }
+
+// CapRunes returns the longest prefix of s that holds at most n runes. It counts runes, unlike
+// graphene's truncateRunes, which caps a value at n bytes; this is the cap for a bound stated in
+// characters. It cuts between runes, never inside one: a byte cut can split a multi-byte
+// character, and encoding/json writes the broken tail as U+FFFD, so the value held in memory and
+// the one the UI and the disk get would differ, and a lookup by what the UI shows would miss. An
+// invalid byte counts as one rune, as utf8.RuneCountInString counts it.
+func CapRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}

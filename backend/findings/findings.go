@@ -22,9 +22,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"rohy/backend/consts"
 	"rohy/backend/durable"
+	"rohy/backend/utils"
 )
 
 const findingsFile = "findings.json"
@@ -33,9 +35,10 @@ const findingsFile = "findings.json"
 // finding has nothing to attach to, and writing it anyway would create an orphan.
 var ErrNoKey = errors.New("finding requires an event hash")
 
-// ErrTooLong is returned when a note exceeds consts.MaxFindingNoteLen. The write is refused
-// rather than truncated: silently discarding the tail of an analyst's reasoning is worse
-// than telling them it did not fit.
+// ErrTooLong is returned when a note holds more than consts.MaxFindingNoteLen characters
+// (runes; the editor counts the same unit). The write is refused rather than truncated:
+// silently discarding the tail of an analyst's reasoning is worse than telling them it did
+// not fit.
 var ErrTooLong = errors.New("note exceeds the maximum length")
 
 // Finding is one analyst annotation, keyed by the event's hash_normalized.
@@ -199,21 +202,18 @@ func clone(f *Finding) *Finding {
 // normalizeTags trims, lowercases, drops empties, removes duplicates, and sorts. Tags are a
 // grouping mechanism, so "Lateral Movement" and "lateral movement" must be the same tag —
 // otherwise the tag list fragments into near-identical entries and stops grouping anything.
-// Over-long tags are trimmed to the cap here rather than rejected: unlike a note, a tag is a
-// label, and a clipped label still labels.
+// Over-long tags are cut to the cap here, between characters, rather than rejected: unlike a
+// note, a tag is a label, and a clipped label still labels. The cut is trimmed again, because
+// a cut can end on a space, and a tag ending in one would match no filter: the filter bar and
+// KeysWithTag both trim what they look up.
 func normalizeTags(in []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(in))
 	for _, t := range in {
 		t = strings.ToLower(strings.TrimSpace(t))
+		t = strings.TrimSpace(utils.CapRunes(t, consts.MaxFindingTagLen))
 		if t == "" || seen[t] {
 			continue
-		}
-		if len(t) > consts.MaxFindingTagLen {
-			t = t[:consts.MaxFindingTagLen]
-			if seen[t] {
-				continue
-			}
 		}
 		seen[t] = true
 		out = append(out, t)
@@ -260,7 +260,9 @@ func (s *Store) Set(f Finding, now time.Time) (*Finding, error) {
 	if key == "" {
 		return nil, ErrNoKey
 	}
-	if len(f.Note) > consts.MaxFindingNoteLen {
+	// Counted before the trim, as the editor counts it: Go's TrimSpace and JS's trim() disagree
+	// on U+0085 and U+FEFF, so a count after the trim could differ between the two sides.
+	if utf8.RuneCountInString(f.Note) > consts.MaxFindingNoteLen {
 		return nil, ErrTooLong
 	}
 
@@ -285,9 +287,13 @@ func (s *Store) Set(f Finding, now time.Time) (*Finding, error) {
 		}
 	}
 
+	// persist writes the held map, so the change goes in first; a failed write puts the one key
+	// back, and the findings shown stay the findings on disk.
+	prev, had := s.s.Findings[key]
 	if next.IsEmpty() {
 		delete(s.s.Findings, key)
 		if err := s.persist(); err != nil {
+			s.restore(key, prev, had)
 			return nil, err
 		}
 		return nil, nil
@@ -295,9 +301,20 @@ func (s *Store) Set(f Finding, now time.Time) (*Finding, error) {
 
 	s.s.Findings[key] = &next
 	if err := s.persist(); err != nil {
+		s.restore(key, prev, had)
 		return nil, err
 	}
 	return clone(&next), nil
+}
+
+// restore puts one key back as it was before a write that failed: the finding it held, or no
+// entry at all. Callers hold s.mu.
+func (s *Store) restore(key string, prev *Finding, had bool) {
+	if had {
+		s.s.Findings[key] = prev
+		return
+	}
+	delete(s.s.Findings, key)
 }
 
 // Remove deletes an event's finding. Removing one that does not exist is not an error — the
@@ -305,11 +322,16 @@ func (s *Store) Set(f Finding, now time.Time) (*Finding, error) {
 func (s *Store) Remove(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.s.Findings[key]; !ok {
+	prev, ok := s.s.Findings[key]
+	if !ok {
 		return nil
 	}
 	delete(s.s.Findings, key)
-	return s.persist()
+	if err := s.persist(); err != nil {
+		s.restore(key, prev, true)
+		return err
+	}
+	return nil
 }
 
 // List returns every finding, most recently updated first — the analyst's working order.

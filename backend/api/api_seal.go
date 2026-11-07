@@ -15,10 +15,10 @@ import (
 
 // Sealing a case: one place for every seal, so every seal is recorded (plan §14.2, §15.5).
 //
-// A case is sealed in three places — after an ingest, from the Maintenance page, and on close — and
-// each used to call Compact on its own. Only the fingerprint export recorded anything, so the
-// history held the fingerprints somebody happened to export rather than the case's actual sequence
-// of images, and the chain it exists to check could not be checked.
+// A case is sealed after an ingest or a correlation backfill, from the Maintenance page, and on
+// close. The seals used to call Compact each on its own. Only the fingerprint export recorded
+// anything, so the history held the fingerprints somebody happened to export rather than the case's
+// actual sequence of images, and the chain it exists to check could not be checked.
 //
 // 🔒 A compaction ALWAYS makes a new fingerprint. The new image names the old one as its
 // predecessor and that link is bound into the root, so even a compaction that changed nothing moves
@@ -37,7 +37,7 @@ type SealOutcome struct {
 
 // sealMu serialises every seal in the process, from check to record.
 //
-// 🔒 The three seal points run on different goroutines — the ingest's, a Maintenance click, app
+// 🔒 The seal points run on different goroutines — the ingest's, a Maintenance pass or click, app
 // shutdown — and the maintenance lock does not exclude an ingest. Interleaved, two seals can each
 // compact and then both read the second image's fingerprint, so the first image is never recorded
 // and a clean case reports a gap in its history. Compaction is already exclusive inside the engine;

@@ -2,11 +2,14 @@ package annotate
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"rohy/backend/consts"
 )
@@ -443,5 +446,236 @@ func TestDeleteGraphRemovesEverything(t *testing.T) {
 	}
 	if err := s.DeleteGraph(404); err != nil {
 		t.Errorf("deleting a graph with no annotations must be success: %v", err)
+	}
+}
+
+// blockSidecar replaces a graph's sidecar with a directory, so the rename that finishes the next
+// write fails. The same method redaction/journal_test.go uses for its own file.
+func blockSidecar(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 🔒 A write that fails changes nothing in memory either. The canvas reloads from the cache after
+// every edit, so a cache that ran ahead of the file would show marks a restart then loses. Each
+// mutation writes something different from what is held, so a cache changed in place shows here.
+func TestAFailedWriteLeavesTheCacheAsTheFileIs(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(s *Store, held *Document) error
+	}{
+		{"put-create", func(s *Store, _ *Document) error {
+			_, err := s.Put(7, note("hash-b", "second"), annBase.Add(time.Second))
+			return err
+		}},
+		{"put-update", func(s *Store, held *Document) error {
+			edited := held.Items[0]
+			edited.Text = "edited"
+			_, err := s.Put(7, edited, annBase.Add(time.Second))
+			return err
+		}},
+		{"add-layer", func(s *Store, _ *Document) error {
+			_, err := s.AddLayer(7, "Lateral movement", "", annBase.Add(time.Second))
+			return err
+		}},
+		{"update-layer", func(s *Store, held *Document) error {
+			l := held.Layers[0]
+			l.Name, l.Visible = "Renamed", false
+			_, err := s.UpdateLayer(7, l)
+			return err
+		}},
+		{"delete-layer", func(s *Store, held *Document) error {
+			_, err := s.DeleteLayer(7, held.Layers[0].ID)
+			return err
+		}},
+		{"delete", func(s *Store, held *Document) error {
+			return s.Delete(7, held.Items[0].ID)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openStore(t)
+			if _, err := s.Put(7, note("hash-a", "first"), annBase); err != nil {
+				t.Fatal(err)
+			}
+			before, err := s.Get(7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			blockSidecar(t, filepath.Join(s.dir, "7.json"))
+			if err := tc.mutate(s, before); err == nil {
+				t.Fatal("the write did not fail")
+			}
+			after, err := s.Get(7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, after) {
+				t.Errorf("the cache moved without the file:\nbefore %+v\nafter  %+v", before, after)
+			}
+		})
+	}
+}
+
+// A Put refused for the item limit must not leave behind the default layer it made on the way.
+// Only a hand-edited sidecar reaches this (a full set of items and no layers), but the layer would
+// then show on the canvas although no write ever saved it.
+func TestARefusedPutLeavesNoLayerBehind(t *testing.T) {
+	dir := t.TempDir()
+	doc := Document{AnnotationsVersion: consts.AnnotationsVersion, GraphID: 7, Layers: []Layer{}}
+	for i := 0; i < consts.MaxAnnotationItems; i++ {
+		it := region(float64(i), 0, 10, 10, "")
+		it.ID = fmt.Sprintf("a-hand-%d", i)
+		it.Layer = "gone"
+		doc.Items = append(doc.Items, it)
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "7.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Put(7, note("hash-a", "one too many"), annBase); err == nil {
+		t.Fatal("a Put past the item limit must be refused")
+	}
+	got, err := s.Get(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Layers) != 0 {
+		t.Errorf("a refused Put left a layer no write saved: %+v", got.Layers)
+	}
+}
+
+// 🔒 Delete removes every annotation with the id, so a repeated id makes deleting one note delete
+// another. A create in the same millisecond as a held item, after a delete brought the count back
+// to that item's sequence, is exactly how the count alone repeats one.
+func TestAnIDIsNeverRepeatedAfterADelete(t *testing.T) {
+	s := openStore(t)
+	a, err := s.Put(7, note("hash-a", "a"), annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.Put(7, note("hash-b", "b"), annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(7, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Put(7, note("hash-c", "c"), annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID == b.ID {
+		t.Fatalf("a new annotation took a held id: %s", c.ID)
+	}
+	if err := s.Delete(7, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := s.Get(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Items) != 1 || doc.Items[0].ID != b.ID {
+		t.Errorf("deleting one annotation took another with it: %+v", doc.Items)
+	}
+}
+
+// 🔒 The layer twin of the id test. DeleteLayer removes every layer with the id and everything on
+// them, so a repeated layer id would delete a second layer and its marks along with the first.
+func TestALayerIDIsNeverRepeatedAfterADelete(t *testing.T) {
+	s := openStore(t)
+	one, err := s.AddLayer(7, "One", "", annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := s.AddLayer(7, "Two", "", annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteLayer(7, one.ID); err != nil {
+		t.Fatal(err)
+	}
+	three, err := s.AddLayer(7, "Three", "", annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if three.ID == two.ID {
+		t.Fatalf("a new layer took a held id: %s", three.ID)
+	}
+	if _, err := s.DeleteLayer(7, three.ID); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := s.Get(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Layers) != 1 || doc.Layers[0].ID != two.ID {
+		t.Errorf("deleting one layer took another with it: %+v", doc.Layers)
+	}
+}
+
+// The text limit counts characters, as its message says. Counted in bytes, a note in Japanese was
+// refused at a third of the stated length.
+func TestTextLimitCountsCharactersNotBytes(t *testing.T) {
+	s := openStore(t)
+	if _, err := s.Put(7, note("hash-a", strings.Repeat("日", consts.MaxAnnotationText)), annBase); err != nil {
+		t.Fatalf("a note of exactly %d characters was refused: %v", consts.MaxAnnotationText, err)
+	}
+	_, err := s.Put(7, note("hash-a", strings.Repeat("日", consts.MaxAnnotationText+1)), annBase)
+	if err == nil {
+		t.Fatal("a note one character past the limit was accepted")
+	}
+	if want := fmt.Sprintf(consts.MsgAnnotationTextLong, consts.MaxAnnotationText); err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+	doc, err := s.Get(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Items) != 1 {
+		t.Errorf("items = %d, want only the one that fit", len(doc.Items))
+	}
+}
+
+// An over-long layer name is cut to the cap between characters, on create and on rename. A cut
+// between bytes split the last character and stored a name that was not valid UTF-8.
+func TestOverlongLayerNameIsCutBetweenCharacters(t *testing.T) {
+	s := openStore(t)
+	long := "a" + strings.Repeat("日", 200)
+	want := "a" + strings.Repeat("日", consts.MaxLayerNameLen-1)
+	l, err := s.AddLayer(7, long, "", annBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Name != want || !utf8.ValidString(l.Name) {
+		t.Errorf("added name = %q (valid %v), want %q", l.Name, utf8.ValidString(l.Name), want)
+	}
+	renamed := *l
+	renamed.Name = long
+	got, err := s.UpdateLayer(7, renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != want || !utf8.ValidString(got.Name) {
+		t.Errorf("renamed name = %q (valid %v), want %q", got.Name, utf8.ValidString(got.Name), want)
+	}
+	doc, err := s.Get(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Layers) != 1 || doc.Layers[0].Name != want {
+		t.Errorf("stored layers = %+v, want one named %q", doc.Layers, want)
 	}
 }

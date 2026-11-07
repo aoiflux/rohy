@@ -113,6 +113,13 @@ memory grows with the case because the engine holds every rewritten node until a
 numbered item is done.** The Definition of done still lacks the integration path in CI, which is
 deferred with the other CI additions.
 
+**#36 fixes landed 2026-11-07** (§15.16): every defect §15.15 found and did not fix is fixed before
+the tag (owner, 2026-11-07). The worst: deleting an event broke every other canvas that held it; it
+is now removed from every saved canvas, and a canvas read skips a gone id. A canvas reads node
+records only, so the 5k-node layout binding takes ~25–40 ms, not 133–165 ms. The backfill seals what
+it rewrote and gives its memory back. A restore matches a link by its claim, so it no longer
+duplicates one. Notes, tags and labels count characters. What stays open is listed in §15.16.
+
 ---
 
 ## 0. Build log — where we actually are
@@ -1054,7 +1061,8 @@ unrelated records.
 
 1. Layout + viewport are always re-applied.
 2. A relation is re-applied only if an edge with the same id **and** matching endpoint hashes
-   still exists.
+   still exists, or a link of the same type joins the same two events in the same direction (a
+   re-created or rebuilt link has a new id, §15.16).
 3. A relation whose endpoints resolve by hash but whose edge is gone is offered as a
    **re-creatable** item the analyst confirms — it is re-inserted as `created_by: user` with
    `basis: ["restored from snapshot <id>"]`, because the tool asserting it now is not the same
@@ -1588,7 +1596,8 @@ Four decisions the work forced:
   which is the opposite of what a snapshot feature is for. The message says what to do instead.
 - **An edge id is not trusted alone.** "Still there" means same id *and* same endpoints — an id
   that survived a re-ingest onto different endpoints is a different edge, and treating it as
-  unchanged would leave the graph claiming a link the snapshot never held.
+  unchanged would leave the graph claiming a link the snapshot never held. (Widened in §15.16: the
+  same claim under a new id also counts as still there.)
 - **Ties resolve to the lowest id.** Deduplication should prevent one hash on two nodes, but a
   partial ingest can produce it, and resolving by map order would make the same snapshot restore
   differently between runs.
@@ -1926,8 +1935,8 @@ because index size is an open-time cost paid by every user on every launch.
 | `BenchmarkPrepare/{10k,100k}` × requirement sets | preparation is linear-ish and pays only for what is asked |
 | `BenchmarkGenerate/{sequence,field,temporal,lineage}` | per-algorithm cost at 10k/100k |
 | `BenchmarkBuild/{1,5,20}rules` | 🟡 20 rules cost ≈ 1 sort, not 20 — the GAP-4 fix, measured |
-| `BenchmarkBackfill/100k` | throughput and bounded peak memory. **Built as `BenchmarkBackfill{10k,100k}`.** Throughput holds; the memory does not stay flat. It grows about 610 B/event, and a compaction gives 85% back: the engine's delta layer, not the batches (PERFORMANCE.md §21) |
-| `BenchmarkComputeLayout/{profile}` | layout is not the bottleneck at 5k nodes. **True of the arrangement (1–12 ms); the binding takes 243–350 ms, ~72% of it a cold-store read layout does not use** (`BenchmarkComputeLayoutBinding5k`) |
+| `BenchmarkBackfill/100k` | throughput and bounded peak memory. **Built as `BenchmarkBackfill{10k,100k}`.** Throughput holds; the memory does not stay flat. It grows about 610 B/event, and a compaction gives 85% back: the engine's delta layer, not the batches (PERFORMANCE.md §21). Since §15.16 the binding seals what the pass rewrote, so that memory is held only for the pass |
+| `BenchmarkComputeLayout/{profile}` | layout is not the bottleneck at 5k nodes. **True of the arrangement (1–12 ms); the binding took 243–350 ms, ~72% of it a cold-store read layout does not use** (`BenchmarkComputeLayoutBinding5k`). **Fixed in §15.16:** the binding reads node records only, 133–165 → ~25–40 ms and 46–50 → 8.3–12.0 MB on the same machine |
 | `BenchmarkRelationHeatmap` | reuses the timeline path's cost profile. **True, including for one small graph, which pays the whole-case scan** (`BenchmarkRelationHeatmap100k`) |
 
 🔒 Benchmark the **disk** backend. In-memory runs understate write-path changes badly, because
@@ -3979,48 +3988,172 @@ measured rather than listed as not built.
 
 | Claim | Held? |
 |---|---|
-| Layout is not the bottleneck at 5k nodes | The arrangement takes 1–12 ms. The binding takes 243–350 ms, and ~72% of that is `GetEvents` reading the cold store, which layout does not use |
+| Layout is not the bottleneck at 5k nodes | The arrangement takes 1–12 ms. The binding takes 243–350 ms, and ~72% of that is `GetEvents` reading the cold store, which layout does not use. *Since §15.16: ~25–40 ms* |
 | The heatmap reuses the timeline's cost profile | Yes: 813 ms against the timeline's 675 ms at 100k. A graph of 2,500 relations still costs 670 ms |
 | The backfill: throughput and bounded peak memory | Throughput is 9–17k events/s. Memory grows ~610 B/event: 58.4 MiB held after a 100k run, 8.6 MiB after a compaction. The cause is the engine's delta layer |
 
 **Found, not fixed (for the owner).** Each was checked twice against the code by independent
-read-only agents, one of them trying to refute it.
+read-only agents, one of them trying to refute it. **Every item below has since been fixed (owner,
+2026-11-07); §15.16 records how, and what stays open.** The record is kept as it was found.
 - 🔴 **Deleting an event breaks every other canvas that holds it.** `Store.GetEvents` fails on the
   first missing id, and `DeleteEvent` prunes no layout sidecar. So the canvas of another graph
   holding the event fails to load (and Arrange, Clusters and Take snapshot fail with it). Pressing
   *Save layout* on that empty canvas then overwrites its sidecar. A redacted event is not affected:
-  its node survives.
+  its node survives. ✅ *Fixed, §15.16.*
 - The layout binding, clusters, snapshots and `GraphAPI.GetEvents` hydrate the cold store, and none
   of them uses it (the cold fields are `json:"-"`). `hydrateIDs` is the cheaper read; it is
-  unexported, so the fix needs an exported node-only read.
+  unexported, so the fix needs an exported node-only read. ✅ *Fixed, §15.16 (`GetEventRecords`).*
 - `BackfillCorrelationKeys` neither seals nor compacts, so the rewritten nodes stay in the engine's
   delta layer until the next seal. Until then the store's lock-free CSR read path is off, and the
-  WAL holds every rewrite.
+  WAL holds every rewrite. ✅ *Fixed, §15.16: the binding seals what it rewrote.*
 - **A re-created snapshot link is offered again**, and a second apply duplicates it: the plan
-  matches live links by the snapshot's old relation id.
+  matches live links by the snapshot's old relation id. ✅ *Fixed, §15.16.*
 - **The layout's cycle count over-reports.** The node forced when none is ready need not be on a
-  cycle; one cycle can read as two, and lineage's note is then false for that group.
+  cycle; one cycle can read as two, and lineage's note is then false for that group. ✅ *Fixed,
+  §15.16: the note counts forced placements. Forcing itself is unchanged.*
 - `CheckIntegrity` passes `context.Background()`, although its comment says it shares the
-  maintenance cancellation. Stop is shown during a check and does nothing.
+  maintenance cancellation. Stop is shown during a check and does nothing. ✅ *Fixed, §15.16: the
+  comment is true, and Stop is shown only during a backfill.*
 - A deep check calls `VerifyImage` without the maintenance lock that the image button takes. It is
   contention, not a wrong answer, and a backfill started from the Rules page makes it reachable.
+  ✅ *Fixed, §15.16.*
 - The replay copy says approximate links are "drawn as a weaker claim", but nothing draws them.
+  ✅ *Fixed, §15.16.*
 - The heatmap is fetched only on toggle, its grouping or its scope. When the case changes while the
   page is open and the histogram reloads (the lane *Group by*, *Retry*), the heatmap keeps the old
-  extent, and its columns no longer line up with the histogram's.
+  extent, and its columns no longer line up with the histogram's. ✅ *Fixed, §15.16.*
 - **Findings limits disagree across the boundary.** The note is checked in UTF-16 units in the
   editor and in bytes in Go, so a long non-Latin note is refused with no warning. A tag is cut to
   64 *bytes*, which can split a character. Annotation text and snapshot labels are checked in bytes
-  while their messages say "characters".
+  while their messages say "characters". ✅ *Fixed, §15.16 (layer names had the same byte cut).*
 - The annotation cache (and the findings map) is changed before the file is written, with no
-  rollback, so a failed write leaves the screen ahead of the disk.
+  rollback, so a failed write leaves the screen ahead of the disk. ✅ *Fixed, §15.16.*
 - `annotate.newID` derives from `len(items)`, so a delete then a create in the same millisecond can
-  repeat an id. It is unlikely from the UI.
-- A layout refused for the node cap or an unknown profile is coded `internal_error`.
+  repeat an id. It is unlikely from the UI. ✅ *Fixed, §15.16.*
+- A layout refused for the node cap or an unknown profile is coded `internal_error`. ✅ *Fixed,
+  §15.16: `parse_error`.*
 - Wording: v0.2.0's notes promise a resource column "per host", but no host slot exists;
   `lineage.go:21` says the lowest-id parent, but the code takes the first one reached; the comment
   at `consts.go:1485` says the oldest snapshot is refused; `api_layout.go:247` says `GetEvents`
-  returns a found-set; `CodeArea.svelte` says the hint mentions Escape.
-- Dead code: `windowEvents` (`graphene_query.go`) and `SystemAPI.setEmitter`.
+  returns a found-set; `CodeArea.svelte` says the hint mentions Escape. ✅ *Fixed, §15.16; the
+  v0.2.0 notes are corrected in v0.3.0's, not edited.*
+- Dead code: `windowEvents` (`graphene_query.go`) and `SystemAPI.setEmitter`. ✅ *Removed, §15.16.*
 
 **Still open:** the integration suite and the extension tests run only in the local gate.
+
+### 15.16 The §15.15 fixes (2026-11-07)
+
+**Decision (owner, 2026-11-07):** fix every defect §15.15 found, before v0.3.0 "Perseus" is
+tagged, rather than ship them as known issues. The work ran in seven clusters; each fix was
+designed, critiqued, built and reviewed, and the docs were then checked against the code.
+
+**Built:**
+- **A deleted event** (LLD §14, §14.1, §23):
+  - `Store.GetEvents` is gone. `Store.GetEventRecords` replaces it: one batched node read, no cold
+    store, the order asked kept, and an id the case no longer holds left out. It serves
+    `ComputeLayout`, `Clusters`, `TakeSnapshot` and `GraphAPI.GetEvents`.
+  - `hydrateIDs` shares the read (`eventRecords`) and stays strict: a missing id is still
+    `MsgNodesMissing`.
+  - `DeleteEvent` removes the event from the store, then from every saved canvas
+    (`layout.Store.RemoveNode`). One bad canvas does not stop the walk. The failures come back
+    together as `persistence_error` (`MsgEventDeletedCanvasStale`), and deleting again finishes the
+    prune.
+  - `layout.Store` has one mutex over `Save`, `Load`, `Delete`, `RemoveNode` and `MigrateLegacy`.
+    `Load` takes it because on Windows a rename over an open file fails.
+- **Caches and small items** (LLD §13, §14.6, §18.7):
+  - The annotation store changes a clone and caches it only after the rename. Findings put the one
+    key back when a write fails.
+  - An annotation or layer id steps past any id in use.
+  - A deep check verifies the image through the `VerifyImage` binding, under the maintenance lock.
+  - Every `graphlayout` refusal is `parse_error`.
+  - `windowEvents` and `SystemAPI.setEmitter` are removed, and the snapshot-cap comment is true.
+- **The backfill seals** (LLD §18.2, PERFORMANCE.md §21):
+  - `BackfillCorrelationKeys` returns `BackfillOutcome`: the pass's result plus `sealed` and
+    `seal_error`. When `Projected > 0` it seals through `sealAndRecordLocked` before it gives the
+    maintenance lock back, and asks the write gate again under `sealMu`.
+  - `Projected` counts a batch only once it has committed.
+  - The Maintenance store and the Rules page (`lib/maintenance/backfill.js`) count the seal and say
+    the fingerprint has changed. A stopped pass is still named as stopped.
+- **Frontend copy** (LLD §14.3, §14.4, §18.7):
+  - The replay caption is true.
+  - Stop is shown only while a backfill runs.
+  - Every heatmap fetch comes from one effect (`heatmapNext`), so the strip follows the histogram's
+    extent.
+  - The `CancelMaintenance`, `CheckIntegrity` and `CodeArea.svelte` comments are true.
+- **Restore duplicates** (LLD §14.5):
+  - A snapshot link is present when the same edge joins the same events, or when a link of the same
+    type joins them in the same direction.
+  - Types go through `relationTypeOrDefault` on both sides.
+  - One apply writes a claim once, the first row in snapshot order.
+- **Layout notes** (LLD §14.1): Sequence and Lineage count forced placements, and the lineage
+  comment names the parent a node really joins.
+- **Length units** (LLD §13, §14.5, §14.6, §23):
+  - `utils.CapRunes`. The findings note, tags, annotation text, layer names and snapshot labels count
+    runes.
+  - A cut tag is trimmed before the duplicate check.
+  - The editor counts code points (`lib/findings.js`). `backend/findings/testdata/note-limit-cases.json`
+    holds both sides to one set of cases, and `lib/consts/limits.test.js` holds the mirrored bounds
+    to `consts.go`.
+
+**Measured:** `BenchmarkComputeLayoutBinding5k`, on the same machine before and after:
+
+| | Time | Allocated | Allocations |
+|---|---|---|---|
+| Before | 133–165 ms | 46.2–49.9 MB | 122k–164k |
+| After | ~25–40 ms (24–28 ms idle; 33–147 ms with the CPU saturated) | 8.3–12.0 MB | 71k–114k |
+
+The memory figures repeat on every run; the time does not.
+
+**Tests:** 52 new Go test functions, 1,140 → 1,192: deleted event 12, caches 9, backfill 9,
+restore 10, layout notes 3, length units 8, and 1 from the whole-diff review (a failed backfill
+still seals what it committed). 49 new frontend tests, 795 → 844, 11 of them from the review (the
+Maintenance page stays busy through a deep re-check; a read that fails mid-pass does not free it;
+the Rules line names a seal that was not recorded as a seal). Four new test files, 51 → 55:
+`lib/maintenance/backfill.test.js`, `routes/MaintenanceView.stop.test.js`, `lib/findings.test.js`,
+`lib/consts/limits.test.js`. Fuzz targets (10), benchmarks (65) and extension tests (58) are
+unchanged. The gate passes 11/11.
+
+**Still open:**
+- **Owner questions:**
+  - *Save layout* after a failed load. If a canvas's mapping fails to load for any reason but a
+    gone event (an unreadable `canvas-<n>.json`, a store error), the canvas stays empty, and *Save
+    layout* (or *Keep* in Arrange) writes it over the sidecar. Disable both until the mapping has
+    loaded?
+  - `graphreg.Store`'s mutators and `rules.Registry.SetEnabled` change memory before the write and
+    never roll back: the same defect as the annotation cache. Fix now, or record?
+  - The "restored from" note is not part of a link's identity in a restore (the owner's fix named
+    it). Confirm.
+  - The pre-run backfill copy (`BACKFILL_STALE_DETAIL`, `MAINT_PROJECTION_STALE`) does not say the
+    fingerprint will change. A pass that fails after a good seal does not say so in its error either.
+  - The layout note says "the lowest internal id", which the page does not show.
+- **Error codes:** the annotate bindings code a failed write `internal_error` (only
+  `DeleteAnnotation` uses `persistence_error`); a split needs a validation sentinel in `annotate`.
+  `RelationHeatmap` codes an unknown grouping `internal_error`, the code of a store failure; a fix
+  needs a graphene sentinel for `MsgHeatmapUnknownGroup`.
+- **Restore:** a crash between `InsertRelations`' edge commit and its index step leaves a link the
+  next preview offers again (`ApplyRestore` could run `RepairRelationIndex` first). A restore, a rule
+  rebuild and `CreateRelation` hold the case lock only shared, so a restore that plans mid-rebuild
+  can still write a duplicate.
+- **Canvas writes:** `ApplyRestore` and the whole-canvas *Save layout* load, change and save outside
+  one hold of the layout mutex, so either can put a pruned id back. It is harmless while reads skip
+  gone ids; closing it needs a `layout.Update(graphID, fn)`. An unreadable `canvas-<n>.json` makes
+  every later `DeleteEvent` fail until it is fixed or removed, and `checkLayouts` checks file names
+  only, so no integrity check reports it.
+- **Maintenance page:** a backfill started from the Rules page is not shown there (it never asks
+  `isRunningMaintenance()` on mount), and Stop stays shown, doing nothing, during the backfill's
+  seal.
+- **Layout:** restricting forcing to nodes on a cycle is the planned later fix. The test expectations
+  it changes are commented in `TestSequenceCountsForcedPlacementsNotCycles` and
+  `TestLineageForcedRootNoteClaimsNothingAboutItsParent`.
+- **Units:** on WebKit (macOS, Linux) the tag input's `maxlength` may count grapheme clusters, so a
+  typed tag can pass 64 code points; not checked on those builds. Tags and layer names already cut by
+  bytes keep their U+FFFD.
+- **Found in passing, not touched:** `SaveLayout` has no `theCase.writable()` gate; `DeleteGraph`
+  calls `a.layout.Delete` without the nil check its neighbours make; `TakeSnapshot` lists ids from a
+  map, so `nodes[]` order varies between snapshots; `InspectRelation` swallows `GetEvent` errors;
+  comments in `api_snapshot_test.go` and `api_annotate_test.go` imply ids are reused; the comment at
+  `api_events.go:53` still names `SetEmitter`.
+- **Not automated:** the heatmap effect has no test (view tests render on the server, where effects
+  do not run), and `RulesView` has no route test; its message choice is tested through
+  `backfillNotice`. The wails bindings were regenerated with `wails generate module`; a normal build
+  should confirm them.

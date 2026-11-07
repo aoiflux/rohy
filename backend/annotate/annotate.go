@@ -26,8 +26,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"rohy/backend/consts"
+	"rohy/backend/utils"
 )
 
 // ErrNotFound is returned for a layer or annotation id that does not exist.
@@ -85,7 +87,8 @@ type Store struct {
 	mu  sync.Mutex
 	dir string
 	// docs caches loaded graphs. Annotations are edited interactively, so re-reading the file on
-	// every keystroke would be the wrong shape; the cache is written through on every mutation.
+	// every keystroke would be the wrong shape; the cache is written through on every mutation,
+	// and changes only once the write has succeeded (commit).
 	docs map[uint64]*Document
 }
 
@@ -147,6 +150,17 @@ func (s *Store) persist(doc *Document) error {
 	return os.Rename(tmp, path)
 }
 
+// commit writes next and, only once it is on disk, makes it the graph's cached document. Caller
+// holds the lock. Every mutation changes a copy (cloneDoc), never the cached document, so a failed
+// write leaves the cache as the file is: what the canvas reloads is what a restart would read.
+func (s *Store) commit(next *Document) error {
+	if err := s.persist(next); err != nil {
+		return err
+	}
+	s.docs[next.GraphID] = next
+	return nil
+}
+
 // Get returns a copy of one graph's annotations. A copy, so a caller holding the result cannot
 // mutate stored state through it.
 func (s *Store) Get(graphID uint64) (*Document, error) {
@@ -171,22 +185,21 @@ func (s *Store) AddLayer(graphID uint64, name, colour string, now time.Time) (*L
 	if name == "" {
 		return nil, errors.New(consts.MsgAnnotationLayerName)
 	}
-	if len(name) > consts.MaxLayerNameLen {
-		name = name[:consts.MaxLayerNameLen]
-	}
+	name = utils.CapRunes(name, consts.MaxLayerNameLen)
 	if len(doc.Layers) >= consts.MaxAnnotationLayers {
 		return nil, fmt.Errorf(consts.MsgAnnotationLayerLimit, consts.MaxAnnotationLayers)
 	}
 
+	next := cloneDoc(doc)
 	l := Layer{
-		ID:      newID("layer", now, len(doc.Layers)),
+		ID:      newID("layer", now, len(next.Layers), func(id string) bool { return hasLayer(next, id) }),
 		Name:    name,
 		Colour:  strings.TrimSpace(colour),
 		Visible: true,
-		Z:       nextZ(doc.Layers),
+		Z:       nextZ(next.Layers),
 	}
-	doc.Layers = append(doc.Layers, l)
-	if err := s.persist(doc); err != nil {
+	next.Layers = append(next.Layers, l)
+	if err := s.commit(next); err != nil {
 		return nil, err
 	}
 	return &l, nil
@@ -208,17 +221,16 @@ func (s *Store) UpdateLayer(graphID uint64, l Layer) (*Layer, error) {
 		if name == "" {
 			return nil, errors.New(consts.MsgAnnotationLayerName)
 		}
-		if len(name) > consts.MaxLayerNameLen {
-			name = name[:consts.MaxLayerNameLen]
-		}
-		doc.Layers[i].Name = name
-		doc.Layers[i].Colour = strings.TrimSpace(l.Colour)
-		doc.Layers[i].Visible = l.Visible
-		doc.Layers[i].Z = l.Z
-		if err := s.persist(doc); err != nil {
+		name = utils.CapRunes(name, consts.MaxLayerNameLen)
+		next := cloneDoc(doc)
+		next.Layers[i].Name = name
+		next.Layers[i].Colour = strings.TrimSpace(l.Colour)
+		next.Layers[i].Visible = l.Visible
+		next.Layers[i].Z = l.Z
+		if err := s.commit(next); err != nil {
 			return nil, err
 		}
-		out := doc.Layers[i]
+		out := next.Layers[i]
 		return &out, nil
 	}
 	return nil, fmt.Errorf("%w: "+consts.MsgAnnotationNoLayer, ErrNotFound, l.ID)
@@ -237,9 +249,12 @@ func (s *Store) DeleteLayer(graphID uint64, layerID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Filtering in place is safe only over the clone, which owns its storage: over the cached
+	// document it would rewrite the slices the cache still holds before the write is known to land.
+	next := cloneDoc(doc)
 	found := false
-	layers := doc.Layers[:0]
-	for _, l := range doc.Layers {
+	layers := next.Layers[:0]
+	for _, l := range next.Layers {
 		if l.ID == layerID {
 			found = true
 			continue
@@ -249,19 +264,22 @@ func (s *Store) DeleteLayer(graphID uint64, layerID string) (int, error) {
 	if !found {
 		return 0, fmt.Errorf("%w: "+consts.MsgAnnotationNoLayer, ErrNotFound, layerID)
 	}
-	doc.Layers = layers
+	next.Layers = layers
 
 	removed := 0
-	items := doc.Items[:0]
-	for _, it := range doc.Items {
+	items := next.Items[:0]
+	for _, it := range next.Items {
 		if it.Layer == layerID {
 			removed++
 			continue
 		}
 		items = append(items, it)
 	}
-	doc.Items = items
-	return removed, s.persist(doc)
+	next.Items = items
+	if err := s.commit(next); err != nil {
+		return 0, err
+	}
+	return removed, nil
 }
 
 // CountOnLayer reports how many annotations a layer holds, so a caller can warn before deleting.
@@ -297,38 +315,41 @@ func (s *Store) Put(graphID uint64, it Item, now time.Time) (*Item, error) {
 		return nil, err
 	}
 
+	// Everything below changes the clone, so a refusal (the item limit) or a failed write throws
+	// it away, along with any default layer made on the way.
+	next := cloneDoc(doc)
 	if it.Layer == "" {
-		l, err := s.ensureDefaultLayer(doc, now)
+		l, err := s.ensureDefaultLayer(next, now)
 		if err != nil {
 			return nil, err
 		}
 		it.Layer = l.ID
-	} else if !hasLayer(doc, it.Layer) {
+	} else if !hasLayer(next, it.Layer) {
 		return nil, fmt.Errorf("%w: "+consts.MsgAnnotationNoLayer, ErrNotFound, it.Layer)
 	}
 
-	for i := range doc.Items {
-		if doc.Items[i].ID != it.ID || it.ID == "" {
+	for i := range next.Items {
+		if next.Items[i].ID != it.ID || it.ID == "" {
 			continue
 		}
-		it.CreatedAt = doc.Items[i].CreatedAt
+		it.CreatedAt = next.Items[i].CreatedAt
 		it.UpdatedAt = now
-		doc.Items[i] = it
-		if err := s.persist(doc); err != nil {
+		next.Items[i] = it
+		if err := s.commit(next); err != nil {
 			return nil, err
 		}
-		out := doc.Items[i]
+		out := next.Items[i]
 		return &out, nil
 	}
 
-	if len(doc.Items) >= consts.MaxAnnotationItems {
+	if len(next.Items) >= consts.MaxAnnotationItems {
 		return nil, fmt.Errorf(consts.MsgAnnotationItemLimit, consts.MaxAnnotationItems)
 	}
-	it.ID = newID("a", now, len(doc.Items))
+	it.ID = newID("a", now, len(next.Items), func(id string) bool { return hasItem(next, id) })
 	it.CreatedAt = now
 	it.UpdatedAt = now
-	doc.Items = append(doc.Items, it)
-	if err := s.persist(doc); err != nil {
+	next.Items = append(next.Items, it)
+	if err := s.commit(next); err != nil {
 		return nil, err
 	}
 	out := it
@@ -343,18 +364,19 @@ func (s *Store) Delete(graphID uint64, id string) error {
 	if err != nil {
 		return err
 	}
-	items := doc.Items[:0]
-	for _, it := range doc.Items {
+	next := cloneDoc(doc)
+	items := next.Items[:0]
+	for _, it := range next.Items {
 		if it.ID == id {
 			continue
 		}
 		items = append(items, it)
 	}
-	if len(items) == len(doc.Items) {
+	if len(items) == len(next.Items) {
 		return nil
 	}
-	doc.Items = items
-	return s.persist(doc)
+	next.Items = items
+	return s.commit(next)
 }
 
 // DeleteGraph removes a graph's annotations entirely, for a graph that has been deleted.
@@ -397,7 +419,7 @@ func (s *Store) ensureDefaultLayer(doc *Document, now time.Time) (*Layer, error)
 		return &out, nil
 	}
 	l := Layer{
-		ID:      newID("layer", now, 0),
+		ID:      newID("layer", now, 0, func(id string) bool { return hasLayer(doc, id) }),
 		Name:    consts.DefaultLayerName,
 		Visible: true,
 		Z:       0,
@@ -411,7 +433,7 @@ func (s *Store) ensureDefaultLayer(doc *Document, now time.Time) (*Layer, error)
 // telling them it did not fit.
 func validate(it *Item) error {
 	it.Text = strings.TrimSpace(it.Text)
-	if len(it.Text) > consts.MaxAnnotationText {
+	if utf8.RuneCountInString(it.Text) > consts.MaxAnnotationText {
 		return fmt.Errorf(consts.MsgAnnotationTextLong, consts.MaxAnnotationText)
 	}
 	if !known(consts.AnnotationKinds, it.Kind) {
@@ -464,6 +486,15 @@ func hasLayer(doc *Document, id string) bool {
 	return false
 }
 
+func hasItem(doc *Document, id string) bool {
+	for _, it := range doc.Items {
+		if it.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func nextZ(layers []Layer) int {
 	z := 0
 	for _, l := range layers {
@@ -483,15 +514,30 @@ func known(set []string, v string) bool {
 	return false
 }
 
-// newID derives a stable, sortable id. Derived rather than random so the sidecar reads in
-// creation order by eye, and so a test can predict it.
-func newID(prefix string, at time.Time, seq int) string {
-	return fmt.Sprintf("%s-%s-%d", prefix, at.UTC().Format("20060102150405.000"), seq)
+// newID derives a stable, sortable id: the prefix, the creation time to the millisecond, and a
+// sequence. Derived rather than random so the sidecar reads in creation order by eye, and so a
+// test can predict it.
+//
+// The sequence starts at seq, the count already held, and steps past every id taken reports. The
+// count alone is not unique: after a delete it can name a held id created in the same millisecond,
+// and Delete and DeleteLayer remove every entry with an id, so a repeat would take both. taken is
+// true for at most the ids held, so the loop ends within that many steps.
+func newID(prefix string, at time.Time, seq int, taken func(string) bool) string {
+	stamp := at.UTC().Format("20060102150405.000")
+	for ; ; seq++ {
+		if id := fmt.Sprintf("%s-%s-%d", prefix, stamp, seq); !taken(id) {
+			return id
+		}
+	}
 }
 
+// cloneDoc copies a document deeply enough that changing the copy cannot reach the original. The
+// mutators change a clone and commit it, so a clone is also what gets saved: both slices are made
+// rather than appended to nil, so an empty one is written as [] and never as null.
 func cloneDoc(doc *Document) *Document {
 	out := *doc
-	out.Layers = append([]Layer(nil), doc.Layers...)
+	out.Layers = make([]Layer, len(doc.Layers))
+	copy(out.Layers, doc.Layers)
 	out.Items = make([]Item, len(doc.Items))
 	copy(out.Items, doc.Items)
 	for i := range out.Items {

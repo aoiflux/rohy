@@ -290,6 +290,66 @@ export namespace api {
 		    return a;
 		}
 	}
+	export class SealOutcome {
+	    state: string;
+	    snapshot?: string;
+	    signed?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SealOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.snapshot = source["snapshot"];
+	        this.signed = source["signed"];
+	    }
+	}
+	export class BackfillOutcome {
+	    examined: number;
+	    projected: number;
+	    already_current: number;
+	    failed: number;
+	    redacted: number;
+	    cancelled: boolean;
+	    sealed?: SealOutcome;
+	    seal_error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackfillOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.examined = source["examined"];
+	        this.projected = source["projected"];
+	        this.already_current = source["already_current"];
+	        this.failed = source["failed"];
+	        this.redacted = source["redacted"];
+	        this.cancelled = source["cancelled"];
+	        this.sealed = this.convertValues(source["sealed"], SealOutcome);
+	        this.seal_error = source["seal_error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class EventQuery {
 	    event_id: string;
 	    provider: string;
@@ -615,22 +675,6 @@ export namespace api {
 		    }
 		    return a;
 		}
-	}
-	export class SealOutcome {
-	    state: string;
-	    snapshot?: string;
-	    signed?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new SealOutcome(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.state = source["state"];
-	        this.snapshot = source["snapshot"];
-	        this.signed = source["signed"];
-	    }
 	}
 	export class CheckpointPublished {
 	    statement: CheckpointStatement;
@@ -2110,28 +2154,6 @@ export namespace graphbuild {
 
 export namespace graphene {
 	
-	export class BackfillResult {
-	    examined: number;
-	    projected: number;
-	    already_current: number;
-	    failed: number;
-	    redacted: number;
-	    cancelled: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new BackfillResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.examined = source["examined"];
-	        this.projected = source["projected"];
-	        this.already_current = source["already_current"];
-	        this.failed = source["failed"];
-	        this.redacted = source["redacted"];
-	        this.cancelled = source["cancelled"];
-	    }
-	}
 	export class Checkpoint {
 	    seq: number;
 	    // Go type: time

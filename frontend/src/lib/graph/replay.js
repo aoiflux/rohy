@@ -72,8 +72,8 @@ export function build(nodes, edges) {
     }
     // One or both endpoints have no timestamp, so the relationship has no moment at which it
     // became true. It appears as soon as both its endpoints are on screen — which is the earliest
-    // point at which drawing it is even coherent — and it is marked approximate so the canvas can
-    // show it as a weaker claim rather than as a placed one.
+    // point at which drawing it is even coherent — and it is listed as approximate so the replay
+    // bar can count it. The canvas draws it like any other link.
     edgeAt.set(String(e.id), datedEnds.length === 1 ? datedEnds[0] : ALWAYS);
     approximateEdges.push(e.id);
   }

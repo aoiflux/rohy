@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -236,9 +237,12 @@ func (a *GraphAPI) DeleteGraph(id uint64) error {
 	return nil
 }
 
-// GetEvents hydrates the events backing a set of canvas nodes, in the order given.
+// GetEvents returns the stored records behind a set of canvas cards, in the order given. An
+// id no longer in the case is left out, so one deleted event costs its own card and not the
+// canvas. The cold fields are not read: a card shows neither, and EventsAPI.GetEvent is
+// where they are paid for.
 func (a *GraphAPI) GetEvents(ids []uint64) ([]*graphene.Event, error) {
-	events, err := a.store.GetEvents(ids)
+	events, err := a.store.GetEventRecords(ids)
 	if err != nil {
 		return nil, AsError(consts.ErrCodePersistence, err)
 	}
@@ -352,9 +356,9 @@ func (a *GraphAPI) DeleteRelation(id uint64) error {
 	return nil
 }
 
-// DeleteEvent removes an event node and cascades to its relations. This is
-// destructive (forensic evidence is removed from the case DB); callers must confirm
-// intent in the UI. Idempotent on a missing id.
+// DeleteEvent removes an event node, cascades to its relations, and removes it from every
+// graph's saved canvas. This is destructive (forensic evidence is removed from the case DB);
+// callers must confirm intent in the UI. Idempotent on a missing id.
 func (a *GraphAPI) DeleteEvent(id uint64) error {
 	release, busy := theCase.share(consts.CaseActivityGraphEdit)
 	if busy != nil {
@@ -363,10 +367,19 @@ func (a *GraphAPI) DeleteEvent(id uint64) error {
 	defer release()
 	if err := a.store.DeleteEvent(id); err != nil {
 		var nf *store.ErrNotFound
-		if errors.As(err, &nf) {
-			return nil
+		if !errors.As(err, &nf) {
+			return AsError(consts.ErrCodePersistence, err)
 		}
-		return AsError(consts.ErrCodePersistence, err)
+		// Already gone. The prune still runs: deleting again is how a delete whose prune
+		// failed is finished.
+	}
+	// Store first, sidecars second. A crash between the two leaves a canvas naming a gone
+	// event, which GetEventRecords skips; the other order could leave an event in the case
+	// that its canvases no longer show.
+	if a.layout != nil {
+		if err := a.layout.RemoveNode(id); err != nil {
+			return AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgEventDeletedCanvasStale, id, err))
+		}
 	}
 	return nil
 }

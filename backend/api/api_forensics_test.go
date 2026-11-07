@@ -293,6 +293,60 @@ func TestWholeStoreActionsRefuseWhileAnotherPassRuns(t *testing.T) {
 	}
 }
 
+// A deep check verifies the image under the same lock the button takes, for the button's reason:
+// that churn beside a running pass slows both. The claim only tries, so while a pass runs the
+// report says the image went unverified and every other detector still runs.
+func TestADeepCheckLeavesTheImageToARunningPass(t *testing.T) {
+	_, _, maint := forensicCase(t)
+	if err := maint.CompactCase(); err != nil {
+		t.Fatal(err)
+	}
+	if err := maint.begin(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(maint.finish)
+
+	rep, err := maint.CheckIntegrity(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Deep {
+		t.Error("the deep check did not run its deep detectors")
+	}
+	refused := false
+	for _, e := range rep.Errors {
+		if strings.Contains(e, consts.MsgMaintenanceInProgress) {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Errorf("the image was verified beside a running pass; errors = %q", rep.Errors)
+	}
+}
+
+// The image step's claim is released when the check ends, so a pass started next is not refused.
+func TestADeepCheckReleasesTheMaintenanceLock(t *testing.T) {
+	_, _, maint := forensicCase(t)
+	if err := maint.CompactCase(); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := maint.CheckIntegrity(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range rep.Errors {
+		if strings.Contains(e, consts.MsgMaintenanceInProgress) {
+			t.Errorf("a deep check with nothing running was refused the image: %q", e)
+		}
+	}
+	if maint.IsRunningMaintenance() {
+		t.Error("the deep check left the maintenance lock held")
+	}
+	if err := maint.CompactCase(); err != nil {
+		t.Errorf("a pass after the deep check was refused: %v", err)
+	}
+}
+
 // --- The chain, end to end ---
 
 func findingCodes(rep caseintegrity.Report) []string {

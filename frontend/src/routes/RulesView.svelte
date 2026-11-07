@@ -12,8 +12,10 @@
   import { events, emptyFilter } from '../stores/events.js';
   import { graph } from '../stores/graph.js';
   import { snackbar } from '../stores/snackbar.js';
+  import { maintenance } from '../stores/maintenance.js';
   import { UI, ROUTES, THEMES, RULE_SOURCES, CHANNELS } from '../lib/consts/index.js';
   import * as api from '../lib/api/index.js';
+  import { backfillNotice } from '../lib/maintenance/backfill.js';
   import { downloadRuleBundle } from '../lib/export.js';
 
   import AppBar from '../components/material/AppBar.svelte';
@@ -48,9 +50,13 @@
     const off = api.on(CHANNELS.MAINTENANCE_PROGRESS, (p) => (backfillProgress = p));
     try {
       const res = await api.backfillCorrelationKeys();
-      if (res?.cancelled) snackbar.info(UI.BACKFILL_PARTIAL);
-      else snackbar.success(`${UI.BACKFILL_DONE} ${res?.projected ?? 0}`);
+      // The pass sealed what it rewrote. The Maintenance page's store outlives this view, and a
+      // verdict it holds about the image the seal replaced must not read as current there.
+      maintenance.noteSeal(res?.sealed);
+      const notice = backfillNotice(res);
+      snackbar[notice.kind](notice.text);
     } catch (err) {
+      maintenance.noteFailedBackfill(err);
       snackbar.error(String(err?.message ?? err));
     } finally {
       off?.();

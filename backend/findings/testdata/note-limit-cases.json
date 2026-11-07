@@ -1,0 +1,8 @@
+[
+  { "name": "an English note at the limit fits", "unit": "x", "over": 0, "fits": true },
+  { "name": "an English note one character past the limit is refused", "unit": "x", "over": 1, "fits": false },
+  { "name": "a Japanese note at the limit fits, though it is three times as many bytes", "unit": "\u65e5", "over": 0, "fits": true },
+  { "name": "a Japanese note one character past the limit is refused", "unit": "\u65e5", "over": 1, "fits": false },
+  { "name": "an emoji note at the limit fits, though each one is two UTF-16 units", "unit": "\ud83d\ude00", "over": 0, "fits": true },
+  { "name": "an emoji note one character past the limit is refused", "unit": "\ud83d\ude00", "over": 1, "fits": false }
+]

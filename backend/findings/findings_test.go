@@ -1,11 +1,13 @@
 package findings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"rohy/backend/consts"
 )
@@ -430,5 +432,189 @@ func TestConcurrentUseIsSafe(t *testing.T) {
 	}
 	if s.Stats().Total != 8 {
 		t.Fatalf("total = %d, want 8", s.Stats().Total)
+	}
+}
+
+// blockSidecar replaces findings.json with a directory, so the rename that finishes the next write
+// fails. The same method redaction/journal_test.go uses for its own file.
+func blockSidecar(t *testing.T, s *Store) {
+	t.Helper()
+	path := filepath.Join(s.dir, findingsFile)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 🔒 A write that fails changes nothing in memory either: the findings shown are the findings on
+// disk. Each Set writes something different from what is held, so a map changed before the write
+// shows here: a new key, an edited note, and a clear.
+func TestAFailedSetChangesNothing(t *testing.T) {
+	s := newStore(t)
+	mustSet(t, s, Finding{Key: "k1", Flagged: true, Note: "kept"}, at(0))
+	blockSidecar(t, s)
+
+	if _, err := s.Set(Finding{Key: "k2", Flagged: true}, at(1)); err == nil {
+		t.Fatal("the write of a new finding did not fail")
+	}
+	if s.Get("k2") != nil {
+		t.Error("a finding that was never written is shown")
+	}
+	if _, err := s.Set(Finding{Key: "k1", Note: "changed"}, at(1)); err == nil {
+		t.Fatal("the write of an edit did not fail")
+	}
+	if got := s.Get("k1"); got == nil || got.Note != "kept" || !got.Flagged {
+		t.Errorf("an edit that was never written is shown: %+v", got)
+	}
+	if _, err := s.Set(Finding{Key: "k1"}, at(1)); err == nil {
+		t.Fatal("the write of a clear did not fail")
+	}
+	if s.Get("k1") == nil {
+		t.Error("a clear that was never written removed the finding")
+	}
+	if got := s.Stats().Total; got != 1 {
+		t.Errorf("total = %d, want the one finding on disk", got)
+	}
+}
+
+// 🔒 The Remove twin: a removal that was never written must not hide the finding the file holds.
+func TestAFailedRemoveKeepsTheFinding(t *testing.T) {
+	s := newStore(t)
+	mustSet(t, s, Finding{Key: "k1", Flagged: true, Note: "kept"}, at(0))
+	blockSidecar(t, s)
+
+	if err := s.Remove("k1"); err == nil {
+		t.Fatal("the write did not fail")
+	}
+	if got := s.Get("k1"); got == nil || got.Note != "kept" {
+		t.Errorf("a removal that was never written hid the finding: %+v", got)
+	}
+}
+
+// noteLimitCase is one row of testdata/note-limit-cases.json, which the editor's Vitest reads
+// too, so the frontend warns at exactly the length the backend refuses.
+type noteLimitCase struct {
+	Name string `json:"name"`
+	Unit string `json:"unit"`
+	Over int    `json:"over"`
+	Fits bool   `json:"fits"`
+}
+
+// The note limit counts characters, not bytes. Counted in bytes, a note in Japanese got a third
+// of the room one in English gets, and the editor, which counts characters, never warned before
+// the save failed.
+func TestNoteLimitCountsCharactersNotBytes(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "note-limit-cases.json"))
+	if err != nil {
+		t.Fatalf("read the shared cases: %v", err)
+	}
+	var cases []noteLimitCase
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatalf("parse the shared cases: %v", err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("the shared cases file holds no cases")
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			s := newStore(t)
+			note := strings.Repeat(tc.Unit, consts.MaxFindingNoteLen+tc.Over)
+			_, err := s.Set(Finding{Key: "hash-a", Note: note}, at(0))
+			if tc.Fits {
+				if err != nil {
+					t.Fatalf("a note of %d characters (%d bytes) was refused: %v",
+						utf8.RuneCountInString(note), len(note), err)
+				}
+				if got := s.Get("hash-a"); got == nil || got.Note != note {
+					t.Fatal("an accepted note was not stored as written")
+				}
+				return
+			}
+			if err != ErrTooLong {
+				t.Fatalf("err = %v, want ErrTooLong", err)
+			}
+			if s.Get("hash-a") != nil {
+				t.Error("a refused write still stored a finding")
+			}
+		})
+	}
+}
+
+// An over-long tag is cut to the cap between characters. A cut between bytes split the last
+// character and stored a tag that was not valid UTF-8.
+func TestOverlongTagIsCutBetweenCharacters(t *testing.T) {
+	s := newStore(t)
+	want := "a" + strings.Repeat("ж", consts.MaxFindingTagLen-1)
+	got := mustSet(t, s, Finding{Key: "hash-a", Tags: []string{"a" + strings.Repeat("ж", 100)}}, at(0))
+	stored := s.Get("hash-a")
+	if stored == nil {
+		t.Fatal("the finding was not stored")
+	}
+	for name, tags := range map[string][]string{"returned": got.Tags, "stored": stored.Tags} {
+		if len(tags) != 1 || tags[0] != want {
+			t.Fatalf("%s tags = %q, want [%q]", name, tags, want)
+		}
+		if !utf8.ValidString(tags[0]) {
+			t.Errorf("the %s tag is not valid UTF-8", name)
+		}
+		if n := utf8.RuneCountInString(tags[0]); n != consts.MaxFindingTagLen {
+			t.Errorf("the %s tag holds %d characters, want %d", name, n, consts.MaxFindingTagLen)
+		}
+	}
+}
+
+// A cut tag must filter as the UI shows it, in the same session. The UI gets the tag through
+// JSON, as the binding sends it, and the filter bar trims what it sends; a tag that did not
+// survive either was listed but matched nothing until the case was reopened.
+func TestACutTagStillFiltersAsTheUISeesIt(t *testing.T) {
+	for name, tag := range map[string]string{
+		"a cut inside a multi-byte character": "a" + strings.Repeat("ж", 100),
+		"a cut that ends on a space":          strings.Repeat("x", 63) + " lateral",
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			got := mustSet(t, s, Finding{Key: "hash-a", Tags: []string{tag}}, at(0))
+			if len(got.Tags) != 1 {
+				t.Fatalf("tags = %q, want one", got.Tags)
+			}
+			stored := got.Tags[0]
+			wire, err := json.Marshal(stored)
+			if err != nil {
+				t.Fatalf("marshal the tag: %v", err)
+			}
+			var shown string
+			if err := json.Unmarshal(wire, &shown); err != nil {
+				t.Fatalf("unmarshal the tag: %v", err)
+			}
+			if shown != stored {
+				t.Errorf("the UI is shown %q, but the store holds %q", shown, stored)
+			}
+			if keys := s.KeysWithTag(shown); len(keys) != 1 || keys[0] != "hash-a" {
+				t.Errorf("KeysWithTag(%q) = %v, want [hash-a]", shown, keys)
+			}
+		})
+	}
+}
+
+// Tags that differ only past the cap are the same tag once cut and trimmed, so they are stored
+// once. Checking for a duplicate before the cut would let each through and list the one tag twice.
+func TestTagsThatCutToTheSameTagAreStoredOnce(t *testing.T) {
+	s := newStore(t)
+	want := strings.Repeat("x", consts.MaxFindingTagLen-1)
+	got := mustSet(t, s, Finding{Key: "hash-a", Tags: []string{
+		want + " lateral",
+		want + " movement",
+		want,
+	}}, at(0))
+	stored := s.Get("hash-a")
+	if stored == nil {
+		t.Fatal("the finding was not stored")
+	}
+	for name, tags := range map[string][]string{"returned": got.Tags, "stored": stored.Tags} {
+		if len(tags) != 1 || tags[0] != want {
+			t.Errorf("%s tags = %q, want [%q]", name, tags, want)
+		}
 	}
 }

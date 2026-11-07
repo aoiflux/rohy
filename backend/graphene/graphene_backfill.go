@@ -220,7 +220,6 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 		updated.ID = n.ID
 		tx.UpdateNode(updated)
 		pending++
-		res.Projected++
 	}
 
 	if pending == 0 {
@@ -228,8 +227,10 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 	}
 	if err := tx.Commit(); err != nil {
 		// Nothing in the batch was applied, so nothing was projected.
-		res.Projected -= pending
 		return res, err
 	}
+	// 🔒 Counted only once committed. A batch that fails part-way returns above with none of what it
+	// queued applied, and the binding seals only when a pass wrote (BackfillOutcome).
+	res.Projected = pending
 	return res, nil
 }

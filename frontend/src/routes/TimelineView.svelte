@@ -32,6 +32,7 @@
     EVENTS_LIST,
   } from '../lib/consts/index.js';
   import { zoomAround } from '../lib/timeline.js';
+  import { heatmapNext } from '../lib/graph/heatmap.js';
 
   import AppBar from '../components/material/AppBar.svelte';
   import Button from '../components/material/Button.svelte';
@@ -113,38 +114,36 @@
     label: UI.HEATMAP_GROUP_LABEL[g] ?? g,
   }));
 
-  async function loadHeatmap() {
-    if (!extent) return;
+  /** loadHeatmap makes one request. Only the heatmap effect below calls it. */
+  async function loadHeatmap(req) {
+    const gen = ++heatGen;
     heatLoading = true;
     try {
-      heatSummary = await api.relationHeatmap({
-        buckets: TIMELINE.BUCKETS,
-        group_by: heatGroup,
-        all_graphs: heatAll,
-        from: new Date(extent.from).toISOString(),
-        to: new Date(extent.to).toISOString(),
-      });
+      const got = await api.relationHeatmap(req);
+      // An answer a newer request overtook is about an extent or grouping no longer asked for.
+      if (gen === heatGen) heatSummary = got;
     } catch (err) {
+      if (gen !== heatGen) return;
       snackbar.error(`${UI.HEATMAP_FAILED} ${String(err && err.message ? err.message : err)}`);
       heatSummary = null;
+      // Forgotten, so the next reload (Retry) asks again instead of matching the failed request.
+      heatAsked = null;
     } finally {
-      heatLoading = false;
+      if (gen === heatGen) heatLoading = false;
     }
   }
 
-  async function toggleHeatmap() {
+  // The controls only change what is asked for; the heatmap effect below makes the fetch.
+  function toggleHeatmap() {
     heatOn = !heatOn;
-    if (heatOn) await loadHeatmap();
   }
 
   function setHeatGroup(value) {
     heatGroup = value;
-    if (heatOn) loadHeatmap();
   }
 
   function toggleHeatScope() {
     heatAll = !heatAll;
-    if (heatOn) loadHeatmap();
   }
 
   // View state persists across navigation and restart, like the search panel does.
@@ -171,6 +170,32 @@
     const from = new Date(summary.from).getTime();
     const to = new Date(summary.to).getTime();
     return Number.isFinite(from) && Number.isFinite(to) && to >= from ? { from, to } : null;
+  });
+
+  // Every heatmap fetch is made here: switching it on, a new grouping or scope, and a histogram
+  // reload (the lane Group by, Retry) that moved the extent. One place means no change fetches
+  // twice, and the strip can no longer stay bucketed over an extent the histogram has left
+  // (heatmapNext). Both are plain variables, not state, so the effect does not re-run on its own
+  // bookkeeping.
+  let heatAsked = /** @type {any} */ (null);
+  let heatGen = 0;
+  $effect(() => {
+    const next = heatmapNext(heatAsked, {
+      on: heatOn,
+      extent,
+      groupBy: heatGroup,
+      allGraphs: heatAll,
+      buckets: TIMELINE.BUCKETS,
+    });
+    heatAsked = next.request;
+    if (next.drop) heatSummary = null;
+    if (!next.request) {
+      // Off, or no extent: an answer still on its way is for a matrix nobody is shown.
+      heatGen += 1;
+      heatLoading = false;
+      return;
+    }
+    if (next.fetch) loadHeatmap(next.request);
   });
 
   /** Fraction of the full extent → absolute time. */

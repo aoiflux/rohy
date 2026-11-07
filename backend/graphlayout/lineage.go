@@ -18,9 +18,10 @@ import (
 // never overlaps and never crosses, which are the properties that make the picture readable, and
 // it is short enough to be obviously correct.
 //
-// A node with several parents is attached to exactly ONE of them (the lowest id), because a tree
-// is what is being drawn. That is a rendering decision and the other edges are still drawn by
-// the canvas — they simply do not shape the tree.
+// A node with several parents is attached to exactly ONE of them: the first parent the
+// depth-first walk enters (roots earliest first, then each node's children earliest first),
+// because a tree is what is being drawn. That is a rendering decision and the other edges are
+// still drawn by the canvas — they simply do not shape the tree.
 func lineageLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) Result {
 	out := emptyResult(consts.LayoutLineage)
 	if len(nodes) == 0 {
@@ -29,9 +30,9 @@ func lineageLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) Re
 	es := buildEdges(nodes, rels)
 	meta := indexByID(nodes)
 
-	// Roots first, in chronological order so the leftmost tree is the earliest one. A component
-	// that is entirely a cycle has no root at all; those are picked up by the forced pass below,
-	// so every node is placed exactly once whatever the edge set looks like.
+	// Roots first, in chronological order so the leftmost tree is the earliest one. Nodes no root
+	// reaches (a cycle with no source, and anything hanging only off one) are picked up by the
+	// forced pass below, so every node is placed exactly once whatever the edge set looks like.
 	roots := make([]NodeInfo, 0, 8)
 	for _, n := range nodes {
 		if len(es.in[n.ID]) == 0 {
@@ -91,9 +92,11 @@ func lineageLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) Re
 		place(r.ID, 0)
 		rootIDs = append(rootIDs, r.ID)
 	}
-	// Anything still unvisited belongs to a component with no source — a pure cycle. Rooting it
-	// at its lowest id is arbitrary but deterministic, and it is reported rather than presented
-	// as if the evidence named that node the ancestor.
+	// Anything still unvisited is reachable from no root: it is on a cycle, or below one. Rooting
+	// it at the lowest remaining id is arbitrary but deterministic, and it is reported rather than
+	// presented as if the evidence named that node the ancestor. That node need not be on the
+	// cycle, and its parent may sit in a later tree, so the note counts forced roots and claims
+	// nothing about where their parents are.
 	for _, n := range nodes {
 		if !visited[n.ID] {
 			forced++
@@ -113,8 +116,9 @@ func lineageLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) Re
 
 	if forced > 0 {
 		out.Note = fmt.Sprintf(
-			"%d group(s) here have no starting node — every event in them has a parent inside the "+
-				"group — so the lowest event id was used as the root", forced)
+			"%d forced placement(s): every remaining event had a parent, so the one with the "+
+				"lowest internal id was drawn as a root anyway, although it has a parent on this "+
+				"canvas", forced)
 	}
 	return out
 }

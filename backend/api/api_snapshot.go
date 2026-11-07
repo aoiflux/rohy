@@ -103,7 +103,8 @@ func (a *SnapshotAPI) TakeSnapshot(req SnapshotRequest) (snapshot.Summary, error
 	for id := range saved.Nodes {
 		ids = append(ids, id)
 	}
-	events, err := a.store.GetEvents(ids)
+	// An event the case no longer holds is left out: the snapshot records what the canvas can show.
+	events, err := a.store.GetEventRecords(ids)
 	if err != nil {
 		return out, AsError(consts.ErrCodePersistence, err)
 	}
@@ -253,12 +254,25 @@ func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
 	for _, id := range req.Recreate {
 		wanted[id] = true
 	}
+	// Nothing stops an analyst drawing the same link twice, so a snapshot can record it twice. A
+	// link is one claim however many rows recorded it, the same rule the planner matches by, so
+	// ticking both copies writes it once: the first in snapshot order.
+	type claim struct {
+		from, to     uint64
+		relationType string
+	}
+	queued := make(map[claim]bool, len(req.Recreate))
 	// One commit for every recreated relation: a commit each would be a durable write per edge.
 	var restored []*graphene.Relation
 	for _, r := range plan.Recreatable() {
 		if !wanted[r.SnapshotID] {
 			continue
 		}
+		c := claim{r.FromID, r.ToID, relationTypeOrDefault(r.RelationType)}
+		if queued[c] {
+			continue
+		}
+		queued[c] = true
 		rel := &graphene.Relation{
 			From:      r.FromID,
 			To:        r.ToID,
@@ -267,7 +281,7 @@ func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
 			CreatedBy: consts.CreatedByUser,
 			CreatedAt: time.Now().UTC(),
 		}
-		rel.RelationType = relationTypeOrDefault(r.RelationType)
+		rel.RelationType = c.relationType
 		// The basis says where this edge came from, in the same field a rule would have used to
 		// say why it matched. An analyst reading the inspector sees "restored from snapshot …"
 		// rather than a blank, and never a rule's reasoning.
@@ -292,6 +306,14 @@ func (a *SnapshotAPI) restoreInputs(graphID uint64, id string) (*snapshot.Docume
 	if err != nil {
 		return nil, nil, nil, AsError(consts.ErrCodeInternal, err)
 	}
+	// The planner matches a live link on its type, and must compare the type a re-creation would
+	// write (ApplyRestore). Both sides go through the same fallback, so a recorded type this build
+	// does not know compares as the type it would be re-created with. Otherwise that link, once
+	// re-created, would never match and would be offered again on every restore. The document is
+	// read fresh on every call, so changing it here touches nothing shared.
+	for i := range doc.Relations {
+		doc.Relations[i].RelationType = relationTypeOrDefault(doc.Relations[i].RelationType)
+	}
 
 	// Every event in the case, not only those on the canvas: a snapshot's node may have been
 	// removed from the canvas while remaining in the case, and that is a restorable node.
@@ -311,7 +333,9 @@ func (a *SnapshotAPI) restoreInputs(graphID uint64, id string) (*snapshot.Docume
 	out := make([]snapshot.LiveRelation, 0, len(rels))
 	for _, r := range rels {
 		if r != nil {
-			out = append(out, snapshot.LiveRelation{ID: r.ID, From: r.From, To: r.To})
+			out = append(out, snapshot.LiveRelation{
+				ID: r.ID, From: r.From, To: r.To, RelationType: relationTypeOrDefault(r.RelationType),
+			})
 		}
 	}
 	return doc, live, out, nil

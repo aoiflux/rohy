@@ -736,6 +736,9 @@ An event whose payload cannot be read is **left unstamped rather than stamped as
 Stamping it current would mark it permanently done at the wrong answer; leaving it means the
 next run retries it.
 
+When a pass has rewritten anything, the binding seals the case before it returns, so the engine
+gives back the rewritten nodes it held in memory (§21).
+
 ---
 
 ### The network vocabulary, and what it actually cost (v0.3.0)
@@ -1162,18 +1165,33 @@ nodes with one node in fifty undated:
 | temporal |      1.3 ms |                 6.3 ms |
 
 `BenchmarkComputeLayoutBinding5k` times what the analyst waits for: `GraphAPI.ComputeLayout` over a
-5 000-event graph on disk, with a real record's ~1.6 KB of raw XML per event. It takes **243–350
-ms and allocates 46–49 MB**, so the arrangement is under a twentieth of it.
+5 000-event graph on disk, with a real record's ~1.6 KB of raw XML per event. As first measured it
+took **243–350 ms and allocated 46–49 MB**, so the arrangement was under a twentieth of it.
 
-The CPU profile says where the rest goes: of 11.27 s sampled, `GetEvents` is 10.17 s and `hydrate`
-alone 8.07 s. `GetEvents` reads each event on its own and then reads its raw record from the cold
-store and decodes it (§14). Layout reads none of that: the timestamp, the correlation keys and the
+The CPU profile said where the rest went: of 11.27 s sampled, `GetEvents` was 10.17 s and `hydrate`
+alone 8.07 s. `GetEvents` read each event on its own and then read its raw record from the cold
+store and decoded it (§14). Layout reads none of that: the timestamp, the correlation keys and the
 event id are all on the node. The list path's `hydrateIDs` returns exactly those, in one batched
 read, without touching the payload log.
 
-⚠️ **Not changed yet.** The same `GetEvents` read sits under clusters, snapshots and
-`GraphAPI.GetEvents`. Each is a candidate for the same fix, once someone checks that no field it
-reads lives only in the cold store.
+**Fixed.** `Store.GetEvents` is gone. Its replacement, `Store.GetEventRecords`, reads the node
+records only, in one batched read (the same `eventRecords` read under `hydrateIDs`), and never the
+cold store. It serves `ComputeLayout`, `Clusters`, `TakeSnapshot` and `GraphAPI.GetEvents` (the
+canvas cards); none of them reads a cold field. Unlike `hydrateIDs`, it leaves out an id the case no
+longer holds (LLD §14.1). Same machine, same command, before and after:
+
+| Profile  | Before              | After              |
+| -------- | ------------------: | -----------------: |
+| sequence | 165 ms, 49.3 MB     | ~25–40 ms, 11.4 MB |
+| lineage  | 149 ms, 49.9 MB     | ~25–40 ms, 12.0 MB |
+| resource | 133 ms, 46.7 MB     | ~25–40 ms, 8.8 MB  |
+| temporal | 135 ms, 46.2 MB     | ~25–40 ms, 8.3 MB  |
+
+Allocations fall from 122k–164k a call to 71k–114k. The before column was measured again just
+before the change, so it is lower than the first figure above, which came from another session.
+Memory and allocations are the same on every run. Time is
+not: 24–28 ms per profile on an idle machine, 28–42 ms in other runs, and 33–147 ms with the CPU
+saturated by other work. Read it as about four to five times faster, and four to five times less memory.
 
 ### The heatmap: one scan of the case, whatever the graph
 
@@ -1216,10 +1234,15 @@ the run, then again after a compaction. **The compaction gives back about 85% of
 engine keeps every node a transaction rewrites in its in-memory delta layer until a compaction
 merges it, and a backfill rewrites every event. The batches themselves hold what they should.
 
-⚠️ `MaintenanceAPI.BackfillCorrelationKeys` neither seals nor compacts when it finishes, so that
-memory stays held until the next seal (an ingest, *Seal the case*, or closing the case). At
-100 000 events that is about 58 MiB. At a million it would be about 580 MiB, which is the size at
-which it starts to matter.
+**Fixed in the binding.** `MaintenanceAPI.BackfillCorrelationKeys` used to neither seal nor compact,
+so that memory stayed held until the next seal (an ingest, *Seal the case*, or closing the case):
+about 58 MiB at 100 000 events, and about 580 MiB at a million. The binding now seals what the pass
+rewrote, at the end of every run that rewrote at least one event: one that finishes, is stopped, or
+fails part way. The seal compacts, so the delta layer and the WAL are given back when the run ends,
+and the memory is held only for the length of the pass. The cost is one compaction of the whole case,
+about 1.3 s at 100 000 events (§18), recorded in the fingerprint history like every seal (LLD §18.2).
+`BenchmarkBackfill{10k,100k}` call the store-level pass, not the binding, so they still measure the
+pass alone, with its explicit compaction for the second column.
 
 ```
 go test ./backend/graphlayout/ -run XXX -bench ComputeLayout -benchtime 20x

@@ -128,6 +128,46 @@ export function sliceToView(counts, view) {
   return all.slice(Math.min(a, all.length - 1), Math.max(b, a + 1));
 }
 
+/**
+ * heatmapNext decides what a change on the Timeline page asks of the heatmap (LLD §14.3).
+ *
+ * 🔒 The heatmap is bucketed over the histogram's WHOLE extent at the histogram's bucket count, so
+ * column i of the strip is the same instant as column i of the histogram under it. So:
+ * - a histogram reload that MOVES the extent asks again, and the matrix on screen is dropped,
+ *   because its columns no longer line up;
+ * - a reload that leaves the extent where it was asks nothing. The extent is re-derived as a new
+ *   object on every reload, so this compares values: a Retry that changed nothing must not re-run
+ *   a scan of the whole case;
+ * - a new grouping or scope asks again and keeps the matrix while the answer loads, because it
+ *   still lines up.
+ * Off, or with no extent, nothing is asked and the matrix is dropped, so switching it back on asks
+ * again rather than showing an answer about an extent that may have moved.
+ *
+ * @param {{from:string,to:string,buckets:number,group_by:string,all_graphs:boolean}|null} asked the last request made, or null
+ * @param {{on:boolean, extent:{from:number,to:number}|null, groupBy:string, allGraphs:boolean, buckets:number}} now
+ * @returns {{request:{from:string,to:string,buckets:number,group_by:string,all_graphs:boolean}|null, fetch:boolean, drop:boolean}}
+ *   `request` is what to remember as `asked` next time
+ */
+export function heatmapNext(asked, { on, extent, groupBy, allGraphs, buckets }) {
+  if (!on || !extent || !Number.isFinite(extent.from) || !Number.isFinite(extent.to)) {
+    return { request: null, fetch: false, drop: true };
+  }
+  const request = {
+    buckets,
+    group_by: groupBy,
+    all_graphs: Boolean(allGraphs),
+    from: new Date(extent.from).toISOString(),
+    to: new Date(extent.to).toISOString(),
+  };
+  const moved = !asked || asked.from !== request.from || asked.to !== request.to;
+  const same =
+    !moved &&
+    asked.buckets === request.buckets &&
+    asked.group_by === request.group_by &&
+    asked.all_graphs === request.all_graphs;
+  return { request: same ? asked : request, fetch: !same, drop: moved };
+}
+
 function clamp01(v) {
   if (!Number.isFinite(v)) return 0;
   return Math.min(Math.max(v, 0), 1);

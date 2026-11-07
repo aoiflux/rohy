@@ -173,9 +173,9 @@ rohy/
 └── .github/workflows/       ci.yml · release.yml
 ```
 
-Roughly 33,300 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,140 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
-**795 frontend test cases** and **58 extension tests**.
+Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
+**1,192 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**844 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -524,7 +524,7 @@ flowchart LR
     end
     node -->|"Ref = offset + length<br/>one seek, no index"| log
 
-    q1["List query — 500 rows"] --> node
+    q1["List query — 500 rows,<br/>or a canvas"] --> node
     q2["Open one event"] --> node
     q2 -.-> log
 ```
@@ -609,7 +609,7 @@ Two invariants worth knowing before touching it:
 Events ingested before the projection existed carry none, so field rules under-report against
 them. That is surfaced, never silent: runs report `StaleCorrelationKeys`, and
 `BackfillCorrelationKeys` fills them in — opt-in, resumable (each event carries the recipe
-version it was written under), and idempotent.
+version it was written under), and idempotent. The binding then seals what it rewrote (§18.2).
 
 ---
 
@@ -1447,9 +1447,21 @@ flowchart LR
 
 - **Keyed by content hash, not node id.** Node ids are assigned by the store; a
   content hash survives a re-ingest.
-- **Bounded**: note ≤ 8000 chars, tag ≤ 64 chars, ≤ 32 tags. The frontend knows
-  the same limits from consts, so the editor warns *before* a write is refused
-  rather than after.
+- **Bounded**: a note holds at most 8000 characters and a tag 64 (a longer tag is
+  cut between characters and trimmed, never refused), with at most 32 tags. A
+  character is a code point: Go counts runes, and the editor counts code points
+  through `noteTooLong` in [lib/findings.js](frontend/src/lib/findings.js) (a
+  `for…of` walk, the count `[...s].length` gives). It reads `.length`, which
+  counts UTF-16 units, only as a shortcut, because that length is never less
+  than the code-point count. The frontend knows the same limits from consts, so the editor
+  warns *before* a write is refused rather than after.
+  [backend/findings/testdata/note-limit-cases.json](backend/findings/testdata/note-limit-cases.json)
+  holds both sides to one set of cases, and `lib/consts/limits.test.js` holds the
+  mirrored values to `consts.go`. The tag input's `maxlength` is only a typing
+  aid; the backend's cut is the backstop.
+- **A failed write changes nothing.** `Set` and `Remove` put back the one finding
+  they touched when the write fails, so the screen never runs ahead of the disk
+  (`TestAFailedSetChangesNothing`, `TestAFailedRemoveKeepsTheFinding`).
 - **Debounced saves** (600 ms) with a flush on blur, so typing does not rewrite
   the sidecar on every keystroke and nothing is lost.
 
@@ -1498,6 +1510,32 @@ The startup migration folds pre-multi-graph data forward: relations with no
 graph's per-graph file. Every step is idempotent, which is what makes it safe to
 run on **every** startup rather than gating it behind a version flag.
 
+**Deleting an event prunes every layout, and nothing else.** `GraphAPI.DeleteEvent` removes the
+event from the store first, then from every graph's saved canvas (`layout.Store.RemoveNode`, a walk
+of the `canvas-<n>.json` files). A file that does not hold the id is not rewritten. Snapshots,
+annotations and findings keep their entries. The reasons differ:
+
+- A layout is canvas membership keyed by **node id**, and the store never reuses an id, so an entry
+  for a deleted event can never name anything again. Left in place, it is an id every reader of
+  that canvas must step over.
+- Snapshots, annotations and findings are keyed by **hash** and are the analyst's record. They
+  reattach if the event is ingested again, and each already reports an entry it cannot place.
+
+The store goes first because a crash between the two steps then leaves a canvas that names a gone
+event, which every canvas read skips (§14.1). The other order could leave an event in the case that
+its canvases no longer show. One canvas that cannot be read or written does not stop the walk: every
+other canvas is still pruned, and `DeleteEvent` returns `persistence_error` with
+`event <id> was deleted, but not every saved canvas could be updated:` and each failing file. The
+message gives no retry advice, because whether a retry helps depends on the file. Deleting the same
+event again runs the prune again, although the store no longer holds it
+(`TestDeleteEventRemovesItFromEveryCanvas`, `TestDeletingAGoneEventAgainFinishesThePrune`,
+`TestDeleteEventReportsACanvasItCouldNotUpdate`).
+
+🔒 One mutex in `layout.Store` covers `Save`, `Load`, `Delete`, `RemoveNode` and `MigrateLegacy`, so a
+*Save layout* cannot land between `RemoveNode`'s read and its write and be undone. `Load` takes it
+too: on Windows a file another handle holds open cannot be renamed over, and a file in the middle of
+that rename cannot be opened (`TestConcurrentSaveAndRemoveNodeLeaveAReadableCanvas`).
+
 ### 14.1 Auto-layout profiles
 
 **What it does.** The *Arrange* panel on the Graph page moves the cards in the graph's canvas
@@ -1508,8 +1546,8 @@ previews a profile first; *Keep* saves it, and *Put back* returns every card to 
 
 | Profile (`consts`)   | Picker label | x is…                                                    | y is…                                           | Reads                         | Caveat it reports in `Note`            |
 | -------------------- | ------------ | -------------------------------------------------------- | ----------------------------------------------- | ----------------------------- | -------------------------------------- |
-| `sequence` (default) | Sequence     | step in the chain                                        | time order within the step                      | edges, timestamps             | a cycle had to be broken               |
-| `lineage`            | Lineage      | tree column, each parent centred over its children       | depth in the tree                               | edges, timestamps             | a group had no root                    |
+| `sequence` (default) | Sequence     | step in the chain                                        | time order within the step                      | edges, timestamps             | a placement had to be forced (the graph has a cycle) |
+| `lineage`            | Lineage      | tree column, each parent centred over its children       | depth in the tree                               | edges, timestamps             | a tree's root had to be forced         |
 | `resource`           | Resource     | one column per value of a chosen correlation field (§5.6) | time order in the column                        | correlation keys, timestamps (never edges) | events that do not record the field    |
 | `temporal`           | Time         | real time, stretched over `LayoutTemporalSpan`           | a *lane*: a row shared by cards that do not overlap | timestamps only           | events with no timestamp               |
 
@@ -1522,8 +1560,9 @@ previews a profile first; *Keep* saves it, and *Put back* returns every card to 
 2. **`GraphAPI.ComputeLayout`** ([backend/api/api_layout.go](backend/api/api_layout.go)) collects
    the input: the graph's relations and its *canvas membership*, which is the set of node ids in
    the layout sidecar (§14). Before any sidecar exists, as right after a rule build, it uses the
-   relations' endpoints instead. It loads those events, calls `graphlayout.Compute`, and returns
-   the result. It saves nothing.
+   relations' endpoints instead. It reads those events' stored records with `GetEventRecords`: one
+   batched node read, with no cold store, that leaves out any id the case no longer holds. It then
+   calls `graphlayout.Compute` and returns the result. It saves nothing.
 3. **The frontend** ([AutoLayoutPanel.svelte](frontend/src/components/graph/AutoLayoutPanel.svelte),
    [lib/graph/autolayout.js](frontend/src/lib/graph/autolayout.js)) moves the cards in memory with
    the graph store's `applyLayout`. Only *Keep* calls `saveLayout`, which writes the sidecar.
@@ -1535,7 +1574,7 @@ sequenceDiagram
     participant L as graphlayout.Compute (pure)
     participant G as graph store
     P->>A: graph id, profile, field
-    A->>A: RelationsByGraph, canvas membership, GetEvents
+    A->>A: RelationsByGraph, canvas membership, GetEventRecords
     A->>L: NodeInfo list + relations
     L-->>P: positions, groups, note
     P->>P: remember original positions (first preview only)
@@ -1550,19 +1589,25 @@ sequenceDiagram
 Inside `Compute`:
 
 - **A cap.** More than `LayoutMaxNodes` (20 000) nodes is refused, and the message says to filter
-  first.
+  first. The binding codes every `graphlayout` refusal (this cap, an unknown profile, correlation
+  field or cluster mode) `parse_error`: the package reads nothing, so a refusal is always the
+  request's fault, never the case's.
 - **A fixed starting order.** Nodes are sorted by id before any profile runs, and every ordering
   after that is *total*: ties break on id, so nothing depends on map order. Undated events sort
   after dated ones, never at the epoch.
 - **Edges cleaned once.** Edges with an endpoint off the canvas are dropped, and so are self-loops
   and duplicate pairs: two rules linking the same pair are one constraint.
 - **sequence** treats the graph as a DAG. A node's *rank* is the longest path to it from a node
-  with no incoming edge. When no node is ready, the profile forces the lowest remaining id and
-  counts it as a broken cycle in the note. The forced node need not be on a cycle (see Not done).
+  with no incoming edge. When no node is ready, the profile forces the lowest remaining id, and the
+  note counts *forced placements*, not cycles: the forced node need not be on a cycle (see Not
+  done).
 - **lineage** draws a *tidy tree* in two passes: each leaf takes the next free column, then each
   parent is centred between its first and last child. A node with several parents joins the first
-  parent the walk reaches, with roots walked earliest first; its other edges are still drawn but do
-  not shape the tree. Each tree is named after its root's `process_name`, or its event id.
+  parent the depth-first walk enters (roots earliest first, then each node's children earliest
+  first); its other edges are still drawn but do not shape the tree. Nodes no root reaches are
+  rooted at the lowest remaining id, and the note counts those forced roots. It claims nothing about
+  where a forced root's parent sits. Each tree is named after its root's `process_name`, or its
+  event id.
 - **resource** groups by `logon_id` unless asked otherwise. Columns are ordered by their first
   event; events with no value go into one `Not recorded` column, always last.
 - **temporal** fills lanes greedily: a card takes the first lane whose last card ended before it
@@ -1589,6 +1634,17 @@ Inside `Compute`:
   session (`TestResourceDoesNotCorrelateAbsentValuesWithEachOther`).
 - **Labels never move a node** (`TestLineageLabelsNeverMoveANode`). Otherwise the layout would follow
   the display text rather than the evidence.
+- **The note counts what was done, not what was found.** The forced node need not be on a cycle, so
+  a note that counted cycles reported one cycle as two, and Lineage's note said every event in a
+  group had a parent inside it when one did not (`TestSequenceCountsForcedPlacementsNotCycles`,
+  `TestLineageForcedRootNoteClaimsNothingAboutItsParent`,
+  `TestLineageMultiParentNodeJoinsTheFirstParentTheWalkEnters`).
+- **A gone event costs its own card, not the canvas.** A canvas's ids come from its sidecar, which
+  can still name an event deleted since it was saved (§14). `GetEventRecords` leaves that id out.
+  The list path's `hydrateIDs` refuses the same miss over the same read, because its ids come from
+  the index, and a miss there means the index and the store disagree
+  (`TestGetEventRecordsLeavesOutWhatIsGoneAndKeepsTheOrderAsked`,
+  `TestHydrateIDsRefusesAnIDTheStoreNoLongerHolds`, `TestCanvasReadsSkipAnEventTheCaseNoLongerHolds`).
 - **Preview, not apply.** Hand placement has no undo. `TestComputeLayoutNeverWrites` runs every
   profile and checks the sidecar is unchanged. The original positions are captured once, at the
   first preview, so after two previews in a row *Put back* still restores the hand placement.
@@ -1603,24 +1659,46 @@ Measured on a Ryzen 9 5980HS (PERFORMANCE.md §21):
 | resource | 1.8 ms              | 7.5 ms                         |
 | temporal | 1.3 ms              | 6.3 ms                         |
 
-The binding, `ComputeLayout`, takes **243–350 ms** for the same 5k nodes on the disk backend,
-so the arrangement is under a twentieth of the wait. The CPU profile puts about 72% of it in
-`hydrate`: `GetEvents` reads each event one by one *and* reads its raw record from the cold store
-(§5.5), then decodes it. Layout uses none of that. Every field it reads (timestamp, correlation
-keys, event id) is on the node, which the list path's batched `hydrateIDs` returns without
-touching the payload log. Switching is a proposed fix, not yet made.
+The binding, `ComputeLayout`, first took **243–350 ms** for the same 5k nodes on the disk backend,
+so the arrangement was under a twentieth of the wait. The CPU profile put about 72% of it in
+`hydrate`: the old read, `Store.GetEvents` (since removed), read each event one by one *and* read
+its raw record from the cold store (§5.5), then decoded it. Layout uses none of that. Every field it
+reads (timestamp, correlation keys, event id) is on the node.
+
+The binding now reads with `GetEventRecords`: the node records only, in one batched read (the same
+`eventRecords` read the list path's `hydrateIDs` uses), never the payload log.
+`BenchmarkComputeLayoutBinding5k`, before and after the change on the same machine:
+
+| Profile  | Before                  | After                     |
+| -------- | ----------------------- | ------------------------- |
+| sequence | 165 ms, 49.3 MB         | ~25–40 ms, 11.4 MB        |
+| lineage  | 149 ms, 49.9 MB         | ~25–40 ms, 12.0 MB        |
+| resource | 133 ms, 46.7 MB         | ~25–40 ms, 8.8 MB         |
+| temporal | 135 ms, 46.2 MB         | ~25–40 ms, 8.3 MB         |
+
+Memory and allocations (71k–114k per call, against 122k–164k) are the same on every run. Time is
+noisy: 24–28 ms on an idle machine, 28–42 ms in other runs, and 33–147 ms with the CPU saturated
+by other work. So read it as about four to five
+times faster and four to five times less memory. The before column was measured again just before
+the change; the first figure, 243–350 ms, came from another session. Clusters, snapshots and the
+canvas cards (`GraphAPI.GetEvents`) use the same read.
 
 **Not done.**
 
 - `Result.Groups` (step, tree, column and lane names) is not drawn; the panel shows only "N nodes
   in M groups" and the `Note`. The undated tray is set apart by position alone.
-- **The cycle count can over-report.** Forcing the lowest remaining id breaks no cycle when that
-  node only sits downstream of one, so one cycle can be reported as two, and the downstream event
-  is drawn as contemporaneous with its cause. Lineage's forced pass has the same flaw, and its note
-  ("every event in them has a parent inside the group") is then false for that group.
-- A layout refused for the node cap or an unknown profile is coded `internal_error`, although it is
-  the request's fault. The message carries the remedy, so nothing visible is wrong today.
-- The toolbar's *Save layout* saves whatever is on the canvas, including a preview never kept.
+- **Forcing picks the lowest remaining id, not a node on the cycle.** When that node only sits
+  downstream of a cycle, forcing it breaks nothing, so one cycle can cost two forced placements, and
+  the downstream event can land in the same column as its cause. The note now counts forced
+  placements, so it is true, but the layout is not the best one available. Lineage forces the same
+  way, and a forced root's parent may sit in a later tree. Restricting forcing to cycle nodes is the
+  planned fix; the expectations it would change are commented in
+  `TestSequenceCountsForcedPlacementsNotCycles` and `TestLineageForcedRootNoteClaimsNothingAboutItsParent`.
+- The note names "the lowest internal id", which the page does not show.
+- The toolbar's *Save layout* saves whatever is on the canvas, including a preview never kept. A
+  canvas whose mapping failed to load stays empty, and *Save layout* then writes that empty canvas
+  over its sidecar. A gone event no longer causes this (§14), but an unreadable `canvas-<n>.json` or a
+  store error still can.
 - The ▦ grid button still ships, with no preview and no *Put back*.
 
 ### 14.2 Clusters
@@ -1714,8 +1792,18 @@ relations on disk, the case-wide heatmap costs 813 ms against the timeline's 675
 case, and **one graph of 2 500 relations still costs 670 ms**: the scan, not the relations, is the
 price (PERFORMANCE.md §21).
 
-**Not done.** The heatmap is re-fetched when it is switched on or its grouping or scope changes, not
-when the timeline's own extent changes. A small graph pays the whole-case scan.
+The Timeline page makes every heatmap fetch from one effect (`heatmapNext` in
+[lib/graph/heatmap.js](frontend/src/lib/graph/heatmap.js)). The heatmap is bucketed over the
+histogram's whole extent at the histogram's bucket count, so column *i* of the strip is the same
+instant as column *i* of the histogram. Switching it on, a new grouping or scope, and a histogram
+reload that moves the extent each ask once. A reload that moves the extent also drops the matrix on
+screen, whose columns no longer line up; one that leaves the extent where it was (a *Retry* that
+changed nothing) asks nothing. Switching the heatmap off drops the matrix too, so switching it back
+on asks again. An answer that a newer request overtook is dropped.
+
+**Not done.** A small graph pays the whole-case scan. No automated test drives the page's effect,
+because the view tests render on the server, where effects do not run: `heatmapNext` is tested on
+its own.
 
 ### 14.4 Replay and the shared playhead
 
@@ -1749,8 +1837,8 @@ shared with the Timeline page's cursor.
 
 **Not done.**
 
-- Approximate links are counted but **not drawn as weaker** on the canvas, although the copy
-  (`REPLAY_APPROXIMATE`) says they are.
+- Approximate links are counted, not drawn differently: the canvas draws them like any other link,
+  and the caption (`REPLAY_APPROXIMATE`) says so.
 - Replay and the heatmap disagree on a link with one undated end: replay shows it as approximate,
   the heatmap counts it as unplaceable.
 
@@ -1770,7 +1858,7 @@ re-created, and what can no longer be found. The package is
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `snapshot_version`             | The format guard, `1`. A file with a higher number is refused, never half-read.                                 |
 | `id`                           | `snap-YYYYMMDD-HHMMSS.mmm` in UTC, also the file name, so a folder listing reads in time order.                  |
-| `label`, `graph_id`, `taken_at` | The analyst's optional name, which graph, and when.                                                            |
+| `label`, `graph_id`, `taken_at` | The analyst's optional name (at most 200 characters), which graph, and when.                                   |
 | `store_version`, `app_version` | Recorded for reference only; no restore reads either. `store_version` is the in-process write counter, which restarts each run, so it cannot be compared across sessions. A restore reports a changed case only through `reingested` (a hash that now resolves to a different id). |
 | `nodes[]`                      | `id`, **`hash`** (the event's `hash_normalized`), `x`, `y`, and a `descriptor` (event id, computer, time), so a snapshot still says what it held after its events have gone. |
 | `relations[]`                  | `id`, **`from_hash`**, **`to_hash`**, type, label, `created_by`, and the rule provenance, copied verbatim.        |
@@ -1778,8 +1866,11 @@ re-created, and what can no longer be found. The package is
 `TakeSnapshot` records the layout sidecar **as last saved**. A card placed and saved is included even
 if it is not linked, but positions and cards not yet saved are not, and a graph whose layout was
 never saved (just after a rule build, say) gives an empty snapshot: unlike `ComputeLayout`, it
-does not fall back to the edges' endpoints. A relation is recorded only when **both** its ends are on the canvas; otherwise a
-restore could re-create a link to something the snapshot never showed.
+does not fall back to the edges' endpoints. An event the case no longer holds is left out, because
+the snapshot records what the canvas can show (`GetEventRecords`, §14.1;
+`TestTakeSnapshotLeavesOutAnEventTheCaseNoLongerHolds`). A relation is recorded only when **both**
+its ends are on the canvas; otherwise a restore could re-create a link to something the snapshot
+never showed.
 
 A restore is two calls. `PreviewRestore` builds the plan and writes nothing. `ApplyRestore` builds
 the plan **again** from the case as it is now, and then writes.
@@ -1792,7 +1883,7 @@ flowchart LR
     h -->|"yes, different id"| NM["moved<br/>reingested = true"]
     r["snapshot relation<br/>(from_hash, to_hash)"] --> e{"both ends resolve?"}
     e -->|no| RU["unresolved<br/>says which end is gone"]
-    e -->|yes| l{"same edge id between<br/>the same two events?"}
+    e -->|yes| l{"same edge id between the same two events,<br/>or a link of the same type<br/>joining them the same way?"}
     l -->|yes| RA["applied: nothing to write"]
     l -->|no| RR["recreatable: offered, unticked"]
 ```
@@ -1803,7 +1894,10 @@ flowchart LR
    viewport. Nodes and links added since the snapshot are left alone: a restore puts things back, it
    does not roll the graph back;
 2. **re-creates only the links the analyst ticked**, and only if the fresh plan still offers them,
-   each as `created_by: "user"` with the basis `restored from snapshot <id>` and no rule fields;
+   each as `created_by: "user"` with the basis `restored from snapshot <id>` and no rule fields. So
+   ticking a link again, or restoring twice, writes nothing. Two ticked rows that make the same claim
+   (the same events, direction and type) write one link: the first in snapshot order, with its
+   label;
 3. **commits those links once**, in one `InsertRelations` batch.
 
 Taking, deleting and applying hold the case lock shared (§18.4), so they are refused while a
@@ -1817,6 +1911,24 @@ redaction runs and in a read-only session (§18.5). Listing and previewing take 
   rows and a note that the case was re-ingested
   (`TestRestoreResolvesThroughHashesAfterAReingest`). An edge id that survived onto different
   endpoints is not trusted either (`TestPlanDoesNotTrustAnEdgeIdWhoseEndpointsChanged`).
+- **A link is matched by what it joins, not only by its id.** A link written later always has a new
+  id, so a link re-created by a restore, drawn again by hand or inferred again by a rule build has an
+  id the snapshot never saw. Matched by id alone, each was offered again, and a second restore drew
+  it twice. A snapshot link now counts as still there when the same edge id joins the same two
+  events, or when a link of the same type joins them **in the same direction** in that graph (the
+  lowest live id is named when several do). Apart from the same edge under its own id, whose type is
+  not compared (so a type edited in place still matches,
+  `TestPlanKeepsALinkWhoseTypeWasEditedInPlace`), a link's identity is its graph, its two ends in
+  order, and its type. Who made it, its label and its basis are not compared, and neither is the
+  "restored from" note: the note names one snapshot, so a link restored from one would be offered
+  again by another, and hand-drawn and rule-built links carry none. A recorded type this build does
+  not know compares as `default`, the type a re-creation writes, on both sides. The plan is a set:
+  one apply never writes two identical links, even when the snapshot recorded the link twice
+  (`TestPlanTreatsTheSameKindOfLinkBetweenTheSameEventsAsPresent`,
+  `TestPlanOffersALinkWhenOnlyAnotherKindOrTheReverseJoinsTheEvents`,
+  `TestRestoringTwiceDoesNotDuplicateALink`, `TestPreviewAfterARestoreOffersNothing`,
+  `TestPreviewDoesNotOfferALinkARuleBuildMadeAgain`, `TestARestoredLinkOfAnUnknownTypeIsNotOfferedAgain`,
+  `TestPreviewFindsAStoredLinkWithNoTypeUnderANewId`, `TestOneRestoreWritesALinkTheSnapshotHeldTwiceOnce`).
 - **Nothing restores silently.** The package stores and plans; it never writes to the case store
   (`TestPreviewRestoreWritesNothing`), and every node and relation lands in exactly one bucket
   (`TestEveryItemLandsInExactlyOneBucket`).
@@ -1841,9 +1953,17 @@ redaction runs and in a read-only session (§18.5). Listing and previewing take 
 
 - Snapshot thumbnails.
 - `Save` writes a temporary file and renames it without an fsync; only `Scrub` writes durably.
-- **A re-created link is offered again.** The plan treats a link as present only if the snapshot's
-  *old* relation id is live, and a re-created link gets a new id. After a restore that re-created
-  links, the next preview offers them again, and applying it again duplicates them.
+- **A restore can still race into a duplicate.** `ApplyRestore`, a rule run and `CreateRelation`
+  each hold the case lock only shared. A restore that plans while a rule rebuild sits between
+  `DeleteGraphRelations` and `InsertRelations`, or beside a hand edit or a second apply, can write a
+  copy next to the link the other writes. The panel's busy flag covers only the panel.
+- **A crash can make a re-created link look absent.** `InsertRelations` commits the edges, then
+  registers their graph index entries in a second step. A crash between the two leaves a link
+  `RelationsByGraph` cannot see, so the next preview offers it again, and the next repair
+  (`RepairRelationIndex`, run at every graph build) shows the first copy beside the second.
+  `ApplyRestore` does not run the repair first.
+- `TakeSnapshot` lists the canvas's ids from a map, so the order of `nodes[]` in the file varies
+  between two snapshots of the same canvas.
 - `store_version` is recorded and never compared (see the table above).
 
 ### 14.6 Annotation layers
@@ -1867,7 +1987,11 @@ An annotation is stored like a finding (§13), but its scope differs:
 `annotations_version: 1`, holding `layers[]` (`id`, `name`, `colour`, `visible`, `z`) and `items[]`
 (`id`, `layer`, `kind`, `anchor`, `to` for arrows, `text`, timestamps). An **anchor** is either
 `event`, which stores the event's **hash**, or `world`, a fixed position on the canvas. Every change
-rewrites the file (a temporary file, then a rename).
+rewrites the file (a temporary file, then a rename). Each change is made to a copy of the document,
+and the copy held in memory is replaced only once the rename has succeeded, so a failed write leaves
+the canvas showing what the file holds. An id is the prefix, the millisecond and a sequence that
+starts at the number of entries of that kind (0 for the default layer) and steps past any id in use,
+so no two entries held at once share an id.
 
 `Annotations(graphID)` returns the document plus two things the canvas needs, worked out afresh on
 every call: `node_of`, mapping each anchored hash to the node that holds it **now**, and `orphaned`,
@@ -1884,8 +2008,8 @@ that cannot be placed is counted whether or not its layer is shown.
 | ------------------------------------------------------------ | ----- | --------------------------------------- |
 | Layers per graph                                             | 16    | refused                                 |
 | Annotations per graph                                        | 200   | new ones refused; editing still works   |
-| Text                                                         | 2000  | refused, never truncated                |
-| Layer name                                                   | 120   | truncated                               |
+| Text (characters)                                            | 2000  | refused, never truncated                |
+| Layer name (characters)                                      | 120   | cut between characters                  |
 
 Writes hold the case lock shared, like snapshots; reads take none.
 
@@ -1903,15 +2027,25 @@ Writes hold the case lock shared, like snapshots; reads take none.
 - **Bad input is refused, not guessed at.** An unknown kind or anchor is refused with the accepted
   list; a `to` on anything but an arrow is dropped, so a later build cannot start honouring values
   nobody chose.
+- **The screen never runs ahead of the disk.** A cache changed before its write would show a mark
+  that a restart loses (`TestAFailedWriteLeavesTheCacheAsTheFileIs`,
+  `TestARefusedPutLeavesNoLayerBehind`).
+- **No two entries share an id.** `Delete` and `DeleteLayer` remove every entry with the id they are
+  given, so two entries sharing one would be deleted together. The count alone can name a held id
+  after a delete in the same millisecond (`TestAnIDIsNeverRepeatedAfterADelete`,
+  `TestALayerIDIsNeverRepeatedAfterADelete`). An id no longer held can be issued again.
+- **Limits count characters**, the unit the messages name. A byte count gave a note in Japanese a
+  third of the room one in English gets, and a byte cut could split a character
+  (`TestTextLimitCountsCharactersNotBytes`, `TestOverlongLayerNameIsCutBetweenCharacters`).
 - **Redaction leaves annotations alone.** An annotation holds only a hash and the analyst's own words;
   rohy copied nothing into it. After the strip the event reports no hash, so its notes count as "no
   longer in the case".
 
 **Not done.** Regions and arrows render, but only notes can be created, from the layer panel. The
 panel cannot edit or delete one note, rename a layer or change its colour, though the bindings exist.
-The limits count bytes, not characters. An annotation id is built from the millisecond and the item
-count, so a delete and a create in the same millisecond can repeat an id. The file is written by
-rename without an fsync.
+The file is written by rename without an fsync. `SaveLayer`, `DeleteLayer` and `SaveAnnotation` code
+a failed write `internal_error`, the same code as a refused input; only `DeleteAnnotation` codes it
+`persistence_error`. A layer name cut by an earlier build keeps the U+FFFD that the byte cut left.
 
 ---
 
@@ -2019,7 +2153,7 @@ outside the routed content so an ingest stays visible across navigation.
 | `BuildAPI`       | run correlation rules, report progress, dry-run a rule without persisting   |
 | `FindingsAPI`    | flags, tags, notes, tag list, stats, audit                                  |
 | `SystemAPI`      | build identity, init stages, the analyst's session                          |
-| `MaintenanceAPI` | opt-in work over the whole case: the case check and its fixes, backfill, compaction, seals and the image check, proofs and custody, redaction, signing, checkpoints, cancel |
+| `MaintenanceAPI` | opt-in work over the whole case: the case check and its fixes, backfill (it seals what it rewrote and returns a `BackfillOutcome`: the pass's result plus `sealed` and `seal_error`), compaction, seals and the image check, proofs and custody, redaction, signing, checkpoints, cancel |
 | `SnapshotAPI`    | named graph snapshots: take, list, preview and apply a restore, delete      |
 | `AnnotateAPI`    | the analyst's layers and annotations on a graph                             |
 | `QueryAPI`       | the read-only query console: `Describe` and `Run`, nothing else (#33)       |
@@ -2112,7 +2246,7 @@ Small and deliberate. Here is the whole of it:
 | Ingest sink              | **1 goroutine**                                                        | all counters and Reporter calls are single-threaded by construction  |
 | Order cache              | concurrent readers and writers                                         | `sync.Mutex` + a version counter that rejects stale results          |
 | Payload store            | ingest appends while the UI reads                                      | `sync.RWMutex` — appends take the write lock, reads the read lock    |
-| Sidecar stores           | UI reads while the pipeline writes                                     | `sync.Mutex` per store                                               |
+| Sidecar stores           | UI reads while the pipeline writes                                     | `sync.Mutex` per store, over reads as well as writes (the layout store's since v0.3.0, §14) |
 | Pause gate               | UI flips, pipeline observes                                            | mutex plus **replaced** channels, so a waiter cannot latch a stale one |
 | Cancellation             | everywhere                                                             | one `context.Context` per run, checked at batch and rule boundaries  |
 | Case lock                | every write to the case shares it; a redaction holds it alone          | `api.theCase`: try-only, names its holders in the refusal (§18.4); also the write gate of a read-only session (§18.5) |
@@ -2180,25 +2314,62 @@ and the raw record from the payload store. Their hashes close the chain.
 
 An event whose stored record changed after the seal is `changed_since_seal`. A
 re-ingest moves its occurrence count, and a backfill rewrites its correlation
-fields. The remedy is to seal again, and that moves the fingerprint: a copy kept
-from an earlier seal will not check a proof built from a later one.
+fields until the seal it runs at its end (§18.2), so after a backfill the state
+is seen only while a pass runs or after its seal failed or was refused. The
+remedy is to seal again, and that moves the fingerprint: a copy kept from an
+earlier seal will not check a proof built from a later one.
 
 ### 18.2 Sealing, and the history of fingerprints
 
-A case is sealed in three places: after an ingest request, from **Seal case** on
-the Maintenance page, and on close. All three go through one function,
-`sealAndRecord` in `backend/api/api_seal.go`. It compacts the case, then adds the
-new fingerprint to the history in `rohy-data/roots/roots.json`
-(`backend/custody`).
+A case is sealed after an ingest request, at the end of a correlation backfill,
+from **Seal case** on the Maintenance page, on close, inside a redaction (§18.4),
+in a checkpoint publish (§18.6), and when a case starts to sign (§18.5). Every
+seal goes through one function, `sealAndRecord` in `backend/api/api_seal.go`
+(the backfill and the checkpoint through `sealAndRecordLocked`, under the same
+mutex). It compacts
+the case, then adds the new fingerprint to the history in
+`rohy-data/roots/roots.json` (`backend/custody`).
 
 Every compaction makes a new fingerprint, even when nothing changed, because the
 new image names the old one as its predecessor and that link is part of the root.
-So the two automatic seals (after an ingest, on close) first ask
+So the automatic seals (after an ingest or a backfill, a redaction's own seal, a
+checkpoint's, and on close) first ask
 `graphene.Store.Unsealed()`. That asks whether the log holds any record, any
 delta or delete, or whether the case has no image yet. If not, nothing is
 compacted, the fingerprint an analyst exported stays current, and `case:sealed`
 carries `unchanged`. **Seal case** always compacts, because it is how an image in
 an older format gets rewritten.
+
+🔒 The backfill's seal (`MaintenanceAPI.BackfillCorrelationKeys`) follows four
+rules:
+
+- **It runs only when the pass rewrote at least one event** (`Projected > 0`), so
+  a pass that changed nothing does not seal writes it did not make. `Projected`
+  counts a batch only once it has committed. A stopped pass, or one that failed
+  part way, is sealed too: what it committed is durable.
+- **It runs before the maintenance lock is given back.** The disk engine holds
+  every rewritten node in its delta layer, and the WAL every rewrite, until a
+  compaction (about 58 MiB at 100 000 events, PERFORMANCE.md §21). Holding the
+  lock through the seal also keeps a deep check's image read (`VerifyImage`, §18.7)
+  off the image while the compaction replaces it.
+- **It never seals a session that can no longer write.** The write gate is asked
+  again under `sealMu`, in the seal's own turn, because a seal elsewhere can
+  poison the session while the pass runs or while this seal waits. Refused, the
+  seal error is `the case was not sealed: …`.
+- **It emits no `case:sealed`.** Like a failed ingest seal, a failed backfill seal
+  never fails the pass. The outcome rides on the result instead: `BackfillOutcome`
+  embeds the pass's `BackfillResult` and adds `sealed` (the `SealOutcome`, nil
+  when no seal ran) and `seal_error`. The page drops its image verdict when the
+  seal ran (`noteSeal`), and says the fingerprint has changed.
+
+Stop reaches the pass, not the seal: `Compact` takes no context, so a Stop
+pressed during the seal does nothing. A Stop pressed then cannot turn a failed
+pass into a stopped one either, because the binding reads the pass's own
+`Cancelled` flag, not the context. (`TestABackfillSealsWhatItRewroteAndRecordsTheSeal`,
+`TestABackfillThatRewroteNothingDoesNotSeal`, `TestAStoppedBackfillStillSealsWhatItCompleted`,
+`TestABackfillSealsBeforeItGivesBackTheMaintenanceLock`, `TestABackfillDoesNotSealAPoisonedCase`,
+`TestABackfillDoesNotSealACasePoisonedWhileItWaitedToSeal`,
+`TestABackfillWhoseSealIsNotRecordedStillSucceeds`, `TestALateStopDoesNotHideAFailedBackfill`.)
 
 | Piece | What it does |
 |---|---|
@@ -2488,8 +2659,14 @@ node count and the store version did not move. A read-only session (§18.5) remo
 action from the report, and the page disables those buttons.
 
 The check takes **no** maintenance lock, so an analyst can find out why the case looks wrong while it
-is being repaired. Each fix binding does take it, so a second pass is refused rather than queued, and
-after a fix the page runs the check again at the same depth.
+is being repaired. The exception is the deep image verification. It goes through the *Check the case
+has not changed* binding (`VerifyImage`) and takes the lock as the button does, for two reasons: its
+~449 MB of allocation beside a backfill would slow both, and a backfill's seal replaces the image
+file under that lock: on Windows, a read that holds the file open makes that replacement fail. Like every claim
+of that lock it only tries, so while a pass runs the report notes that the image was not verified,
+and the rest of the check still runs (`TestADeepCheckLeavesTheImageToARunningPass`,
+`TestADeepCheckReleasesTheMaintenanceLock`). Each fix binding takes the lock, so a second pass is
+refused rather than queued, and after a fix the page runs the check again at the same depth.
 
 #### Why it is built this way
 
@@ -2502,12 +2679,20 @@ after a fix the page runs the check again at the same depth.
 
 **Not done, or not yet true.**
 
-- **Stop does not reach a running check.** `CheckIntegrity` passes `context.Background()` to `Run`,
-  although its comment says it shares the maintenance cancellation.
-- **A deep check verifies the image without the lock the button takes.** The *Check the case has not
-  changed* button holds the maintenance lock so its ~449 MB of allocation never runs beside a
-  backfill; a deep check reaches the same `VerifyImage` holding none. It slows both passes, and makes
-  neither wrong.
+- **A check cannot be stopped.** `CheckIntegrity` passes `context.Background()` to `Run`, and
+  `CancelMaintenance` reaches only a backfill, so the Maintenance page offers Stop only while a
+  backfill runs (it gates on the store's `backfill` run kind). Stop stays shown, and does nothing,
+  while the seal at the end of a backfill runs (§18.2).
+- **A backfill started from the Rules page is not shown on the Maintenance page.** The page does not
+  ask on mount whether a pass is running, so it shows no progress and no Stop for it.
+- While a deep check verifies the image (~0.6 s at 100k), a backfill, **Seal case**, a rebuild, a
+  repair, a checkpoint publish or the image button is refused as "a maintenance task is already
+  running", and a redaction is refused because the case is busy. The maintenance store shows itself
+  busy for that whole step, including the quiet deep re-check after a pass (`recheckRunning` in
+  `stores/maintenance.js`), so the buttons that go through it are not offered then. Only a pass that
+  does not go through the store can meet the refusal: a backfill started from the Rules page. A read
+  that fails inside a pass leaves the store busy (`note`, not `fail`), so it cannot free the page
+  early.
 - The inventory is read twice per check: once for the payload size, once in `Run`.
 - `rule_unmatched` is declared and never emitted: "unmatched" is the absence of a finding.
 
@@ -2549,13 +2734,14 @@ Added in v0.3.0:
 | Ingest chunks in file order, a window of 12          | Live heap 18–23 → **17–25 MiB**; ceiling 96 MiB unchanged    |
 | The relation repair checks every key, not one        | **+20–40%** time, transient memory; a build step, not a hot path |
 | A build's memory grows with the case, not its rules  | 20 rules ≈ **1.25×** the heaviest one; `TestTheBuildStaysBounded` fails above 2× |
+| A canvas reads node records only (`GetEventRecords`) | Layout binding at 5k nodes: 133–165 → **~25–40 ms**, 46–50 → **8.3–12.0 MB** |
+| The backfill seals what it rewrote 🔒                 | Its live heap (58.4 MiB after a 100k pass) is held only for the pass; a compaction gives back ~85% |
 
-Measured in v0.3.0 and not yet acted on (PERFORMANCE.md §21): the layout binding spends ~72% of
-its time reading the cold store it does not use (§14.1); a heatmap of one small graph pays the
-whole-case event scan (§14.3); and the correlation-key backfill's live heap grows with the case
-(5.9 MiB held after a 10k run, 58.4 MiB after a 100k one), although it works in fixed batches. A
-compaction gives back about 85% of it: the engine's delta layer holds every rewritten node until
-then.
+Measured in v0.3.0 and not yet acted on (PERFORMANCE.md §21): a heatmap of one small graph pays
+the whole-case event scan (§14.3). The backfill's live heap still grows with the case while the
+pass runs (5.9 MiB after a 10k pass, 58.4 MiB after a 100k one), although it works in fixed
+batches: the engine's delta layer holds every rewritten node until the seal at the end of the pass
+(§18.2).
 
 That `EdgesOf` entry carries a standing caveat in the source: **if a second edge type is
 ever introduced, that call must filter again.** It is one reason process lineage models
@@ -2578,8 +2764,8 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,140 Go test functions**, 10 fuzz targets, 65 benchmarks, **795 frontend test
-cases** in 51 files, and **58 extension tests**.
+**1,192 Go test functions**, 10 fuzz targets, 65 benchmarks, **844 frontend test
+cases** in 55 files, and **58 extension tests**.
 
 Where each runs:
 
@@ -2608,8 +2794,8 @@ Where each runs:
 | Extension           | `tools/vscode-rohy/test/` (`npm test`, Node's own runner)    | which files are checked, when, and which answer is kept — through a fake VS Code API |
 | Fuzz                | 10 targets: `evtx` parse, `query` run, proof verify, the analyst profile and register, anchor receipts, the keyfile and redaction-journal decoders, fingerprint normalization, and payload redaction | untrusted bytes never panic, and what is accepted round-trips |
 | Integration         | `backend/integration/` (`-tags=integration`)                 | the real pipeline on disk over a committed EVTX fixture, against a golden summary; crash recovery; a build's memory bound |
-| Parity              | frontend tests that read backend files: `lib/api/errors.test.js`, `lib/rules/*.test.js`, `lib/query/spec.test.js` | every backend error code has its JS twin; the editor and query page agree with the Go cases and vocabulary |
-| Golden              | `rules/testdata`, `backend/query/testdata/`                   | the rule schema and the query vocabulary change only on purpose |
+| Parity              | frontend tests that read backend files: `lib/api/errors.test.js`, `lib/rules/*.test.js`, `lib/query/spec.test.js`, `lib/consts/limits.test.js`, `lib/findings.test.js` | every backend error code has its JS twin; the editor and query page agree with the Go cases and vocabulary; the mirrored bounds match `consts.go`, and the findings editor counts a note as Go does |
+| Golden              | `rules/testdata`, `backend/query/testdata/`, `backend/findings/testdata/` | the rule schema, the query vocabulary and the note-limit cases change only on purpose |
 
 Two testing choices worth copying:
 
@@ -2871,14 +3057,44 @@ Added with v0.3.0:
   showed when a redaction reports.
 - **An indexed relation query can miss a relation a crash left half-indexed**, until the next
   repair. The case check reports the gap; the query does not.
-- **`GetEvents` fails on the first missing id**, and deleting an event prunes no layout sidecar.
-  A canvas that still names a deleted event — another graph's, or this one's before *Save layout* —
-  fails to load, arrange, cluster or snapshot. The list path's `hydrateIDs` fails the same way; any
-  read over a sidecar's ids must decide what a vanished id means.
+- **A canvas can name an event that is gone.** `DeleteEvent` removes the event from every saved
+  canvas, but a crash between the two steps, or a sidecar written before v0.3.0, leaves the id
+  behind. `GetEventRecords` skips it, and the next *Save layout* drops it. The list path's
+  `hydrateIDs` makes the opposite choice over the same batched read (`eventRecords`), because a
+  missing id there means the index and the store disagree. Any new read over a sidecar's ids must
+  decide what a vanished id means.
+- **A canvas write outside the layout store's mutex can put a pruned id back.** `ApplyRestore` and
+  the frontend's whole-canvas *Save layout* load, change and save outside one hold of it, so either
+  can write back an id `RemoveNode` has just removed. That is harmless only because canvas reads
+  skip a gone id; a strict canvas read would break the canvas again. Closing it needs an update
+  call that holds the lock across the change.
+- **`layout.Store` locks its reads.** `Load` takes the mutex because on Windows a rename over an open
+  file fails. `RemoveNode` therefore calls the unexported `load` and `save`: the mutex is not
+  re-entrant, and calling `Load` under it deadlocks.
+- **One unreadable `canvas-<n>.json` makes every delete report an error.** The event is gone, every
+  other canvas is pruned, and the card stays, until that file is fixed or removed. The case check
+  reads canvas file names only, so nothing else reports the file.
+- **`graphlayout` must keep reading nothing.** The binding codes every error it returns `parse_error`,
+  the request's fault. A read added inside it would report a failing case as a bad request.
 - **A redacted event has no properties.** It is undated and its fields are blank, so it must be
   told apart from an event that was blank to begin with (`Event.Redacted`).
 - **Every compaction makes a new fingerprint**, even over identical content. Ask `Unsealed()`
   before sealing, or a case that has not changed grows a history of seals.
+- **The backfill's seal trusts `Projected`.** It seals only when `Projected > 0`, so `Projected` must
+  count only rewrites that committed. A batch that counts before its commit makes a failed pass seal
+  writes it did not make. The seal runs under the maintenance lock and takes no context, so Stop does
+  nothing during it, although the page still shows Stop.
+- **The annotation and findings caches change only after their write.** The annotation store changes
+  a clone and commits it; findings put the one key back when the write fails. A mutator that changes
+  the held copy first puts the screen ahead of the disk again. `graphreg.Store`'s mutators and
+  `rules.Registry.SetEnabled` still change memory first (plan §15.16).
+- **A restore matches a link by its claim, not only its id.** A snapshot link is present when the
+  same edge, or a link of the same type, joins the same two events in the same direction. Both sides
+  go through `relationTypeOrDefault`, so changing that fallback, or comparing raw types on one side,
+  makes every re-created link of an unknown type look absent and be offered again.
+- **The heatmap is fetched from one place.** Every fetch goes through the Timeline page's effect and
+  `heatmapNext`. A fetch from a setter or a button can leave the strip bucketed over an extent the
+  histogram has left, and its columns no longer sit over the histogram's.
 - **`sealMu` is a plain mutex, not re-entrant.** A function documented "called under sealMu"
   that takes it again deadlocks the seal, the checkpoint and the integrity check together.
 - **The engine's three files can end torn.** `graphene.audit`, `graphene.redactions` and
@@ -2891,12 +3107,20 @@ Added with v0.3.0:
   folder skips it by name, as `rules/import.go` does.
 - **A record handed over on another goroutine needs `guardRecord`.** `runIngestion`'s recover
   cannot catch a panic on a goroutine it did not start.
-- **Columns count runes, not UTF-16 units.** The JS formatter counts `[...s].length` to match
-  Go's rune count; `s.length` would disagree on any character outside the basic plane.
+- **Columns and text bounds count runes, not UTF-16 units.** The JS formatter counts
+  `[...s].length`, and the findings editor counts the same code points, to match Go's rune count;
+  `s.length` alone would disagree on any character
+  outside the basic plane. A bound stated in characters cuts with `utils.CapRunes`: a byte slice can
+  split a character, and JSON turns the broken tail into U+FFFD, so the UI's copy no longer matches
+  the backend's. graphene's `truncateRunes` (correlation slot values, `basis`) is a byte cap on
+  purpose and stays one.
+- **The tag input's `maxlength` is not the limit.** WebView2 counts it in UTF-16 units, which is never
+  looser than the backend's cap. WebKit (macOS, Linux) may count grapheme clusters, so a typed tag can
+  pass 64 code points there, and the backend's cut can then fall inside a grapheme. Nobody has
+  checked this on a macOS or Linux build.
 - **Tab in the raw editor indents.** That traps a keyboard user, so Escape must stay free to
   leave the field. With no suggestion list open it reaches the dialog, which closes (or asks
-  first when there are unsaved edits). The hint under the editor does not yet say so, although
-  the `CodeArea.svelte` comment claims it does.
+  first when there are unsaved edits). The hint under the editor does not yet say so.
 
 ---
 

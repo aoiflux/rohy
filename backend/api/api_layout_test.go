@@ -1,6 +1,7 @@
 package api
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -190,12 +191,20 @@ func TestComputeLayoutRefusesAnUnknownCorrelationField(t *testing.T) {
 	if !strings.Contains(err.Error(), "logon_id") {
 		t.Errorf("error does not name the vocabulary: %v", err)
 	}
+	if got := codeOf(err); got != consts.ErrCodeParse {
+		t.Errorf("code = %q, want %q: the request is at fault, not the case", got, consts.ErrCodeParse)
+	}
 }
 
+// The node cap is refused through the same coding as the profile, so this pins both.
 func TestComputeLayoutRefusesAnUnknownProfile(t *testing.T) {
 	api, graphID, _ := layoutFixture(t)
-	if _, err := api.ComputeLayout(LayoutRequest{GraphID: graphID, Profile: "spiral"}); err == nil {
+	_, err := api.ComputeLayout(LayoutRequest{GraphID: graphID, Profile: "spiral"})
+	if err == nil {
 		t.Fatal("an unknown profile must be refused")
+	}
+	if got := codeOf(err); got != consts.ErrCodeParse {
+		t.Errorf("code = %q, want %q: the request is at fault, not the case", got, consts.ErrCodeParse)
 	}
 }
 
@@ -324,8 +333,23 @@ func TestClustersGroupsCanvasNodes(t *testing.T) {
 
 func TestClustersRefusesAnUnknownMode(t *testing.T) {
 	api, graphID, _ := layoutFixture(t)
-	if _, err := api.Clusters(ClusterRequest{GraphID: graphID, Mode: "vibes"}); err == nil {
+	_, err := api.Clusters(ClusterRequest{GraphID: graphID, Mode: "vibes"})
+	if err == nil {
 		t.Fatal("an unknown mode must be refused")
+	}
+	if got := codeOf(err); got != consts.ErrCodeParse {
+		t.Errorf("code = %q, want %q: the request is at fault, not the case", got, consts.ErrCodeParse)
+	}
+}
+
+func TestClustersRefusesAnUnknownCorrelationField(t *testing.T) {
+	api, graphID, _ := layoutFixture(t)
+	_, err := api.Clusters(ClusterRequest{GraphID: graphID, Mode: consts.ClusterSlot, Slot: "not_a_field"})
+	if err == nil {
+		t.Fatal("an unknown field must be refused, not silently defaulted to another one")
+	}
+	if got := codeOf(err); got != consts.ErrCodeParse {
+		t.Errorf("code = %q, want %q: the request is at fault, not the case", got, consts.ErrCodeParse)
 	}
 }
 
@@ -395,5 +419,80 @@ func TestHeatmapGroupsMatchTheStoreVocabulary(t *testing.T) {
 	got[0] = "tampered"
 	if consts.HeatmapGroups[0] == "tampered" {
 		t.Error("HeatmapGroups handed out the shared slice")
+	}
+}
+
+func TestCanvasReadsSkipAnEventTheCaseNoLongerHolds(t *testing.T) {
+	// 🔒 A canvas's ids come from its layout sidecar, which can outlive an event: a crash between
+	// the store delete and the sidecar prune, or a sidecar saved before the prune existed. That
+	// entry must cost its own card and nothing else. It used to fail the whole canvas, and with
+	// it Arrange and Clusters.
+	api, graphID, events := layoutFixture(t)
+	gone := events[3].ID // the unconnected catalogue row, which only the sidecar holds
+	// Deleted on the store directly, so the sidecar still names it.
+	if err := api.store.DeleteEvent(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, profile := range consts.LayoutProfiles {
+		got, err := api.ComputeLayout(LayoutRequest{GraphID: graphID, Profile: profile})
+		if err != nil {
+			t.Fatalf("%s: %v", profile, err)
+		}
+		if len(got.Positions) != 3 {
+			t.Errorf("%s: placed %d nodes, want the 3 still in the case", profile, len(got.Positions))
+		}
+		if _, placed := got.Positions[gone]; placed {
+			t.Errorf("%s: placed an event the case no longer holds", profile)
+		}
+	}
+
+	clusters, err := api.Clusters(ClusterRequest{GraphID: graphID, Mode: consts.ClusterComponent})
+	if err != nil {
+		t.Fatalf("Clusters: %v", err)
+	}
+	if len(clusters) != 1 || clusters[0].Size != 3 {
+		t.Errorf("clusters = %+v, want the one 3-event chain", clusters)
+	}
+
+	cards, err := api.GetEvents([]uint64{events[0].ID, events[1].ID, events[2].ID, gone})
+	if err != nil {
+		t.Fatalf("GetEvents: %v", err)
+	}
+	gotIDs := make([]uint64, 0, len(cards))
+	for _, e := range cards {
+		gotIDs = append(gotIDs, e.ID)
+	}
+	if want := []uint64{events[0].ID, events[1].ID, events[2].ID}; !slices.Equal(gotIDs, want) {
+		t.Errorf("cards = %v, want %v in the order asked", gotIDs, want)
+	}
+}
+
+func TestCanvasCardsCarryNoColdFields(t *testing.T) {
+	// A card shows neither the raw record nor the parsed fields, so reading them is cost with no
+	// use: at 5k nodes it was most of an Arrange. The drawer's EventsAPI.GetEvent is where they
+	// are paid for. The fields a card and a layout do read must still be there.
+	api, _, events := layoutFixture(t)
+	ids := make([]uint64, 0, len(events))
+	for _, e := range events {
+		ids = append(ids, e.ID)
+	}
+	cards, err := api.GetEvents(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != len(events) {
+		t.Fatalf("got %d cards, want %d", len(cards), len(events))
+	}
+	for i, e := range cards {
+		if e.RawXML != "" || len(e.ParsedFields) != 0 {
+			t.Errorf("card %d carries cold fields: raw %q, parsed %v", e.ID, e.RawXML, e.ParsedFields)
+		}
+		if e.HashNormalized == "" {
+			t.Errorf("card %d lost its hash", e.ID)
+		}
+		if !slices.Equal(e.CorrKeys, events[i].CorrKeys) {
+			t.Errorf("card %d correlation keys = %q, want %q", e.ID, e.CorrKeys, events[i].CorrKeys)
+		}
 	}
 }

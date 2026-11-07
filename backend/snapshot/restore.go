@@ -25,6 +25,9 @@ type LiveRelation struct {
 	ID   uint64
 	From uint64
 	To   uint64
+	// RelationType is the link's kind. Links of different kinds between the same two events are
+	// different claims, so it is part of what makes a live link the one a snapshot recorded.
+	RelationType string
 }
 
 // NodePlan is what would happen to one snapshot node.
@@ -128,13 +131,34 @@ func BuildPlan(doc *Document, live []LiveEvent, rels []LiveRelation) Plan {
 		out.Nodes = append(out.Nodes, p)
 	}
 
-	// An edge is "still there" when an edge with the same id joins the same two events. Comparing
-	// the endpoints as well as the id matters for the same reason as everywhere else here: an id
-	// that survived a re-ingest onto different endpoints is not the same edge.
+	// A snapshot relation is still there when the case holds the same edge, or the same claim under
+	// another id.
+	//
+	// The same edge is the same id joining the same two events. Comparing the endpoints as well as
+	// the id matters for the same reason as everywhere else here: an id that survived a re-ingest
+	// onto different endpoints is not the same edge.
+	//
+	// The same claim is a link of the same type joining the same two events in the same direction.
+	// A link written later always has a new id, so a link re-created by an earlier restore, drawn
+	// again by hand or inferred again by a rule build has an id the snapshot never saw. Matching on
+	// the id alone offered each of them again, and re-creating one drew the same link twice. Who
+	// made the link and its basis are not compared: a re-created link is always the analyst's,
+	// whatever the snapshot recorded, and a second copy of a link that is there only duplicates it.
 	type endpoints struct{ from, to uint64 }
+	type claim struct {
+		from, to     uint64
+		relationType string
+	}
 	liveEdges := make(map[uint64]endpoints, len(rels))
+	liveClaims := make(map[claim]uint64, len(rels))
 	for _, r := range rels {
 		liveEdges[r.ID] = endpoints{r.From, r.To}
+		// The lowest id wins whatever the input order, so the plan names the same live link on
+		// every run.
+		c := claim{r.From, r.To, r.RelationType}
+		if cur, seen := liveClaims[c]; !seen || r.ID < cur {
+			liveClaims[c] = r.ID
+		}
 	}
 
 	for _, r := range doc.Relations {
@@ -152,8 +176,14 @@ func BuildPlan(doc *Document, live []LiveEvent, rels []LiveRelation) Plan {
 		}
 		p.FromID, p.ToID = fromID, toID
 
+		liveID, present := r.ID, false
 		if e, ok := liveEdges[r.ID]; ok && e.from == fromID && e.to == toID {
-			p.LiveID = r.ID
+			present = true
+		} else {
+			liveID, present = liveClaims[claim{fromID, toID, r.RelationType}]
+		}
+		if present {
+			p.LiveID = liveID
 			p.Outcome = consts.RestoreApplied
 			out.RelationsApplied++
 		} else {

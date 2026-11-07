@@ -129,6 +129,87 @@ func TestPlanDoesNotTrustAnEdgeIdWhoseEndpointsChanged(t *testing.T) {
 	}
 }
 
+func TestPlanTreatsTheSameKindOfLinkBetweenTheSameEventsAsPresent(t *testing.T) {
+	// A link written later always has a new id, so a link re-created by a restore, drawn again by
+	// hand or inferred again by a rule build has an id the snapshot never saw. Matching on the id
+	// alone offered it again, and ticking it drew the same link twice. The planner never sees who
+	// made a link, so this covers a hand-redrawn link as well as a restored one.
+	got := plan(
+		[]LiveEvent{{ID: 1, Hash: "hash-a"}, {ID: 2, Hash: "hash-b"}},
+		[]LiveRelation{
+			{ID: 70, From: 1, To: 2, RelationType: consts.RelationCorrelation},
+			{ID: 55, From: 1, To: 2, RelationType: consts.RelationCorrelation},
+		},
+	)
+	if got.RelationsApplied != 1 || got.RelationsOffered != 0 {
+		t.Fatalf("applied %d / offered %d, want the link counted as still there: %+v",
+			got.RelationsApplied, got.RelationsOffered, got.Relations)
+	}
+	if got.Relations[0].Outcome != consts.RestoreApplied {
+		t.Errorf("outcome = %q, want %q", got.Relations[0].Outcome, consts.RestoreApplied)
+	}
+	// Two live links make the same claim. The lowest id is named whatever the input order, so the
+	// plan is the same on every run.
+	if got.Relations[0].LiveID != 55 {
+		t.Errorf("live id = %d, want 55, the lowest id making the claim", got.Relations[0].LiveID)
+	}
+	if offered := got.Recreatable(); len(offered) != 0 {
+		t.Errorf("a link that is still there was offered for re-creation: %+v", offered)
+	}
+}
+
+func TestPlanFindsTheSameLinkAfterAReingestAndARebuild(t *testing.T) {
+	// After a re-ingest the events hold new ids, and a rule build then joins them with an edge of
+	// a new id too. The claim is matched on the RESOLVED live ids, not the ids the snapshot holds.
+	got := plan(
+		[]LiveEvent{{ID: 41, Hash: "hash-a"}, {ID: 42, Hash: "hash-b"}},
+		[]LiveRelation{{ID: 99, From: 41, To: 42, RelationType: consts.RelationCorrelation}},
+	)
+	if got.RelationsApplied != 1 || got.RelationsOffered != 0 {
+		t.Fatalf("applied %d / offered %d, want the rebuilt link counted as still there: %+v",
+			got.RelationsApplied, got.RelationsOffered, got.Relations)
+	}
+	if got.Relations[0].LiveID != 99 {
+		t.Errorf("live id = %d, want the rebuilt edge 99", got.Relations[0].LiveID)
+	}
+	if !got.Reingested {
+		t.Error("a re-ingest must still be reported when the links are found again")
+	}
+}
+
+func TestPlanOffersALinkWhenOnlyAnotherKindOrTheReverseJoinsTheEvents(t *testing.T) {
+	// A temporal link is a different claim from a correlation, and B->A is a different claim from
+	// A->B. Neither one stands in for the link the snapshot recorded.
+	got := plan(
+		[]LiveEvent{{ID: 1, Hash: "hash-a"}, {ID: 2, Hash: "hash-b"}},
+		[]LiveRelation{
+			{ID: 55, From: 1, To: 2, RelationType: consts.RelationTemporal},
+			{ID: 56, From: 2, To: 1, RelationType: consts.RelationCorrelation},
+		},
+	)
+	if got.RelationsOffered != 1 || got.RelationsApplied != 0 {
+		t.Errorf("offered %d / applied %d, want the recorded link offered: %+v",
+			got.RelationsOffered, got.RelationsApplied, got.Relations)
+	}
+}
+
+func TestPlanKeepsALinkWhoseTypeWasEditedInPlace(t *testing.T) {
+	// The snapshot recorded edge 10 as a correlation, and the analyst has since changed its type in
+	// place. They edited that link; they did not delete it. Offering the old type back would draw
+	// a second link beside the edited one.
+	got := plan(
+		[]LiveEvent{{ID: 1, Hash: "hash-a"}, {ID: 2, Hash: "hash-b"}},
+		[]LiveRelation{{ID: 10, From: 1, To: 2, RelationType: consts.RelationTemporal}},
+	)
+	if got.RelationsApplied != 1 || got.RelationsOffered != 0 {
+		t.Fatalf("applied %d / offered %d, want the edited edge counted as still there: %+v",
+			got.RelationsApplied, got.RelationsOffered, got.Relations)
+	}
+	if got.Relations[0].LiveID != 10 {
+		t.Errorf("live id = %d, want the edited edge 10", got.Relations[0].LiveID)
+	}
+}
+
 func TestPlanIsDeterministicWhenAHashAppearsTwice(t *testing.T) {
 	// Deduplication should prevent this, but a partial ingest can produce it. Resolving by map
 	// order would make the same snapshot restore differently between runs.

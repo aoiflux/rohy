@@ -5,9 +5,13 @@ package layout
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 )
 
 // legacyLayoutFile is the pre-P15 single-graph layout filename. It is migrated into the
@@ -43,6 +47,13 @@ type Layout struct {
 // Store reads and writes the canvas layout under a directory.
 type Store struct {
 	dir string
+	// mu serialises every read and write, and holds RemoveNode's read-modify-write of each file.
+	// Without it, a Save landing between RemoveNode's read and its write would be undone by that
+	// write, a Delete could be undone the same way, and two writers of one graph would share its
+	// .tmp. Reads take it too: on Windows a file that another handle holds open cannot be renamed
+	// over, and a file in the middle of that rename cannot be opened, so a Load overlapping a
+	// Save would fail one of the two.
+	mu sync.Mutex
 }
 
 // Open returns a layout store rooted at dir, creating the directory if needed.
@@ -56,6 +67,13 @@ func Open(dir string) (*Store, error) {
 // Save writes the layout for one graph, replacing any previous one. The write is atomic
 // (temp file + rename) so a crash mid-write cannot corrupt an existing layout.
 func (s *Store) Save(graphID uint64, l *Layout) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.save(graphID, l)
+}
+
+// save is Save without the lock, for callers that already hold it.
+func (s *Store) save(graphID uint64, l *Layout) error {
 	if l == nil {
 		l = &Layout{}
 	}
@@ -77,6 +95,13 @@ func (s *Store) Save(graphID uint64, l *Layout) error {
 // Load returns the saved layout for a graph, or an empty (non-nil) layout when none
 // exists yet.
 func (s *Store) Load(graphID uint64) (*Layout, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.load(graphID)
+}
+
+// load is Load without the lock, for callers that already hold it.
+func (s *Store) load(graphID uint64) (*Layout, error) {
 	data, err := os.ReadFile(filepath.Join(s.dir, layoutFileFor(graphID)))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -97,6 +122,8 @@ func (s *Store) Load(graphID uint64) (*Layout, error) {
 // Delete removes a graph's layout file (used when the graph is deleted). A missing file
 // is not an error.
 func (s *Store) Delete(graphID uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	err := os.Remove(filepath.Join(s.dir, layoutFileFor(graphID)))
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -104,10 +131,72 @@ func (s *Store) Delete(graphID uint64) error {
 	return nil
 }
 
+// RemoveNode drops an event from every graph's saved canvas. It is called when the event
+// leaves the case.
+//
+// A layout is canvas membership keyed by node id, and the store never reuses an id, so an
+// entry for a deleted event can never name anything again; left in place it is an id every
+// reader of that canvas must step over. Snapshots, annotations and findings keep theirs: they
+// are keyed by hash, they are the analyst's record, and they reattach if the event is ingested
+// again.
+//
+// Every file is visited even when one fails, so one unreadable canvas does not leave the
+// others naming the event; the failures are returned together, each naming its file. A file
+// that does not hold the id is not rewritten.
+func (s *Store) RemoveNode(id uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return fmt.Errorf("list saved canvases: %w", err)
+	}
+	var errs []error
+	for _, e := range entries {
+		graphID, ok := graphIDFromFile(e)
+		if !ok {
+			continue
+		}
+		l, err := s.load(graphID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("read %s: %w", e.Name(), err))
+			continue
+		}
+		if _, held := l.Nodes[id]; !held {
+			continue
+		}
+		delete(l.Nodes, id)
+		if err := s.save(graphID, l); err != nil {
+			errs = append(errs, fmt.Errorf("write %s: %w", e.Name(), err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// graphIDFromFile reads the graph id out of a per-graph layout file's name, and reports false
+// for anything else in the directory: the legacy canvas.json, a .tmp left by an interrupted
+// Save, a directory, or a name layoutFileFor would not have written.
+func graphIDFromFile(e os.DirEntry) (uint64, bool) {
+	if e.IsDir() {
+		return 0, false
+	}
+	rest, ok := strings.CutPrefix(e.Name(), "canvas-")
+	if !ok {
+		return 0, false
+	}
+	rest, ok = strings.CutSuffix(rest, ".json")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(rest, 10, 64)
+	return id, err == nil && layoutFileFor(id) == e.Name()
+}
+
 // MigrateLegacy folds a pre-P15 single-graph layout (canvas.json) into the given graph's
 // per-graph file, once. It is a no-op if there is no legacy file or the target already
 // exists. Returns true if a migration was performed.
 func (s *Store) MigrateLegacy(graphID uint64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	legacy := filepath.Join(s.dir, legacyLayoutFile)
 	if _, err := os.Stat(legacy); err != nil {
 		if os.IsNotExist(err) {

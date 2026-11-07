@@ -11,6 +11,7 @@
   // worse than an extra write — so edits debounce while typing and flush on blur.
   import { UI, FINDINGS } from '../../lib/consts/index.js';
   import { findings } from '../../stores/findings.js';
+  import { noteTooLong } from '../../lib/findings.js';
 
   let { event = null } = $props();
 
@@ -42,7 +43,7 @@
   });
 
   const tags = $derived(stored && stored.tags ? stored.tags : []);
-  const tooLong = $derived(note.length > FINDINGS.NOTE_MAX);
+  const tooLong = $derived(noteTooLong(note));
 
   // Tags already used elsewhere in the case, minus the ones on this event — so the analyst
   // reuses a vocabulary instead of inventing a new spelling each time.
@@ -124,6 +125,9 @@
             <button type="button" aria-label={UI.FINDING_TAG_REMOVE} onclick={() => removeTag(t)}>×</button>
           </span>
         {/each}
+        <!-- maxlength is a typing aid. WebView2 counts it in UTF-16 units, which is never looser
+             than the backend's cap in characters; other engines may count differently, and the
+             backend's cut between characters is the backstop. -->
         <input
           class="taginput"
           bind:value={tagDraft}

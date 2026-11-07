@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"rohy/backend/consts"
+	"rohy/backend/custody"
 	"rohy/backend/graphene"
 )
 
@@ -68,6 +70,18 @@ type BackfillProgress struct {
 	Total int `json:"total"`
 }
 
+// BackfillOutcome is what BackfillCorrelationKeys did: the pass, and the seal it ran after it.
+type BackfillOutcome struct {
+	graphene.BackfillResult
+	// Sealed is the seal run after a pass that rewrote at least one event. Nil when it rewrote none:
+	// sealed only when this pass wrote, so a pass that changed nothing does not seal writes it did
+	// not make. Nil too when the case could no longer be written, and SealError then says why.
+	Sealed *SealOutcome `json:"sealed,omitempty"`
+	// SealError is why that seal failed, was not recorded, or was not run. The pass stands either
+	// way: what it rewrote is durable, and the next seal covers it.
+	SealError string `json:"seal_error,omitempty"`
+}
+
 // CorrelationKeyStatus reports how much of the case carries a correlation projection from the
 // recipe this build uses.
 //
@@ -92,14 +106,29 @@ func (a *MaintenanceAPI) CorrelationKeyStatus() (graphene.CorrelationKeyStatus, 
 // Cancelling is safe and loses nothing. The pass is resumable by construction — each event
 // carries the recipe version it was projected under — so a cancelled run is continued simply by
 // running it again.
-func (a *MaintenanceAPI) BackfillCorrelationKeys() (graphene.BackfillResult, error) {
+//
+// 🔒 It SEALS what it rewrote, before it gives back the maintenance lock. The disk engine holds
+// every rewritten node in its delta layer, and the log every rewrite, until a compaction
+// (PERFORMANCE.md §21: about 58 MiB at 100 000 events), and no fingerprint covers them until then.
+// A stopped or failed pass is sealed too: what it committed is durable. It is sealed only when this
+// pass wrote, so a pass that changed nothing does not seal writes it did not make (an ingest's seal
+// does: it asks Unsealed). It goes through sealAndRecord, never a bare Compact, so the new image is
+// recorded in the history, and in a signed case in the register, like every other seal. Holding the
+// lock through the seal is also what keeps a deep check's image read (VerifyImage) off the image
+// while the compaction replaces it.
+//
+// 🔒 A seal that fails does not fail the backfill, for the reason it does not fail an ingest
+// (sealCase): SealError says so beside what the pass did. Nor does a case that can no longer be
+// written get sealed: the write gate is asked when the pass starts, and a seal elsewhere can
+// poison the session while it runs or while this seal waits its turn, so sealRewritten asks again.
+func (a *MaintenanceAPI) BackfillCorrelationKeys() (BackfillOutcome, error) {
 	if err := a.begin(); err != nil {
-		return graphene.BackfillResult{}, err
+		return BackfillOutcome{}, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()
 	a.cancel = cancel
-	emitter := a.emitter
+	emitter, hist := a.emitter, a.integrity.Roots
 	a.mu.Unlock()
 
 	defer func() {
@@ -113,17 +142,42 @@ func (a *MaintenanceAPI) BackfillCorrelationKeys() (graphene.BackfillResult, err
 	res, err := a.store.BackfillCorrelationKeys(ctx, func(done, total int) {
 		emitter.Emit(consts.EventMaintenanceProgress, BackfillProgress{Done: done, Total: total})
 	})
-	emitter.Emit(consts.EventMaintenanceComplete, res)
-
-	if err != nil {
-		// A cancelled pass did what was asked. What it completed is durable, and the result
-		// says how much — reporting it as a failure would suggest otherwise.
-		if ctx.Err() != nil {
-			return res, nil
+	out := BackfillOutcome{BackfillResult: res}
+	var serr error
+	if res.Projected > 0 {
+		out.Sealed, serr = a.sealRewritten(hist)
+		if serr != nil {
+			out.SealError = serr.Error()
 		}
-		return res, AsError(consts.ErrCodePersistence, err)
 	}
-	return res, nil
+	emitter.Emit(consts.EventMaintenanceComplete, out)
+
+	// res.Cancelled rather than ctx.Err(): Stop can be pressed while the seal runs, and that must
+	// not turn a pass that failed into one that was stopped.
+	if err != nil && !res.Cancelled {
+		// The seal's own failure goes with the error rather than being lost with the result.
+		return out, AsError(consts.ErrCodePersistence, errors.Join(err, serr))
+	}
+	// A cancelled pass did what was asked. What it completed is durable, and the result says how
+	// much — reporting it as a failure would suggest otherwise.
+	return out, nil
+}
+
+// sealRewritten seals what a backfill rewrote, unless the session can no longer write the case.
+// The outcome is nil when no seal ran.
+//
+// 🔒 The write gate is asked under sealMu, in this seal's turn rather than before it. An ingest's
+// seal can be compacting when the pass ends; if that compaction fails past its commit point, it
+// poisons the session before it lets go of sealMu, and compacting after it would build on a copy of
+// the case that no longer exists.
+func (a *MaintenanceAPI) sealRewritten(hist *custody.Store) (*SealOutcome, error) {
+	sealMu.Lock()
+	defer sealMu.Unlock()
+	if err := a.store.Writable(); err != nil {
+		return nil, fmt.Errorf(consts.MsgSealRefused, err)
+	}
+	seal, err := sealAndRecordLocked(a.store, hist, false)
+	return &seal, err
 }
 
 // begin claims the maintenance lock for a write-side pass. Two passes over one store at once is
@@ -162,7 +216,10 @@ func (a *MaintenanceAPI) finish() {
 	a.running, a.releaseCase = false, nil
 }
 
-// CancelMaintenance stops an in-flight pass. A no-op when nothing is running.
+// CancelMaintenance stops a backfill's pass over the events, the only pass that carries a
+// cancellation. The seal that follows that pass takes none and runs to the end, and anything else
+// is a no-op. That is why the Maintenance page offers Stop only while a backfill runs, although
+// Stop stays on screen, doing nothing, while the seal runs.
 func (a *MaintenanceAPI) CancelMaintenance() {
 	a.mu.Lock()
 	cancel := a.cancel

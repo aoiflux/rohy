@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
+import { UI } from '../lib/consts/index.js';
 
 // The API is stubbed so the interesting behaviours — one pass at a time, and re-checking after a
 // fix — can be driven without a backend. Both are things a wrong answer makes invisible: a second
@@ -19,9 +20,13 @@ const state = {
 };
 
 vi.mock('../lib/api/index.js', () => ({
-  correlationKeyStatus: vi.fn(async () => state.status),
+  correlationKeyStatus: vi.fn(async () => {
+    state.statusReads += 1;
+    return state.status;
+  }),
   checkIntegrity: vi.fn(async (deep) => {
     state.checks += 1;
+    if (state.checkGate) await state.checkGate;
     if (state.failCheck) throw new Error('backend unavailable');
     return { ...state.report, deep };
   }),
@@ -29,7 +34,9 @@ vi.mock('../lib/api/index.js', () => ({
     state.backfills += 1;
     if (state.gate) await state.gate;
     if (state.failBackfill) throw new Error('backfill failed');
-    return { examined: 10, projected: 10 };
+    if (state.backfillThrows) throw state.backfillThrows;
+    // What the seal after the pass did, when the test says it ran one.
+    return { examined: 10, projected: 10, ...state.backfillSeal };
   }),
   repairRelationIndex: vi.fn(async () => {
     state.repairs += 1;
@@ -45,9 +52,12 @@ vi.mock('../lib/api/index.js', () => ({
   }),
   forensicStatus: vi.fn(async () => {
     state.postureReads += 1;
+    if (state.failPosture) throw new Error('posture unreadable');
     return { available: true, compacted: true, roots: { snapshot: state.snapshot } };
   }),
   verifyImage: vi.fn(async () => ({ digest: 'match', roots_checked: true })),
+  publishCheckpoint: vi.fn(async () => ({ sealed: false })),
+  checkpoints: vi.fn(async () => []),
   // Captures the listeners the store attaches, so a backend event can be delivered by hand.
   on: vi.fn((channel, handler) => {
     handlers[channel] = handler;
@@ -74,6 +84,11 @@ beforeEach(() => {
     failSeal: false,
     postureReads: 0,
     snapshot: 'aa',
+    statusReads: 0,
+    backfillSeal: {},
+    backfillThrows: null,
+    checkGate: null,
+    failPosture: false,
   });
   maintenance.reset();
 });
@@ -199,6 +214,63 @@ describe('re-checking after a fix', () => {
   });
 });
 
+// 🔒 A deep re-check verifies the image, and the backend holds its maintenance lock for that step
+// (VerifyImage). The page stays busy until the re-check returns, so no button looks enabled that the
+// backend would refuse. A quick re-check takes no lock and leaves the page free.
+describe('the re-check after a pass', () => {
+  /** holdChecks makes the next integrity checks wait; the function it returns lets them go. */
+  const holdChecks = () => {
+    let release;
+    state.checkGate = new Promise((r) => (release = r));
+    return () => {
+      state.checkGate = null;
+      release();
+    };
+  };
+
+  const passes = {
+    repair: () => maintenance.repair(),
+    backfill: () => maintenance.backfill(),
+    compact: () => maintenance.compact(),
+    publish: () => maintenance.publishCheckpoint(),
+  };
+
+  for (const [name, start] of Object.entries(passes)) {
+    it(`keeps the page busy until a deep re-check after ${name} returns`, async () => {
+      await maintenance.check(true);
+      const before = state.checks;
+      const release = holdChecks();
+      const pass = start();
+      await vi.waitFor(() => expect(state.checks).toBe(before + 1));
+      expect(get(maintenance).running).toBe('check');
+      expect(await maintenance.repair()).toBe(false);
+      release();
+      await pass;
+      expect(get(maintenance).running).toBe('');
+      expect(get(maintenance).report.deep).toBe(true);
+    });
+  }
+
+  it('leaves the page free during a quick re-check, which takes no lock', async () => {
+    await maintenance.check(false);
+    const before = state.checks;
+    const release = holdChecks();
+    const pass = maintenance.repair();
+    await vi.waitFor(() => expect(state.checks).toBe(before + 1));
+    expect(get(maintenance).running).toBe('');
+    release();
+    await pass;
+  });
+
+  it('clears the busy flag when a deep re-check fails', async () => {
+    await maintenance.check(true);
+    state.failCheck = true;
+    await maintenance.repair();
+    expect(get(maintenance).running).toBe('');
+    expect(get(maintenance).error).toContain('backend unavailable');
+  });
+});
+
 describe('progress and cancellation', () => {
   it('takes progress from the event channel and clears it when the pass ends', async () => {
     maintenance.onProgress({ done: 5, total: 10 });
@@ -227,6 +299,38 @@ describe('failure handling', () => {
     await maintenance.backfill();
     maintenance.clearError();
     expect(get(maintenance).error).toBe('');
+  });
+
+  // 🔒 A read that failed neither started nor ended a pass. Freeing the page on it would enable
+  // every button while the pass still holds the backend's lock.
+  it('a read that fails while a pass runs shows why and leaves the page busy', async () => {
+    let release;
+    state.gate = new Promise((r) => (release = r));
+    const pass = maintenance.backfill();
+    state.failPosture = true;
+    await maintenance.loadForensics();
+    expect(get(maintenance).running).toBe('backfill');
+    expect(get(maintenance).error).toContain('posture unreadable');
+    release();
+    await pass;
+    expect(get(maintenance).running).toBe('');
+  });
+
+  // The same read failing during a compact's refresh must not free the page before its deep
+  // re-check, which holds the lock.
+  it('keeps a deep re-check busy when the posture read before it fails', async () => {
+    await maintenance.check(true);
+    state.failPosture = true;
+    let release;
+    state.checkGate = new Promise((r) => (release = r));
+    const before = state.checks;
+    const pass = maintenance.compact();
+    await vi.waitFor(() => expect(state.checks).toBe(before + 1));
+    expect(get(maintenance).running).toBe('check');
+    state.checkGate = null;
+    release();
+    expect(await pass).toBe(true);
+    expect(get(maintenance).running).toBe('');
   });
 });
 
@@ -259,5 +363,114 @@ describe('the seal after an ingest', () => {
 
     expect(state.postureReads).toBe(reads);
     expect(get(maintenance).image).not.toBeNull();
+  });
+});
+
+describe('the seal after a backfill', () => {
+  // A backfill that rewrote events seals them before it returns, and says so on its result rather
+  // than on case:sealed, which the ingestion store reads as the ingest's own seal.
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  const verified = async () => {
+    await maintenance.loadForensics();
+    await maintenance.verify();
+    expect(get(maintenance).image).not.toBeNull();
+  };
+
+  it('drops the image verdict, counts the seal and re-reads the posture when the backfill sealed', async () => {
+    await verified();
+    state.snapshot = 'bb';
+    state.backfillSeal = { sealed: { state: 'sealed', snapshot: 'bb' } };
+
+    expect(await maintenance.backfill()).toBe(true);
+    await flush();
+
+    const s = get(maintenance);
+    // 🔒 A verdict about the image the seal replaced must not read as current.
+    expect(s.image).toBeNull();
+    expect(s.seals).toBe(1);
+    expect(s.forensics.roots.snapshot).toBe('bb');
+    expect(s.lastResult).toBe('backfill_sealed');
+    expect(s.running).toBe('');
+  });
+
+  it('shows a seal that did not finish cleanly beside the result, not instead of it', async () => {
+    state.backfillSeal = {
+      sealed: { state: 'sealed' },
+      seal_error: 'the case was sealed, but its fingerprint could not be recorded in the history: x',
+    };
+
+    expect(await maintenance.backfill()).toBe(true);
+
+    const s = get(maintenance);
+    expect(s.lastResult).toBe('backfill_sealed');
+    expect(s.error).toContain('could not be recorded');
+    expect(s.seals).toBe(1);
+    expect(state.statusReads).toBe(1);
+  });
+
+  it('counts a backfill that failed as it ran as a seal, but not one that was refused', async () => {
+    await verified();
+    state.backfillThrows = Object.assign(new Error('backfill failed'), { code: 'persistence_error' });
+    await maintenance.backfill();
+    let s = get(maintenance);
+    expect(s.seals).toBe(1);
+    expect(s.image).toBeNull();
+    expect(s.error).toContain('backfill failed');
+
+    await verified();
+    state.backfillThrows = Object.assign(new Error('a redaction is running'), { code: 'case_busy' });
+    await maintenance.backfill();
+    s = get(maintenance);
+    expect(s.seals).toBe(1);
+    expect(s.image).not.toBeNull();
+  });
+
+  it('moves nothing when the backfill sealed nothing', async () => {
+    for (const seal of [{}, { sealed: { state: 'unavailable' } }]) {
+      await verified();
+      const reads = state.postureReads;
+      state.backfillSeal = seal;
+
+      await maintenance.backfill();
+      await flush();
+
+      const s = get(maintenance);
+      expect(s.seals).toBe(0);
+      expect(s.image).not.toBeNull();
+      expect(state.postureReads).toBe(reads);
+      expect(s.lastResult).toBe('backfill');
+    }
+  });
+
+  it('names a stopped pass as stopped, and says when it sealed what it had done', async () => {
+    state.backfillSeal = { cancelled: true };
+    await maintenance.backfill();
+    expect(get(maintenance).lastResult).toBe('backfill_partial');
+
+    state.backfillSeal = { cancelled: true, sealed: { state: 'sealed' } };
+    await maintenance.backfill();
+    expect(get(maintenance).lastResult).toBe('backfill_partial_sealed');
+    expect(get(maintenance).seals).toBe(1);
+  });
+
+  it('noteSeal from another view drops the image verdict', async () => {
+    // The rules page runs the backfill without this store and hands it the seal.
+    await verified();
+    maintenance.noteSeal({ state: 'unchanged' });
+    expect(get(maintenance).image).not.toBeNull();
+    expect(get(maintenance).seals).toBe(0);
+
+    maintenance.noteSeal({ state: 'sealed' });
+    expect(get(maintenance).image).toBeNull();
+    expect(get(maintenance).seals).toBe(1);
+  });
+});
+
+describe('the done banner after a backfill', () => {
+  it('has copy for every result a backfill can end in', () => {
+    for (const key of ['backfill', 'backfill_sealed', 'backfill_partial', 'backfill_partial_sealed']) {
+      expect(UI.MAINT_DONE[key], key).toBeTruthy();
+    }
+    expect(UI.MAINT_DONE.backfill_partial_sealed).toContain(UI.MAINT_DONE.backfill_partial);
   });
 });

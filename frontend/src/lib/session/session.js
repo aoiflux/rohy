@@ -13,7 +13,7 @@ import {
 
 const encoder = new TextEncoder();
 
-/** UTF-8 length, the unit every bound on the Go side counts in. */
+/** UTF-8 length, the unit the Go side's passphrase and reason bounds count in. Names count runes. */
 export const byteLength = (s) => encoder.encode(s || '').length;
 
 const fill = (template, value) => template.replace(/%[ds]/, String(value));

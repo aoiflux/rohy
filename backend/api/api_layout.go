@@ -79,9 +79,11 @@ func (a *GraphAPI) ComputeLayout(req LayoutRequest) (graphlayout.Result, error) 
 	var out graphlayout.Result
 	graphID := a.activeGraphID(req.GraphID)
 
+	// graphlayout reads nothing: every error it returns refuses the request, which is the input's
+	// fault (parse_error), never the case's.
 	slot, err := graphlayout.SlotByName(req.Slot)
 	if err != nil {
-		return out, AsError(consts.ErrCodeInternal, err)
+		return out, AsError(consts.ErrCodeParse, err)
 	}
 
 	rels, err := a.store.RelationsByGraph(graphID)
@@ -92,7 +94,7 @@ func (a *GraphAPI) ComputeLayout(req LayoutRequest) (graphlayout.Result, error) 
 	if err != nil {
 		return out, err
 	}
-	events, err := a.store.GetEvents(ids)
+	events, err := a.store.GetEventRecords(ids)
 	if err != nil {
 		return out, AsError(consts.ErrCodePersistence, err)
 	}
@@ -115,7 +117,7 @@ func (a *GraphAPI) ComputeLayout(req LayoutRequest) (graphlayout.Result, error) 
 
 	res, err := graphlayout.Compute(req.Profile, nodes, rels, graphlayout.Options{Slot: slot})
 	if err != nil {
-		return out, AsError(consts.ErrCodeInternal, err)
+		return out, AsError(consts.ErrCodeParse, err)
 	}
 	return res, nil
 }
@@ -143,7 +145,7 @@ func (a *GraphAPI) Clusters(req ClusterRequest) ([]graphlayout.Cluster, error) {
 
 	slot, err := graphlayout.SlotByName(req.Slot)
 	if err != nil {
-		return nil, AsError(consts.ErrCodeInternal, err)
+		return nil, AsError(consts.ErrCodeParse, err)
 	}
 	rels, err := a.store.RelationsByGraph(graphID)
 	if err != nil {
@@ -153,7 +155,7 @@ func (a *GraphAPI) Clusters(req ClusterRequest) ([]graphlayout.Cluster, error) {
 	if err != nil {
 		return nil, err
 	}
-	events, err := a.store.GetEvents(ids)
+	events, err := a.store.GetEventRecords(ids)
 	if err != nil {
 		return nil, AsError(consts.ErrCodePersistence, err)
 	}
@@ -168,7 +170,7 @@ func (a *GraphAPI) Clusters(req ClusterRequest) ([]graphlayout.Cluster, error) {
 
 	out, err := graphlayout.Clusters(req.Mode, nodes, rels, graphlayout.Options{Slot: slot})
 	if err != nil {
-		return nil, AsError(consts.ErrCodeInternal, err)
+		return nil, AsError(consts.ErrCodeParse, err)
 	}
 	return out, nil
 }
@@ -244,9 +246,9 @@ func (a *GraphAPI) canvasNodeIDs(graphID uint64, rels []*graphene.Relation) ([]u
 			}
 		}
 	}
-	// GetEvents returns a compacted found-set, so the order it is asked in does not survive;
-	// sorting here is for the layout's determinism, not for the query's. The ids come out of a
-	// map, so without this the request order would differ on every call.
+	// The ids come out of a map, so without this the request order would differ on every call;
+	// sorting is for the layout's determinism. GetEventRecords keeps the order it is asked in
+	// and leaves out any id the case no longer holds.
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	return ids, nil
 }

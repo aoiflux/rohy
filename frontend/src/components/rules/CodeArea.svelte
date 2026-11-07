@@ -63,8 +63,9 @@
    * The owner sees the key first: an open suggestion list owns Enter, Tab and the arrows, and
    * only a key it leaves alone is an edit. The edits themselves — pairs closed and typed over,
    * an empty pair deleted whole, Enter keeping the indent, Tab as two spaces — are
-   * brackets.js's. Tab traps keyboard users, so Escape is left free to leave the field and
-   * the hint below says so.
+   * brackets.js's. Tab traps keyboard users, so Escape is left free to leave the field: with no
+   * suggestion list open it reaches the rule editor's dialog, which closes (or asks first when
+   * there are unsaved edits). RawEditorPanel's hint does not mention it.
    */
   function handleKeydown(e) {
     onkeydown?.(e);

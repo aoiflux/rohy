@@ -41,6 +41,9 @@ and field, temporal and lineage rules under-report against it until then. Nothin
 the backfill re-reads the stored fields — but the result of a rule run before it is not the
 whole answer.
 
+The backfill seals the case when it has rewritten any event, so **the case fingerprint changes**.
+Keep the new one: a fingerprint exported before the backfill no longer matches the case.
+
 ### Added
 
 - **Event proofs.** *Save proof…* in the event drawer writes `event-<id>-proof.json`: a file
@@ -230,6 +233,52 @@ whole answer.
 - A latent data race in the shared prepared dataset when a rule asked for a scope the build had
   not prepared.
 
+- **Deleting an event broke every canvas that still held it.** Another graph's canvas, and this
+  one's until *Save layout*, failed to load, and *Arrange*, *Group* and *Take snapshot* failed with
+  it. Pressing *Save layout* on the empty canvas then erased its positions and viewport. Deleting an
+  event now removes it from every saved canvas, and a canvas that still names a gone event loads
+  without it. If a canvas file cannot be updated, the error names it; the event is deleted anyway.
+- **Arrange, Group, Take snapshot and the canvas cards no longer read raw records.** None of them
+  shows one, and reading them was most of the wait: *Arrange* on 5 000 events is about four to five
+  times faster (see Under the hood). One unreadable raw record no longer empties a canvas; the event
+  drawer and *Save proof…* still report it.
+- **The correlation backfill now seals the case when it rewrote any event**, also when it was
+  stopped or failed part way. It used to leave every rewritten event in memory and in the write log
+  until the next seal: about 58 MiB at 100 000 events. The seal is recorded in the fingerprint
+  history like every other seal, and the page says the fingerprint has changed. A seal that does not
+  finish is shown beside the backfill's result; what the pass rewrote is kept either way.
+- **A snapshot restore could draw the same link twice.** A link counted as still there only while
+  it kept the id it had in the snapshot. A link the restore had re-created, one drawn again by hand,
+  or one a rule found again after the rules were re-run was offered again, and restoring a second
+  time drew it twice. A link is now matched by the two events it joins, its direction and its type,
+  and one restore writes a link once even when the snapshot recorded it twice.
+- **The layout note counted cycles it had not found.** When no event was free to place next,
+  *Sequence* and *Lineage* forced one and reported each as a broken cycle, or as a group with no root.
+  One cycle could read as two, and *Lineage* said every event in a group had a parent inside it when
+  one did not. The note now counts forced placements.
+- **Replay said approximate links are drawn as a weaker claim.** They are drawn like any other link,
+  and the caption now says so.
+- **Stop was offered during a case check**, where it did nothing, and could stop a backfill started
+  from the Rules page instead. It is now offered only while a correlation backfill runs.
+- **The relationship heatmap kept the timeline's old range.** After the timeline reloaded over a
+  changed case (*Group by*, *Retry*), the strip's columns no longer sat over the histogram's. It now
+  follows the timeline's range, and a *Retry* that changed nothing does not fetch it again.
+- **Notes, tags, annotation text, layer names and snapshot labels now count characters**, as their
+  messages say, not bytes. A note in Japanese or Russian used to get a third or half of the room one
+  in English gets, and was refused with no warning. A long tag or layer name was cut by bytes, which
+  could split a character; it is now cut between characters, and a cut tag that ends in a space is
+  trimmed so it can still be filtered.
+- **A failed finding or annotation save no longer leaves the screen ahead of the disk.** When
+  writing a finding or an annotation failed, the screen kept the change that was never saved. It
+  now shows what the file holds. Deleting one annotation can no longer delete another made in the
+  same millisecond.
+- **A layout refused for the node cap, an unknown profile, field or grouping is the request's
+  fault.** It was coded `internal_error`; it is now `parse_error`. The message is unchanged.
+- **A correction to the v0.2.0 notes:** the *Resource* layout makes one column per value of the
+  correlation field chosen beside it (`logon_id` unless another is chosen): a session, an account, a
+  process, an address or a service. No correlation field holds the host, so there is no column per
+  host.
+
 ### Changed
 
 - **Every disk case now keeps a redaction ledger** (`graphene.redactions` in the case folder). A
@@ -271,6 +320,13 @@ whole answer.
 - **Parser faults are contained.** A parser that fails on hostile input now skips and reports the
   chunk or record it was reading instead of ending the application, and a damaged EVTX chunk
   reports how many of its declared records could not be read instead of losing them silently.
+- **A deep check verifies the image under the maintenance lock**, as *Check the case has not
+  changed* does. While a backfill or a fix runs, the report says the image was not verified. While a
+  deep check reads the image (about 0.6 s at 100 000 events), a backfill, a fix, *Seal the case* or
+  a checkpoint publish is refused as already running, and a redaction is refused because the case
+  is busy. The Maintenance page shows itself busy for that time, including the re-check it runs
+  after a fix, so its buttons are not offered then; only a backfill started from the Rules page in
+  that window meets the refusal.
 
 ### Under the hood
 
@@ -285,7 +341,10 @@ whole answer.
 - **Ten new backend packages** (`analyst`, `anchor`, `custody`, `durable`, `eventproof`, `keyfile`,
   `query`, `redaction`, and `synth` and `integration` for tests), the `tools/profile` harness, and
   33 Go packages in total.
-- **1,140 Go tests, 10 fuzz targets and 65 benchmarks; 795 frontend tests; 58 extension tests.**
+- **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
+  read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
+  from 46–50 MB to 8–12 MB allocated, on the same machine.
+- **1,192 Go tests, 10 fuzz targets and 65 benchmarks; 844 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 
@@ -303,6 +362,27 @@ whole answer.
   the integrity check reports that its image does not follow the last recorded seal.
 - **New portable files are versioned from 1**: event proofs (checked with this release's
   `rohyctl verify-proof`) and signing keys.
+
+### Known issues
+
+- **A canvas that failed to load can still be overwritten.** If a graph's canvas cannot be read (a
+  damaged canvas file, a store error), it opens empty, and *Save layout* then saves the empty canvas
+  over the saved positions. Do not press *Save layout* on a canvas that failed to load.
+- **A damaged canvas file blocks deleting events.** While one canvas file cannot be read, every
+  event deletion reports an error naming it. The event is deleted and every other canvas is updated,
+  but the card stays until the file is fixed or removed.
+- **A restore can still offer a link again** after a crash in the middle of applying it, and a
+  restore applied while rules run or a link is drawn can still draw one link twice.
+- **A backfill started from the Rules page is not shown on the Maintenance page**, and Stop is not
+  offered for it there. During the seal at the end of a backfill, Stop is shown and does nothing.
+- **Layouts force the lowest id, not a node on the cycle.** A graph with a cycle can need more forced
+  placements than it has cycles, and an event can land in the same column as its cause. The note
+  counts the forced placements correctly.
+- **On macOS and Linux, the tag field may take more than 64 characters.** The backend then cuts the
+  tag, possibly inside a combined character such as an emoji sequence. This has not been checked on
+  those builds.
+- Tags and layer names cut by bytes in an earlier release keep the replacement character (�) the
+  cut left.
 
 ### Not in this release
 

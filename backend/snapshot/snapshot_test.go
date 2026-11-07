@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,6 +178,33 @@ func TestSaveRefusesAnOverlongLabel(t *testing.T) {
 	d.Label = strings.Repeat("x", consts.MaxSnapshotLabelLen+1)
 	if err := s.Save(d); err == nil {
 		t.Fatal("an overlong label must be refused rather than truncated")
+	}
+}
+
+// The label limit counts characters, as its message says. Counted in bytes, a label in Japanese was
+// refused at a third of the stated length.
+func TestLabelLimitCountsCharactersNotBytes(t *testing.T) {
+	s := openStore(t)
+	fits := doc(7, snapBase)
+	fits.Label = strings.Repeat("日", consts.MaxSnapshotLabelLen)
+	if err := s.Save(fits); err != nil {
+		t.Fatalf("a label of exactly %d characters was refused: %v", consts.MaxSnapshotLabelLen, err)
+	}
+	over := doc(7, snapBase.Add(time.Second))
+	over.Label = strings.Repeat("日", consts.MaxSnapshotLabelLen+1)
+	err := s.Save(over)
+	if err == nil {
+		t.Fatal("a label one character past the limit was accepted")
+	}
+	if want := fmt.Sprintf(consts.MsgSnapshotLabelLong, consts.MaxSnapshotLabelLen); err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+	got, err := s.List(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Label != fits.Label {
+		t.Errorf("list = %+v, want only the snapshot whose label fit", got)
 	}
 }
 

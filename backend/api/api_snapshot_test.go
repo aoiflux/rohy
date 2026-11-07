@@ -216,6 +216,270 @@ func TestARecreatedEdgeIsAssertedByTheAnalystNotByARule(t *testing.T) {
 	}
 }
 
+// deletedAndOffered takes a snapshot of the fixture's graph, deletes its one link, and returns
+// the snapshot id and the deleted link's snapshot id, which a restore then offers.
+func deletedAndOffered(t *testing.T, api *SnapshotAPI, store *graphene.Store, graphID uint64) (string, uint64) {
+	t.Helper()
+	got, err := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
+	if err != nil {
+		t.Fatalf("take: %v", err)
+	}
+	rels, err := store.RelationsByGraph(graphID)
+	if err != nil || len(rels) != 1 {
+		t.Fatalf("fixture relations = %d (%v), want 1", len(rels), err)
+	}
+	if err := store.DeleteRelation(rels[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	return got.ID, rels[0].ID
+}
+
+func TestRestoringTwiceDoesNotDuplicateALink(t *testing.T) {
+	// The re-created link has an id the snapshot never saw. Matched on the id alone, it stayed on
+	// offer, and a second apply with the same ticks drew the same link again beside the first.
+	api, store, _, graphID, _ := snapFixture(t)
+	snapID, relID := deletedAndOffered(t, api, store, graphID)
+	req := RestoreRequest{GraphID: graphID, ID: snapID, Recreate: []uint64{relID}}
+
+	first, err := api.ApplyRestore(req)
+	if err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	if first.RelationsCreated != 1 {
+		t.Fatalf("first apply created %d, want the deleted link", first.RelationsCreated)
+	}
+	second, err := api.ApplyRestore(req)
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if second.RelationsCreated != 0 {
+		t.Errorf("second apply created %d, want nothing: the link is already there", second.RelationsCreated)
+	}
+	after, err := store.RelationsByGraph(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 1 {
+		t.Errorf("graph holds %d relations after restoring twice, want 1", len(after))
+	}
+}
+
+func TestPreviewAfterARestoreOffersNothing(t *testing.T) {
+	api, store, _, graphID, _ := snapFixture(t)
+	snapID, relID := deletedAndOffered(t, api, store, graphID)
+	if _, err := api.ApplyRestore(RestoreRequest{GraphID: graphID, ID: snapID, Recreate: []uint64{relID}}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	after, err := store.RelationsByGraph(graphID)
+	if err != nil || len(after) != 1 {
+		t.Fatalf("graph holds %d relations (%v), want the re-created one", len(after), err)
+	}
+
+	plan, err := api.PreviewRestore(graphID, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RelationsOffered != 0 || plan.RelationsApplied != 1 {
+		t.Errorf("offered %d / applied %d, want the re-created link counted as still there: %+v",
+			plan.RelationsOffered, plan.RelationsApplied, plan.Relations)
+	}
+	if offered := plan.Recreatable(); len(offered) != 0 {
+		t.Errorf("the re-created link is offered again: %+v", offered)
+	}
+	// The plan names the link that is there now, not the one the snapshot recorded.
+	if plan.Relations[0].LiveID != after[0].ID {
+		t.Errorf("live id = %d, want the re-created link %d (the deleted one was %d)",
+			plan.Relations[0].LiveID, after[0].ID, relID)
+	}
+}
+
+func TestPreviewDoesNotOfferALinkARuleBuildMadeAgain(t *testing.T) {
+	// Re-running the rules clears the graph's links and inserts them again under new ids. Every
+	// unchanged rule link used to be offered for re-creation, and ticking one drew a user-asserted
+	// copy beside the link the rule had just inferred again.
+	api, store, _, graphID, events := snapFixture(t)
+	got, err := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
+	if err != nil {
+		t.Fatalf("take: %v", err)
+	}
+	// The same two steps a rule build takes: delete the graph's links, then insert the new ones.
+	if _, err := store.DeleteGraphRelations(graphID); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := &graphene.Relation{
+		From: events[0].ID, To: events[1].ID, GraphID: graphID,
+		RelationType: consts.RelationCorrelation, CreatedBy: consts.CreatedBySystem,
+	}
+	rebuilt.StampProvenance("brute-force", consts.AlgoSequence, "m-1", 0, []string{"logon_id=0x3e7"})
+	if _, err := store.InsertRelation(rebuilt); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := api.PreviewRestore(graphID, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RelationsApplied != 1 || plan.RelationsOffered != 0 {
+		t.Errorf("applied %d / offered %d, want the rebuilt link counted as still there: %+v",
+			plan.RelationsApplied, plan.RelationsOffered, plan.Relations)
+	}
+	if plan.Relations[0].LiveID != rebuilt.ID {
+		t.Errorf("live id = %d, want the rebuilt link %d", plan.Relations[0].LiveID, rebuilt.ID)
+	}
+}
+
+func TestARestoredLinkOfAnUnknownTypeIsNotOfferedAgain(t *testing.T) {
+	// A recorded type this build does not know is re-created as the default type. The planner must
+	// compare the type a re-creation writes, or that link would never match once re-created and
+	// would be offered on every restore.
+	api, store, _, graphID, events := snapFixture(t)
+	doc := &snapshot.Document{
+		ID:      snapshot.NewID(time.Now()),
+		GraphID: graphID,
+		TakenAt: time.Now().UTC(),
+		Nodes: []snapshot.Node{
+			{ID: events[0].ID, Hash: "hash-a"},
+			{ID: events[1].ID, Hash: "hash-b"},
+		},
+		Relations: []snapshot.Relation{
+			{ID: 9001, FromHash: "hash-a", ToHash: "hash-b", RelationType: "lateral"},
+		},
+	}
+	if err := api.snaps.Save(doc); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// The fixture's correlation link is a different kind, so it does not stand in for this one.
+	plan, err := api.PreviewRestore(graphID, doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RelationsOffered != 1 {
+		t.Fatalf("offered %d, want the unknown-type link: %+v", plan.RelationsOffered, plan.Relations)
+	}
+	res, err := api.ApplyRestore(RestoreRequest{GraphID: graphID, ID: doc.ID, Recreate: []uint64{9001}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.RelationsCreated != 1 {
+		t.Fatalf("created %d, want the unknown-type link", res.RelationsCreated)
+	}
+	rels, err := store.RelationsByGraph(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults := 0
+	for _, r := range rels {
+		if r.RelationType == consts.RelationDefault {
+			defaults++
+		}
+	}
+	if defaults != 1 {
+		t.Errorf("graph holds %d default-type links, want the one re-created: %+v", defaults, rels)
+	}
+
+	again, err := api.PreviewRestore(graphID, doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.RelationsOffered != 0 {
+		t.Errorf("offered %d after the restore, want nothing: %+v", again.RelationsOffered, again.Relations)
+	}
+}
+
+func TestOneRestoreWritesALinkTheSnapshotHeldTwiceOnce(t *testing.T) {
+	// Nothing stops an analyst drawing the same link twice, so a snapshot can record it twice. A
+	// link is one claim however many rows recorded it: ticking both copies writes it once.
+	api, store, _, graphID, events := snapFixture(t)
+	dup := &graphene.Relation{
+		From: events[0].ID, To: events[1].ID, GraphID: graphID,
+		RelationType: consts.RelationCorrelation, CreatedBy: consts.CreatedByUser,
+	}
+	if _, err := store.InsertRelation(dup); err != nil {
+		t.Fatal(err)
+	}
+	got, err := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
+	if err != nil {
+		t.Fatalf("take: %v", err)
+	}
+	if got.Relations != 2 {
+		t.Fatalf("snapshot holds %d relations, want both copies", got.Relations)
+	}
+	if _, err := store.DeleteGraphRelations(graphID); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := api.PreviewRestore(graphID, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offered := plan.Recreatable()
+	if len(offered) != 2 {
+		t.Fatalf("offered %d, want both copies while neither is live: %+v", len(offered), plan.Relations)
+	}
+	res, err := api.ApplyRestore(RestoreRequest{
+		GraphID: graphID, ID: got.ID, Recreate: []uint64{offered[0].SnapshotID, offered[1].SnapshotID},
+	})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.RelationsCreated != 1 {
+		t.Errorf("created %d, want the link written once", res.RelationsCreated)
+	}
+	after, err := store.RelationsByGraph(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 1 {
+		t.Errorf("graph holds %d relations, want 1", len(after))
+	}
+}
+
+func TestPreviewFindsAStoredLinkWithNoTypeUnderANewId(t *testing.T) {
+	// A stored link can carry no type. The snapshot's side compares it as the default type, the
+	// type a re-creation would write, so the live side must go through the same fallback. Compared
+	// raw, an untyped link would not match its own snapshot row once a rebuild gave it a new id,
+	// and it would be offered for re-creation beside itself.
+	api, store, _, graphID, events := snapFixture(t)
+	untyped := &graphene.Relation{
+		From: events[0].ID, To: events[1].ID, GraphID: graphID, CreatedBy: consts.CreatedBySystem,
+	}
+	if _, err := store.InsertRelation(untyped); err != nil {
+		t.Fatal(err)
+	}
+	got, err := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
+	if err != nil {
+		t.Fatalf("take: %v", err)
+	}
+	if got.Relations != 2 {
+		t.Fatalf("snapshot holds %d relations, want the fixture's link and the untyped one", got.Relations)
+	}
+	// A rebuild writes the same untyped link again, under a new id.
+	if err := store.DeleteRelation(untyped.ID); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := &graphene.Relation{
+		From: events[0].ID, To: events[1].ID, GraphID: graphID, CreatedBy: consts.CreatedBySystem,
+	}
+	if _, err := store.InsertRelation(rebuilt); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := api.PreviewRestore(graphID, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RelationsApplied != 2 || plan.RelationsOffered != 0 {
+		t.Errorf("applied %d / offered %d, want the rebuilt untyped link counted as still there: %+v",
+			plan.RelationsApplied, plan.RelationsOffered, plan.Relations)
+	}
+	for _, r := range plan.Relations {
+		if r.SnapshotID == untyped.ID && r.LiveID != rebuilt.ID {
+			t.Errorf("live id = %d, want the rebuilt link %d", r.LiveID, rebuilt.ID)
+		}
+	}
+}
+
 func TestApplyRestoreOnlyCreatesWhatWasNamed(t *testing.T) {
 	api, store, _, graphID, _ := snapFixture(t)
 	got, _ := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
@@ -366,5 +630,22 @@ func TestSnapshotOfAnEmptyCanvas(t *testing.T) {
 	}
 	if got.Nodes != 0 || got.Relations != 0 {
 		t.Errorf("empty snapshot holds %d/%d", got.Nodes, got.Relations)
+	}
+}
+
+func TestTakeSnapshotLeavesOutAnEventTheCaseNoLongerHolds(t *testing.T) {
+	// A sidecar that still names a deleted event used to fail the snapshot outright. The snapshot
+	// records what the canvas can show, and a gone event is not on it.
+	api, store, _, graphID, events := snapFixture(t)
+	// Deleted on the store directly, so the sidecar still names it; its one relation cascades.
+	if err := store.DeleteEvent(events[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
+	if err != nil {
+		t.Fatalf("TakeSnapshot: %v", err)
+	}
+	if got.Nodes != 1 || got.Relations != 0 {
+		t.Errorf("snapshot holds %d nodes / %d relations, want 1/0", got.Nodes, got.Relations)
 	}
 }

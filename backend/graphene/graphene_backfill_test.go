@@ -218,6 +218,28 @@ func TestBackfillLeavesUnreadablePayloadsUnstamped(t *testing.T) {
 	}
 }
 
+// 🔒 Projected counts only what was committed. A batch that fails part-way commits none of what it
+// had queued, and the binding seals only when a pass wrote, so a count that included the queued
+// rewrites would seal writes the pass never made.
+func TestABackfillBatchThatFailsPartWayCountsNothingProjected(t *testing.T) {
+	s := OpenInMemory()
+	defer s.Close()
+
+	legacyEvent(t, s, "q1", map[string]string{"TargetLogonId": "0x3E7"})
+	// An event record that cannot be decoded, after one that can be projected in the same batch.
+	if _, err := s.g.AddNodes([]*store.Node{{Labels: []store.NodeType{consts.NodeEvent}, Properties: []byte("{")}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	res, err := s.BackfillCorrelationKeys(context.Background(), nil)
+	if err == nil {
+		t.Fatalf("a batch holding an undecodable event succeeded: %+v", res)
+	}
+	if res.Projected != 0 {
+		t.Fatalf("result = %+v, want nothing projected: the batch's transaction was never committed", res)
+	}
+}
+
 func TestBackfillEmptyStore(t *testing.T) {
 	s := OpenInMemory()
 	defer s.Close()

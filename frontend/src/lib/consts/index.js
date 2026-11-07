@@ -369,7 +369,10 @@ export const FINDING_FILTERS = Object.freeze({
 });
 
 // Findings tuning. NOTE_MAX mirrors backend consts.MaxFindingNoteLen so the editor can warn
-// before a write is refused rather than after. SAVE_DEBOUNCE_MS keeps typing from writing the
+// before a write is refused rather than after; like the backend it counts characters (code
+// points, through lib/findings.js), never UTF-16 units. TAG_MAX mirrors MaxFindingTagLen and
+// feeds the tag input's maxlength, a typing aid; the backend's cap, which cuts a longer tag
+// between characters, counts code points. SAVE_DEBOUNCE_MS keeps typing from writing the
 // sidecar on every keystroke; the editor also flushes on blur so nothing is lost.
 export const FINDINGS = Object.freeze({
   NOTE_MAX: 8000,
@@ -458,6 +461,11 @@ export const CONTEXT_ACTION = Object.freeze({
 // Marks a subtree that provides its own context menu, so the app-wide menu defers to it
 // instead of clobbering a more specific one.
 export const OWNS_CONTEXT_MENU_ATTR = 'data-owns-context-menu';
+
+// The backfill's stopped and sealed sentences, shared by the rules page's snackbar and the
+// Maintenance page's banner so the two never drift apart.
+const BACKFILL_PARTIAL = 'Stopped. What was read is kept — run it again to continue from there.';
+const BACKFILL_SEALED = 'The case was sealed, so its fingerprint has changed.';
 
 // --- UI labels (frontend-owned; no hardcoded strings in components) ---
 export const UI = Object.freeze({
@@ -757,10 +765,15 @@ export const UI = Object.freeze({
     'lineage matching will under-report against them until this is filled in. Reading the events ' +
     'once is all it takes; nothing is re-ingested and nothing is lost.',
   BACKFILL_RUN: 'Fill in correlation fields',
-  BACKFILL_RUNNING: 'Reading events for correlation fields…',
+  BACKFILL_RUNNING: 'Reading events for correlation fields, then sealing what changed…',
   BACKFILL_CANCEL: 'Stop',
   BACKFILL_DONE: 'Correlation fields filled in for',
-  BACKFILL_PARTIAL: 'Stopped. What was read is kept — run it again to continue from there.',
+  BACKFILL_PARTIAL,
+  // A backfill that rewrote events seals them when it ends, stopped or not.
+  BACKFILL_SEALED,
+  BACKFILL_SEAL_PROBLEM: 'Correlation fields filled in, but the seal after it did not finish:',
+  // A stopped pass is still named as stopped when its seal did not finish.
+  BACKFILL_PARTIAL_SEAL_PROBLEM: `${BACKFILL_PARTIAL} The seal after it did not finish:`,
   // Appended to a rules-run summary when the run could not see part of the case.
   RULES_RUN_NO_KEYS: 'events lacked a matched field',
   RULES_RUN_UNRESOLVED: 'processes had no resolvable parent',
@@ -996,7 +1009,7 @@ export const UI = Object.freeze({
   }),
   MAINT_RUNNING: Object.freeze({
     check: 'Checking the case…',
-    backfill: 'Filling in correlation fields…',
+    backfill: 'Filling in correlation fields, then sealing what changed…',
     repair: 'Repairing the relation index…',
     rebuild: 'Rebuilding the indexes…',
     verify: 'Re-reading the whole case…',
@@ -1006,6 +1019,10 @@ export const UI = Object.freeze({
   }),
   MAINT_DONE: Object.freeze({
     backfill: 'Correlation fields filled in.',
+    backfill_sealed:
+      'Correlation fields filled in, and the case sealed. Its fingerprint has changed: keep the new one.',
+    backfill_partial: BACKFILL_PARTIAL,
+    backfill_partial_sealed: `${BACKFILL_PARTIAL} ${BACKFILL_SEALED}`,
     repair: 'Relation index repaired.',
     rebuild: 'Indexes rebuilt.',
     compact: 'Case sealed. It now has a fingerprint that covers everything in it.',
@@ -1283,7 +1300,7 @@ export const UI = Object.freeze({
     'beginning of the case, which would claim a time they do not have.',
   REPLAY_APPROXIMATE:
     'links touch an event with no timestamp, so the moment they became true is unknown. They ' +
-    'appear once both their ends are on screen, drawn as a weaker claim.',
+    'appear once both their ends are on screen, and are drawn like any other link.',
   HEATMAP_GROUP_LABEL: Object.freeze({
     rule: 'Rule',
     relation_type: 'Kind of link',

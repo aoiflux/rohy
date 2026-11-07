@@ -1,6 +1,11 @@
 package api
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +17,8 @@ import (
 	"rohy/backend/graphene"
 	"rohy/backend/graphreg"
 	"rohy/backend/layout"
+
+	"github.com/aoiflux/graphene/store"
 )
 
 const fixtureSecurity = "../evtx/testdata/Security.evtx"
@@ -482,6 +489,165 @@ func TestGraphLayoutRoundTrip(t *testing.T) {
 	}
 	if len(got.Nodes) != 2 || got.Nodes[9].Y != 4 || got.Viewport.Zoom != 2 {
 		t.Errorf("layout not round-tripped through binding: %+v", got)
+	}
+}
+
+// twoEvents inserts two events into a fresh in-memory store and returns their ids.
+func twoEvents(t *testing.T) (*graphene.Store, uint64, uint64) {
+	t.Helper()
+	db := graphene.OpenInMemory()
+	t.Cleanup(func() { db.Close() })
+	ids, err := db.InsertEvents([]*graphene.Event{
+		{EventID: "4624", Computer: "HOST-A", HashNormalized: "hash-x"},
+		{EventID: "4688", Computer: "HOST-A", HashNormalized: "hash-y"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, ids[0], ids[1]
+}
+
+func TestDeleteEventRemovesItFromEveryCanvas(t *testing.T) {
+	// 🔒 A layout is canvas membership by node id. A deleted event left in another graph's
+	// sidecar, or in this one's until the next Save layout, used to fail that canvas's load, and
+	// a Save layout on the empty canvas then erased its positions and viewport.
+	db, x, y := twoEvents(t)
+	graph := newTestGraphAPI(t, db)
+	g2, err := graph.CreateGraph(GraphRequest{Name: "Second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g3, err := graph.CreateGraph(GraphRequest{Name: "Third"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saves := []struct {
+		graphID uint64
+		l       layout.Layout
+	}{
+		{consts.DefaultGraphID, layout.Layout{
+			Nodes:    map[uint64]layout.Position{x: {X: 1, Y: 1}, y: {X: 2, Y: 2}},
+			Viewport: layout.Viewport{Zoom: 1.5},
+		}},
+		{g2.ID, layout.Layout{Nodes: map[uint64]layout.Position{x: {X: 3, Y: 3}}}},
+		{g3.ID, layout.Layout{Nodes: map[uint64]layout.Position{y: {X: 4, Y: 4}}}},
+	}
+	for _, s := range saves {
+		if err := graph.SaveLayout(s.graphID, s.l); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := graph.DeleteEvent(x); err != nil {
+		t.Fatalf("DeleteEvent: %v", err)
+	}
+
+	def, err := graph.LoadLayout(consts.DefaultGraphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held := def.Nodes[x]; held || len(def.Nodes) != 1 || def.Nodes[y] != (layout.Position{X: 2, Y: 2}) {
+		t.Errorf("default canvas = %+v, want only the surviving event at {2,2}", def.Nodes)
+	}
+	if def.Viewport.Zoom != 1.5 {
+		t.Errorf("default canvas lost its viewport: %+v", def.Viewport)
+	}
+	if second, err := graph.LoadLayout(g2.ID); err != nil || len(second.Nodes) != 0 {
+		t.Errorf("second canvas = %+v (err %v), want no nodes", second.Nodes, err)
+	}
+	if third, err := graph.LoadLayout(g3.ID); err != nil || len(third.Nodes) != 1 || third.Nodes[y] != (layout.Position{X: 4, Y: 4}) {
+		t.Errorf("third canvas never held the event and changed: %+v (err %v)", third.Nodes, err)
+	}
+}
+
+func TestDeletingAGoneEventAgainFinishesThePrune(t *testing.T) {
+	// The store delete commits before the sidecars are pruned. A crash between the two, or a
+	// prune that failed, leaves a canvas naming a gone event; deleting again is how that is
+	// finished, so the already-gone branch must still prune.
+	db, x, y := twoEvents(t)
+	graph := newTestGraphAPI(t, db)
+	if err := graph.SaveLayout(consts.DefaultGraphID, layout.Layout{
+		Nodes: map[uint64]layout.Position{x: {X: 1, Y: 1}, y: {X: 2, Y: 2}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Deleted on the store directly: the state a crash after the store delete leaves.
+	if err := db.DeleteEvent(x); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := graph.DeleteEvent(x); err != nil {
+		t.Fatalf("DeleteEvent of a gone event: %v", err)
+	}
+	got, err := graph.LoadLayout(consts.DefaultGraphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held := got.Nodes[x]; held {
+		t.Error("the canvas still names the deleted event")
+	}
+	if _, held := got.Nodes[y]; !held {
+		t.Error("the prune removed an event that is still in the case")
+	}
+}
+
+func TestDeleteEventReportsACanvasItCouldNotUpdate(t *testing.T) {
+	// The event is gone by the time a canvas fails to update, so the error must say so in a
+	// persistence-coded message that names the file, and the canvases that could be read must
+	// still lose the event. The prune visits the files in name order, so the second graph's
+	// unreadable canvas sits between two readable ones that hold the event: a prune that stopped
+	// at the first failure would leave the third graph naming it.
+	db, x, y := twoEvents(t)
+	dir := t.TempDir()
+	layoutStore, err := layout.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := graphreg.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EnsureDefault(consts.DefaultGraphName, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	graph := NewGraphAPI(db, layoutStore, reg)
+	g2, err := graph.CreateGraph(GraphRequest{Name: "Second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g3, err := graph.CreateGraph(GraphRequest{Name: "Third"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readable := []uint64{consts.DefaultGraphID, g3.ID}
+	for _, graphID := range readable {
+		if err := graph.SaveLayout(graphID, layout.Layout{
+			Nodes: map[uint64]layout.Position{x: {X: 1, Y: 1}, y: {X: 2, Y: 2}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bad := fmt.Sprintf("canvas-%d.json", g2.ID)
+	if err := os.WriteFile(filepath.Join(dir, bad), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err = graph.DeleteEvent(x)
+	if codeOf(err) != consts.ErrCodePersistence || !strings.Contains(err.Error(), bad) {
+		t.Fatalf("DeleteEvent = %v (code %q), want a persistence error that names %s", err, codeOf(err), bad)
+	}
+	var nf *store.ErrNotFound
+	if _, err := db.GetEvent(x); !errors.As(err, &nf) {
+		t.Errorf("the event is still in the case after the error: %v", err)
+	}
+	for _, graphID := range readable {
+		got, err := graph.LoadLayout(graphID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, held := got.Nodes[x]; held {
+			t.Errorf("readable canvas %d still names the deleted event", graphID)
+		}
 	}
 }
 

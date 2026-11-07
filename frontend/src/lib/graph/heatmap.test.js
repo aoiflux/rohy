@@ -1,5 +1,5 @@
 import { describe as suite, it, expect } from 'vitest';
-import { intensity, describe, lanesFor, cellTitle, short, totals, sliceToView } from './heatmap.js';
+import { intensity, describe, lanesFor, cellTitle, short, totals, sliceToView, heatmapNext } from './heatmap.js';
 
 const lanes = () => [
   { key: 'brute-force', total: 6, counts: [1, 2, 3] },
@@ -138,5 +138,80 @@ suite('sliceToView', () => {
 
   it('survives an empty array', () => {
     expect(sliceToView([], { start: 0.2, end: 0.5 })).toEqual([]);
+  });
+});
+
+// heatmapNext is the whole decision behind the Timeline page's one heatmap effect. Effects do not
+// run under SSR, so this is where the behaviour is pinned.
+suite('heatmapNext', () => {
+  const base = {
+    on: true,
+    extent: { from: Date.UTC(2026, 5, 1, 9, 0), to: Date.UTC(2026, 5, 1, 10, 0) },
+    groupBy: 'rule',
+    allGraphs: false,
+    buckets: 120,
+  };
+  const OFF = { request: null, fetch: false, drop: true };
+
+  it('asks for the histogram\'s whole extent at its bucket count', () => {
+    const next = heatmapNext(null, base);
+    expect(next.fetch).toBe(true);
+    expect(next.request).toEqual({
+      buckets: 120,
+      group_by: 'rule',
+      all_graphs: false,
+      from: '2026-06-01T09:00:00.000Z',
+      to: '2026-06-01T10:00:00.000Z',
+    });
+  });
+
+  // 🔒 The regression: a Retry or a lane Group by over a case that changed reloads the histogram
+  // over a new extent, and a strip left bucketed over the old one no longer sits over it.
+  it('asks again when a histogram reload moves the extent, and drops the matrix that no longer lines up', () => {
+    const asked = heatmapNext(null, base).request;
+    const next = heatmapNext(asked, { ...base, extent: { from: base.extent.from, to: Date.UTC(2026, 5, 1, 11, 0) } });
+    expect(next.fetch).toBe(true);
+    expect(next.drop).toBe(true);
+    expect(next.request.to).toBe('2026-06-01T11:00:00.000Z');
+  });
+
+  // The extent is a new object after every reload. A Retry that changed nothing must not re-run a
+  // scan of the whole case, so the comparison is by value.
+  it('asks nothing when a reload leaves the extent where it was', () => {
+    const asked = heatmapNext(null, base).request;
+    const next = heatmapNext(asked, { ...base, extent: { ...base.extent } });
+    expect(next.fetch).toBe(false);
+    expect(next.drop).toBe(false);
+    expect(next.request).toBe(asked);
+  });
+
+  it('asks again on a new grouping or scope, and keeps the matrix while it loads', () => {
+    const asked = heatmapNext(null, base).request;
+
+    const regrouped = heatmapNext(asked, { ...base, groupBy: 'computer' });
+    expect(regrouped.fetch).toBe(true);
+    expect(regrouped.drop).toBe(false);
+    expect(regrouped.request.group_by).toBe('computer');
+
+    const widened = heatmapNext(asked, { ...base, allGraphs: true });
+    expect(widened.fetch).toBe(true);
+    expect(widened.drop).toBe(false);
+    expect(widened.request.all_graphs).toBe(true);
+  });
+
+  it('asks nothing while off or without an extent, and drops what it showed', () => {
+    const asked = heatmapNext(null, base).request;
+    expect(heatmapNext(asked, { ...base, on: false })).toEqual(OFF);
+    expect(heatmapNext(asked, { ...base, extent: null })).toEqual(OFF);
+    expect(heatmapNext(asked, { ...base, extent: { from: NaN, to: 1 } })).toEqual(OFF);
+  });
+
+  // Off forgets the request, so switching back on asks again rather than trusting an answer about
+  // an extent that may have moved meanwhile. A failed fetch forgets it the same way.
+  it('asks again when switched back on', () => {
+    const asked = heatmapNext(null, base).request;
+    const off = heatmapNext(asked, { ...base, on: false });
+    expect(off.request).toBe(null);
+    expect(heatmapNext(off.request, base).fetch).toBe(true);
   });
 });

@@ -465,14 +465,18 @@ export function correlationKeyStatus() {
 /**
  * Fills in the correlation projection for events that predate it. Publishes progress on
  * `maintenance:progress` while it runs, and is safe to cancel — the pass is resumable, so a
- * cancelled run is continued by running it again.
- * @returns {Promise<{examined:number, projected:number, already_current:number, failed:number, cancelled:boolean}>}
+ * cancelled run is continued by running it again. A pass that rewrote any event then seals the
+ * case: `sealed` is that seal, and `seal_error` why it failed, was not recorded or was not run.
+ * @returns {Promise<{examined:number, projected:number, already_current:number, failed:number, cancelled:boolean, sealed?:{state:string, snapshot?:string, signed?:boolean}, seal_error?:string}>}
  */
 export function backfillCorrelationKeys() {
   return call(MAINTENANCE, 'BackfillCorrelationKeys');
 }
 
-/** Stops an in-flight maintenance pass; what it completed is durable. */
+/**
+ * Stops a backfill's pass over the events, the one maintenance pass that can be stopped; what it
+ * completed is durable. The seal after that pass cannot be stopped and runs to the end.
+ */
 export function cancelMaintenance() {
   return call(MAINTENANCE, 'CancelMaintenance');
 }

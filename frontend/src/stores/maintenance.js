@@ -12,7 +12,8 @@
 // refuses to keep.
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
-import { CHANNELS, SEAL_STATE, UI } from '../lib/consts/index.js';
+import { errorCode } from '../lib/api/errors.js';
+import { CHANNELS, ERROR_CODES, SEAL_STATE, UI } from '../lib/consts/index.js';
 import { outcomeView, redactionFailure } from '../lib/maintenance/redaction.js';
 import { download } from '../lib/export.js';
 
@@ -43,9 +44,10 @@ const empty = () => ({
   progress: null,
   /** The last thing that finished, so the view can confirm rather than just stop showing a spinner. */
   lastResult: '',
-  /** How many seals this store has asked for. A view holding anything built against the image
-   *  before — a custody report — drops it when this moves. Counted on failure too: a seal whose
-   *  fingerprint could not be RECORDED still compacted, so the image moved either way. */
+  /** How many seals this store has asked for, or been told a pass ran (noteSeal). A view holding
+   *  anything built against the image before — a custody report — drops it when this moves.
+   *  Counted on failure too: a seal whose fingerprint could not be RECORDED still compacted, so the
+   *  image moved either way. */
   seals: 0,
   /** How many redactions this store has run or finished (plan §14.5). A view holding a copy of an
    *  event's content — the drawer, a canvas card — drops it when this moves. */
@@ -62,11 +64,29 @@ const empty = () => ({
 function create() {
   const { subscribe, update, set } = writable(empty());
 
-  const fail = (e) => {
+  /** note shows a failure and leaves `running` alone. 🔒 A read that failed neither started nor
+   *  ended a pass, so it must not free the page while one runs: the loaders below use it, and a
+   *  loader runs inside a pass, beside one (the seal after an ingest re-reads the posture), or on
+   *  its own. */
+  const note = (e) => {
     const message = String(e && e.message ? e.message : e);
-    update((s) => ({ ...s, running: '', error: message }));
+    update((s) => ({ ...s, error: message }));
     return message;
   };
+
+  /** fail ends the pass that failed and shows why. */
+  const fail = (e) => {
+    const message = note(e);
+    update((s) => ({ ...s, running: '' }));
+    return message;
+  };
+
+  /** recheckRunning is what `running` holds while the quiet re-check after a pass runs.
+   *
+   *  🔒 A deep re-check verifies the image, and the backend holds its maintenance lock for that step
+   *  (VerifyImage). The page stays busy until it returns, so no button looks enabled that the
+   *  backend would refuse. A quick re-check takes no lock and leaves the page free. */
+  const recheckRunning = (deep) => (deep ? 'check' : '');
 
   /** guard refuses to start a second pass rather than queueing one the backend would reject. */
   function busy() {
@@ -79,7 +99,7 @@ function create() {
       update((s) => ({ ...s, status }));
       return status;
     } catch (e) {
-      fail(e);
+      note(e);
       return null;
     }
   }
@@ -111,7 +131,7 @@ function create() {
       update((s) => ({ ...s, forensics }));
       return forensics;
     } catch (e) {
-      fail(e);
+      note(e);
       return null;
     }
   }
@@ -162,7 +182,7 @@ function create() {
       update((s) => ({ ...s, checkpoints }));
       return checkpoints;
     } catch (e) {
-      fail(e);
+      note(e);
       return null;
     }
   }
@@ -183,9 +203,11 @@ function create() {
       fail(e);
       return null;
     }
+    const shown = get({ subscribe }).report;
+    const deep = Boolean(shown?.deep);
     update((s) => ({
       ...s,
-      running: '',
+      running: shown ? recheckRunning(deep) : '',
       lastResult: 'publish',
       published,
       seals: published?.sealed ? s.seals + 1 : s.seals,
@@ -194,10 +216,10 @@ function create() {
     if (published?.document) download(published.file_name, 'application/json', published.document);
     await loadCheckpoints();
     await loadForensics();
-    if (get({ subscribe }).report) {
+    if (shown) {
       try {
-        const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
-        update((s) => ({ ...s, report }));
+        const report = await api.checkIntegrity(deep);
+        update((s) => ({ ...s, report, running: '' }));
       } catch (e) {
         fail(e);
       }
@@ -212,7 +234,7 @@ function create() {
       if (exp?.document) download(exp.file_name, 'application/json', exp.document);
       return exp;
     } catch (e) {
-      fail(e);
+      note(e);
       return null;
     }
   }
@@ -238,14 +260,15 @@ function create() {
       fail(e);
       return false;
     }
-    update((s) => ({ ...s, running: '', lastResult: 'compact', seals: s.seals + 1 }));
+    const deep = Boolean(get({ subscribe }).report?.deep);
+    update((s) => ({ ...s, running: recheckRunning(deep), lastResult: 'compact', seals: s.seals + 1 }));
     // 🔒 The seal has happened, and it moved the fingerprint. Refreshing what the page shows is a
     // separate step: its failure is reported, but it must not unsay the seal — a caller told
     // "failed" would seal again, moving the fingerprint a second time.
     try {
       await loadForensics();
-      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
-      update((s) => ({ ...s, report }));
+      const report = await api.checkIntegrity(deep);
+      update((s) => ({ ...s, report, running: '' }));
     } catch (e) {
       fail(e);
     }
@@ -273,16 +296,60 @@ function create() {
     update((s) => ({ ...s, running: kind, error: '', lastResult: '' }));
     try {
       const result = await fn();
-      update((s) => ({ ...s, running: '', progress: null, lastResult: kind, ...(result || {}) }));
-      // Re-check quietly: it reads and writes nothing, so it cannot make things worse.
-      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
-      update((s) => ({ ...s, report }));
+      const deep = Boolean(get({ subscribe }).report?.deep);
+      update((s) => ({ ...s, progress: null, lastResult: kind, ...(result || {}), running: recheckRunning(deep) }));
+      // Re-check quietly: it writes nothing, so it cannot make things worse.
+      const report = await api.checkIntegrity(deep);
+      update((s) => ({ ...s, report, running: '' }));
       if (kind === 'backfill') await loadStatus();
       return true;
     } catch (e) {
       fail(e);
       return false;
     }
+  }
+
+  /**
+   * noteSeal takes in a seal a pass ran on its own: the backfill seals what it rewrote. A seal that
+   * ran moved the fingerprint, so the image verdict is dropped, the count moves (a custody report
+   * goes stale on it) and the posture is re-read. "failed" is counted because a poisoned seal
+   * replaced the image; a seal whose fingerprint could not be recorded arrives as "sealed".
+   * "unchanged" and "unavailable" moved nothing.
+   * @param {{state?: string}|null|undefined} seal
+   */
+  function noteSeal(seal) {
+    if (seal?.state !== SEAL_STATE.SEALED && seal?.state !== SEAL_STATE.FAILED) return;
+    update((s) => ({ ...s, seals: s.seals + 1, image: null }));
+    loadForensics();
+  }
+
+  /** noteFailedBackfill takes in a backfill that ran and failed (persistence_error; a refusal
+   *  carries another code). The pass may have sealed what it rewrote before it failed, and the
+   *  outcome that would say so did not come back. Counted, because a dropped verdict costs less
+   *  than a stale one. */
+  function noteFailedBackfill(e) {
+    if (errorCode(e) === ERROR_CODES.PERSISTENCE) noteSeal({ state: SEAL_STATE.FAILED });
+  }
+
+  /** backfill fills in the correlation fields, and takes in the seal the backend ran after it. */
+  async function backfill() {
+    return run('backfill', async () => {
+      let res;
+      try {
+        res = await api.backfillCorrelationKeys();
+      } catch (e) {
+        noteFailedBackfill(e);
+        throw e;
+      }
+      noteSeal(res?.sealed);
+      const sealed = res?.sealed?.state === SEAL_STATE.SEALED;
+      // run() merges this into the state. 🔒 A seal that did not finish cleanly is shown beside the
+      // result, never instead of it: what the pass rewrote is durable. A stopped pass is named as
+      // stopped, so the banner never says the fields were filled in when only part of them were.
+      let lastResult = sealed ? 'backfill_sealed' : 'backfill';
+      if (res?.cancelled) lastResult = sealed ? 'backfill_partial_sealed' : 'backfill_partial';
+      return { lastResult, error: res?.seal_error ?? '' };
+    });
   }
 
   /** loadPending reads the redactions that did not finish. */
@@ -292,14 +359,15 @@ function create() {
       update((s) => ({ ...s, pending: Array.isArray(pending) ? pending : [] }));
       return pending;
     } catch (e) {
-      fail(e);
+      note(e);
       return null;
     }
   }
 
-  /** After a redaction ran, whatever it did: it may have written, and it sealed if it finished. */
-  async function afterRedaction() {
-    update((s) => ({ ...s, running: '', redactions: s.redactions + 1, seals: s.seals + 1, image: null }));
+  /** After a redaction ran, whatever it did: it may have written, and it sealed if it finished.
+   *  running is what the page holds next: '' when nothing follows, or the re-check's flag. */
+  async function afterRedaction(running = '') {
+    update((s) => ({ ...s, running, redactions: s.redactions + 1, seals: s.seals + 1, image: null }));
     await loadPending();
     try {
       await loadForensics();
@@ -344,7 +412,8 @@ function create() {
         outcomes.push(redactionFailure(err));
       }
     }
-    await afterRedaction();
+    const deep = Boolean(get({ subscribe }).report?.deep);
+    await afterRedaction(recheckRunning(deep));
     const allDone = outcomes.every((o) => o.done);
     update((s) => ({
       ...s,
@@ -352,8 +421,8 @@ function create() {
       error: allDone ? '' : outcomes.map((o) => o.error || o.message).filter(Boolean).join(' '),
     }));
     try {
-      const report = await api.checkIntegrity(Boolean(get({ subscribe }).report?.deep));
-      update((s) => ({ ...s, report }));
+      const report = await api.checkIntegrity(deep);
+      update((s) => ({ ...s, report, running: '' }));
     } catch (e) {
       fail(e);
     }
@@ -376,7 +445,9 @@ function create() {
     publishCheckpoint,
     saveStatement,
     recordReceipt,
-    backfill: () => run('backfill', api.backfillCorrelationKeys),
+    backfill,
+    noteSeal,
+    noteFailedBackfill,
     repair: () => run('repair', api.repairRelationIndex),
     rebuild: () => run('rebuild', api.rebuildIndexes),
 

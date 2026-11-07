@@ -379,7 +379,7 @@ func TestARedactedEventSaysSoAndCannotBeWrittenBack(t *testing.T) {
 	if _, err := gone.toNode(); err == nil {
 		t.Error("a redacted event can be encoded for writing")
 	}
-	if evs, err := s.GetEvents([]uint64{ids[0]}); err != nil || !evs[0].Redacted {
-		t.Errorf("GetEvents: %v %+v", err, evs)
+	if evs, err := s.GetEventRecords([]uint64{ids[0]}); err != nil || len(evs) != 1 || !evs[0].Redacted {
+		t.Errorf("GetEventRecords: %v %+v", err, evs)
 	}
 }

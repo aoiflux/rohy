@@ -651,3 +651,31 @@ func TestEventWithoutPayloadNeedsNoLookup(t *testing.T) {
 		t.Errorf("raw record = %q, want empty", got.RawXML)
 	}
 }
+
+// TestEventRecordsDoNotReadTheColdStore pins the mechanism behind the canvas read, not only its
+// result: with the payload store unable to serve a single record, the drawer's read fails and the
+// canvas read still succeeds. Were GetEventRecords to hydrate, an Arrange would pay for every raw
+// record again, and one damaged record would fail the whole canvas.
+func TestEventRecordsDoNotReadTheColdStore(t *testing.T) {
+	s, ids := provableCase(t)
+	unreadablePayloads(t, s)
+
+	if _, err := s.GetEvent(ids[0]); err == nil {
+		t.Fatal("GetEvent read a raw record the payload store cannot serve; the test proves nothing")
+	}
+	got, err := s.GetEventRecords(ids)
+	if err != nil {
+		t.Fatalf("GetEventRecords reached the cold store: %v", err)
+	}
+	if len(got) != len(ids) {
+		t.Fatalf("got %d events, want %d", len(got), len(ids))
+	}
+	for _, e := range got {
+		if e.RawXML != "" {
+			t.Errorf("event %d carries its raw record", e.ID)
+		}
+		if e.Payload.IsZero() {
+			t.Errorf("event %d lost its payload reference; the drawer could not find its raw record", e.ID)
+		}
+	}
+}

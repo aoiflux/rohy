@@ -29,8 +29,9 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 	}
 
 	rank := make(map[uint64]int, len(nodes))
-	// ready holds ids whose predecessors are all placed, kept sorted so the traversal order —
-	// and therefore the ranks assigned when a cycle has to be broken — is identical every run.
+	// ready holds ids whose predecessors are all placed, or that are being placed by force, kept
+	// sorted so the traversal order — and therefore the ranks assigned when a placement has to be
+	// forced — is identical every run.
 	ready := make([]uint64, 0, len(nodes))
 	for _, n := range nodes {
 		if indeg[n.ID] == 0 {
@@ -44,15 +45,18 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 	for i, n := range nodes {
 		remaining[i] = n.ID // nodes is already id-sorted by Compute
 	}
-	brokeCycle := 0
+	forcedPlacements := 0
 
 	for len(placed) < len(nodes) {
 		if len(ready) == 0 {
-			// Every remaining node is inside a cycle. Break it at the LOWEST REMAINING ID and
-			// say so afterwards. A cycle in an event graph is real — two rules can legitimately
-			// relate a pair in both directions — so this is a rendering decision, not an error,
-			// but it is one the analyst is told about rather than one that silently picks a
-			// direction and presents it as the evidence's.
+			// No remaining node has every predecessor placed, so the remaining nodes contain a
+			// cycle. The node forced here is the LOWEST REMAINING ID, which need not be on that
+			// cycle: it may only sit downstream of one, so one cycle can cost more than one
+			// forced placement. The note therefore counts forced placements, not cycles. A cycle
+			// in an event graph is real — two rules can legitimately relate a pair in both
+			// directions — so this is a rendering decision, not an error, but it is one the
+			// analyst is told about rather than one that silently picks a direction and presents
+			// it as the evidence's.
 			var forced uint64
 			for _, id := range remaining {
 				if !placed[id] {
@@ -60,7 +64,7 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 					break
 				}
 			}
-			brokeCycle++
+			forcedPlacements++
 			indeg[forced] = 0
 			ready = append(ready, forced)
 		}
@@ -72,7 +76,8 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 		placed[id] = true
 		for _, next := range es.out[id] {
 			if placed[next] {
-				continue // an edge back into the broken cycle; it cannot re-rank a placed node
+				// An edge into a node that was placed by force; it cannot re-rank a placed node.
+				continue
 			}
 			if r := rank[id] + 1; r > rank[next] {
 				rank[next] = r
@@ -110,10 +115,11 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 		out.Groups = append(out.Groups, Group{Label: fmt.Sprintf("Step %d", r+1), NodeIDs: ids})
 	}
 
-	if brokeCycle > 0 {
+	if forcedPlacements > 0 {
 		out.Note = fmt.Sprintf(
-			"%d cycle(s) in this graph were broken at the lowest event id so it could be ranked — "+
-				"some edges point leftward as a result", brokeCycle)
+			"%d forced placement(s): a cycle left no event free to go next, so the remaining "+
+				"event with the lowest internal id was placed anyway — some edges point leftward "+
+				"or stay within one column as a result", forcedPlacements)
 	}
 	return out
 }
