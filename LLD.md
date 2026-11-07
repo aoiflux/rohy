@@ -73,8 +73,8 @@ flowchart TB
     subgraph proc["rohy.exe — a single OS process"]
         direction TB
         subgraph fe["Frontend — Svelte, running in a native webview"]
-            routes["Routes<br/>Dashboard · Events · Graph · Rules · Timeline"]
-            stores["Svelte stores<br/>events · graph · rules · findings · ingestion"]
+            routes["Routes<br/>Dashboard · Events · Graph · Rules · Timeline ·<br/>Algorithms · Maintenance · Query"]
+            stores["Svelte stores<br/>events · graph · rules · findings · ingestion ·<br/>maintenance · query · replay · annotations · session"]
             apiw["lib/api/index.js<br/>the ONLY module that touches window.go"]
             routes --> stores --> apiw
         end
@@ -83,9 +83,9 @@ flowchart TB
 
         subgraph be["Backend — Go"]
             bind["backend/api<br/>10 bound structs, no business logic"]
-            work["Domain layer<br/>evtx · dbsource · rules · autograph · graphbuild"]
+            work["Domain layer<br/>evtx · dbsource · rules · autograph · graphbuild ·<br/>graphlayout · query · caseintegrity · redaction"]
             persist["backend/graphene<br/>the only package that talks to the database"]
-            side["Sidecars<br/>graphreg · layout · findings · capture"]
+            side["Sidecars<br/>graphreg · layout · findings · capture · snapshot ·<br/>annotate · analyst · custody · anchor"]
             bind --> work --> persist
             bind --> side
             work --> side
@@ -132,31 +132,50 @@ rohy/
 │   ├── graphreg/            Registry of named graphs
 │   ├── layout/              Canvas node positions and viewport
 │   ├── findings/            Analyst annotations (flag, tags, note)
+│   ├── graphlayout/         Auto-layout profiles: positions from nodes and edges, pure (§14.1)
+│   ├── snapshot/            What a graph looked like at a moment, and what can be put back (§14.5)
+│   ├── annotate/            Notes, regions and arrows on a graph, in layers (§14.6)
+│   ├── query/               The read-only query console: structured builder, no expression
+│   │                        language (§16.1)
+│   ├── caseintegrity/       The case check: reads and reports, repairs nothing (§18.7)
 │   ├── eventproof/          Event proof documents: assemble and verify, storeless (§18.1)
+│   ├── custody/             The case-fingerprint history and its exported copies (§18.2)
+│   ├── redaction/           Removing one event's content, attributably, with a journal (§18.4)
+│   ├── analyst/             Who works on the case: the analyst's own profile and the case's
+│   │                        register of analysts and keys (§18.5)
+│   ├── keyfile/             The analyst's Ed25519 signing key, encrypted at rest (§18.5)
+│   ├── anchor/              Where each checkpoint's digest was published (§18.6)
+│   ├── durable/             Crash-safe file replacement for the sidecars
+│   ├── synth/               Synthetic EVTX, events and rules for tests and profiling only
+│   ├── integration/         The real pipeline end to end on the disk backend (tests only)
 │   ├── utils/               Hashing primitives
 │   └── version/             Build identity, injected at link time
 │
 ├── frontend/src/
 │   ├── routes/              One file per page
-│   ├── components/          events/ · graph/ · rules/ · timeline/ · material/
+│   ├── components/          events/ · graph/ · rules/ · timeline/ · query/ · maintenance/ ·
+│   │                        session/ · learn/ · material/
 │   ├── stores/              Svelte stores — all app state
-│   └── lib/                 api/ · consts/ · rules/ · filter · shortcuts · export
+│   └── lib/                 api/ · consts/ · graph/ · rules/ · query/ · maintenance/ ·
+│                            session/ · learn/ · filter · shortcuts · export · motion · timeline
 │
 ├── cmd/rohyctl/             CLI over the portable files: validate (lines, or --json),
 │                            format, explain, verify-proof. Never opens a case
 ├── tools/
 │   ├── genschema/           Writes the rule JSON Schema from the editor descriptor
 │   ├── profile/             Profiles ingest, build and open on the disk backend
-│   └── vscode-rohy/         VS Code extension: rohyctl's check and format in the
-│                            editor, the schema when rohyctl is absent (§10.3)
+│   ├── vscode-rohy/         VS Code extension: rohyctl's check and format in the
+│   │                        editor, the schema when rohyctl is absent (§10.3)
+│   └── gen_icons.py         Draws the application icons from the one source mark
 │
 ├── build-all.{sh,ps1}       Full six-target matrix build
 ├── build.{sh,ps1}           Single-target release build
 └── .github/workflows/       ci.yml · release.yml
 ```
 
-Roughly 13,200 lines of non-test Go, plus the Svelte frontend, plus **482 Go
-test functions** and **364 frontend test cases**.
+Roughly 33,300 lines of non-test Go, plus the Svelte frontend. The tests are
+**1,140 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**795 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -173,30 +192,49 @@ flowchart TD
     B["backend/api<br/><i>bindings — argument adapting, no logic</i>"]
     C1["evtx / dbsource<br/><i>ingestion</i>"]
     C2["graphbuild<br/><i>rule-run workflow</i>"]
+    C3["query · caseintegrity<br/><i>read the store through narrow interfaces</i><br/>graphlayout · custody<br/><i>pure, over graphene's types</i>"]
+    C4["redaction<br/><i>the one sidecar that also writes the store</i>"]
     D1["autograph<br/><i>correlation, pure</i>"]
     D2["rules<br/><i>rule format + registry</i>"]
-    D3["graphreg · layout · findings · capture<br/><i>sidecars</i>"]
+    D3["graphreg · layout · findings · capture · snapshot ·<br/>annotate · analyst · keyfile · anchor<br/><i>sidecars</i>"]
     E["graphene<br/><i>persistence facade</i>"]
-    F["payload<br/><i>cold store</i>"]
-    G["utils · consts<br/><i>primitives</i>"]
+    F["payload · eventproof<br/><i>cold store · proof documents</i>"]
+    G["utils · consts · durable<br/><i>primitives</i>"]
 
     A --> B
     B --> C1
     B --> C2
+    B --> C3
+    B --> C4
     B --> D2
     B --> D3
     C2 --> D1
     C2 --> D2
     C2 --> D3
+    C3 --> D2
+    C4 --> D3
     D1 --> D2
     C1 --> E
     C2 --> E
+    C3 --> E
+    C4 --> E
     D1 --> E
     E --> F
     E --> G
     C1 --> G
     D2 --> G
+    D3 --> G
 ```
+
+The sidecars sit above `graphene` in the picture but never import it: a
+sidecar is a file beside the case, not a view of the store. `custody` keeps a
+sidecar, but it imports `graphene` for its root and custody types and the pure
+`VerifyChain`, so it is drawn with the packages above `graphene`. It never
+reads the store itself: the API gathers the values it decides over, as it does
+for `graphlayout`. `caseintegrity`
+imports `rules` to read the rule set it checks; `redaction` imports `snapshot`
+for the type its snapshot scrubber returns. `synth` (test data) and
+`integration` (tests only) are left out.
 
 Three consequences worth internalising:
 
@@ -581,15 +619,37 @@ version it was written under), and idempotent.
 <working directory>/
 └── rohy-data/                     ← beside wherever you launched the app
     ├── db/                        graph store — events, relations, indexes, WAL
-    │   └── payloads/
-    │       └── payloads.log       append-only cold store
+    │   ├── payloads/
+    │   │   └── payloads.log       append-only cold store
+    │   ├── graphene.audit         the engine's audit log: who did what to the store (§18.5)
+    │   ├── graphene.redactions    the engine's own redaction ledger (§18.4)
+    │   └── graphene.checkpoints   the local checkpoint chain (§18.6)
     ├── graphs/registry.json       named graphs + which one is active
     ├── layout/canvas-<id>.json    node positions + viewport, one file per graph
     ├── rules/                     user rule files (*.json)
     │   └── rules-state.json       per-rule enabled/disabled overrides
-    ├── capture/                   per-channel live-capture bookmarks
-    └── findings/findings.json     analyst flags, tags and notes
+    ├── capture/positions.json     per-channel live-capture bookmarks
+    ├── findings/findings.json     analyst flags, tags and notes
+    ├── snapshots/<graph>/<id>.json  a graph as it was at a moment (§14.5)
+    ├── annotations/<graph>.json   notes, regions and arrows, in layers (§14.6)
+    ├── redactions/journal.json    one entry per redaction; what must not come back (§18.4)
+    ├── roots/                     the case-fingerprint history (§18.2)
+    │   ├── roots.json             every root this case has had, and which were copied out
+    │   └── receipts.json          where each checkpoint digest was published (§18.6)
+    └── analysts/register.json     who has worked on the case, and their public keys (§18.5)
+
+<user config directory>/rohy/analyst.json   the analyst's own profile — follows the
+                                            analyst, not the case
 ```
+
+The three `graphene.*` files belong to the engine, and rohy appends to them only
+through it. It reads them to check that their last record is whole. When the
+tail of `graphene.audit` or `graphene.checkpoints` is torn, rohy copies that
+tail aside (`<file>.torn-<UTC time>`) and cuts the file back to its last whole
+record itself; that is the one place it changes an engine file. Apart from its
+own payload log under `db/payloads/`, those torn-tail copies, and the analyst
+profile in the user config directory, every rohy-owned file sits in a directory
+beside `db/`.
 
 Two deliberate choices:
 
@@ -1438,6 +1498,421 @@ The startup migration folds pre-multi-graph data forward: relations with no
 graph's per-graph file. Every step is idempotent, which is what makes it safe to
 run on **every** startup rather than gating it behind a version flag.
 
+### 14.1 Auto-layout profiles
+
+**What it does.** The *Arrange* panel on the Graph page moves the cards in the graph's canvas
+membership into one of four arrangements, called *profiles*. Membership is the layout sidecar as
+last saved, or every linked card if no layout has been saved yet, so a card placed since the last
+save is not moved until the layout is saved again. Each profile answers a different question. The analyst
+previews a profile first; *Keep* saves it, and *Put back* returns every card to where it was.
+
+| Profile (`consts`)   | Picker label | x is…                                                    | y is…                                           | Reads                         | Caveat it reports in `Note`            |
+| -------------------- | ------------ | -------------------------------------------------------- | ----------------------------------------------- | ----------------------------- | -------------------------------------- |
+| `sequence` (default) | Sequence     | step in the chain                                        | time order within the step                      | edges, timestamps             | a cycle had to be broken               |
+| `lineage`            | Lineage      | tree column, each parent centred over its children       | depth in the tree                               | edges, timestamps             | a group had no root                    |
+| `resource`           | Resource     | one column per value of a chosen correlation field (§5.6) | time order in the column                        | correlation keys, timestamps (never edges) | events that do not record the field    |
+| `temporal`           | Time         | real time, stretched over `LayoutTemporalSpan`           | a *lane*: a row shared by cards that do not overlap | timestamps only           | events with no timestamp               |
+
+**How it works.** The work is split across three layers, and only the last one ever writes.
+
+1. **[backend/graphlayout](backend/graphlayout/graphlayout.go) is pure.** Node metadata and
+   relations go in; coordinates come out. It opens nothing, reads nothing and writes nothing. It
+   sees each event as a small `NodeInfo` (id, timestamp, a `Dated` flag, correlation keys, a short
+   label), never as a full store record.
+2. **`GraphAPI.ComputeLayout`** ([backend/api/api_layout.go](backend/api/api_layout.go)) collects
+   the input: the graph's relations and its *canvas membership*, which is the set of node ids in
+   the layout sidecar (§14). Before any sidecar exists, as right after a rule build, it uses the
+   relations' endpoints instead. It loads those events, calls `graphlayout.Compute`, and returns
+   the result. It saves nothing.
+3. **The frontend** ([AutoLayoutPanel.svelte](frontend/src/components/graph/AutoLayoutPanel.svelte),
+   [lib/graph/autolayout.js](frontend/src/lib/graph/autolayout.js)) moves the cards in memory with
+   the graph store's `applyLayout`. Only *Keep* calls `saveLayout`, which writes the sidecar.
+
+```mermaid
+sequenceDiagram
+    participant P as AutoLayoutPanel
+    participant A as GraphAPI.ComputeLayout
+    participant L as graphlayout.Compute (pure)
+    participant G as graph store
+    P->>A: graph id, profile, field
+    A->>A: RelationsByGraph, canvas membership, GetEvents
+    A->>L: NodeInfo list + relations
+    L-->>P: positions, groups, note
+    P->>P: remember original positions (first preview only)
+    P->>G: applyLayout (memory only, nothing written)
+    alt Keep
+        P->>G: saveLayout writes the layout sidecar
+    else Put back
+        P->>G: applyLayout(original)
+    end
+```
+
+Inside `Compute`:
+
+- **A cap.** More than `LayoutMaxNodes` (20 000) nodes is refused, and the message says to filter
+  first.
+- **A fixed starting order.** Nodes are sorted by id before any profile runs, and every ordering
+  after that is *total*: ties break on id, so nothing depends on map order. Undated events sort
+  after dated ones, never at the epoch.
+- **Edges cleaned once.** Edges with an endpoint off the canvas are dropped, and so are self-loops
+  and duplicate pairs: two rules linking the same pair are one constraint.
+- **sequence** treats the graph as a DAG. A node's *rank* is the longest path to it from a node
+  with no incoming edge. When no node is ready, the profile forces the lowest remaining id and
+  counts it as a broken cycle in the note. The forced node need not be on a cycle (see Not done).
+- **lineage** draws a *tidy tree* in two passes: each leaf takes the next free column, then each
+  parent is centred between its first and last child. A node with several parents joins the first
+  parent the walk reaches, with roots walked earliest first; its other edges are still drawn but do
+  not shape the tree. Each tree is named after its root's `process_name`, or its event id.
+- **resource** groups by `logon_id` unless asked otherwise. Columns are ordered by their first
+  event; events with no value go into one `Not recorded` column, always last.
+- **temporal** fills lanes greedily: a card takes the first lane whose last card ended before it
+  starts. Undated events go into a `No timestamp` tray below the last lane.
+
+**Why it was built that way.**
+
+- **In Go, not in the canvas.** An arrangement is a claim about the evidence: "this spawned that"
+  can be read straight off a lineage tree, so a subtly wrong layout is a wrong finding drawn
+  convincingly, and it needs tests. The earlier approach is still there for comparison: the
+  toolbar's ▦ button runs an untested five-column grid inside `GraphCanvas.svelte`.
+- **Determinism.** The same graph must give the same picture, or an analyst returning to a case
+  cannot recognise it. `TestEveryProfileIsIndependentOfInputOrder` feeds nodes and edges in reverse
+  and requires identical output; `TestEveryProfilePlacesEveryNodeExactlyOnce` pins coverage,
+  because a node missing from a layout looks like a node missing from the graph.
+- **Longest path, not shortest.** Take 1→2→3 plus 1→3. Shortest-path ranking puts 3 beside 2, which
+  reads as "same stage", yet 3 follows 2 (`TestSequenceRanksByLongestPathNotShortest`).
+- **Two passes, not Reingold–Tilford.** Reingold–Tilford packs uneven subtrees tighter. The two-pass
+  tree never overlaps or crosses, and is short enough to check by eye.
+- **No invented time.** On the Time profile any x claims a *when*, so undated events go to the tray
+  (`TestTemporalPutsUndatedEventsInASeparateLabelledTray`).
+- **Resource ignores edges.** It arranges by what the logs *record*, not by what rohy inferred. Two
+  events that both lack a logon id share nothing, so they never form a column that looks like a
+  session (`TestResourceDoesNotCorrelateAbsentValuesWithEachOther`).
+- **Labels never move a node** (`TestLineageLabelsNeverMoveANode`). Otherwise the layout would follow
+  the display text rather than the evidence.
+- **Preview, not apply.** Hand placement has no undo. `TestComputeLayoutNeverWrites` runs every
+  profile and checks the sidecar is unchanged. The original positions are captured once, at the
+  first preview, so after two previews in a row *Put back* still restores the hand placement.
+
+**Cost.** `Compute` itself is not the expensive part; reading the canvas's events is.
+Measured on a Ryzen 9 5980HS (PERFORMANCE.md §21):
+
+| Profile  | `Compute`, 5k nodes | `Compute`, 20k nodes (the cap) |
+| -------- | ------------------- | ------------------------------ |
+| sequence | 12.3 ms             | 35.4 ms                        |
+| lineage  | 8.8 ms              | 37.7 ms                        |
+| resource | 1.8 ms              | 7.5 ms                         |
+| temporal | 1.3 ms              | 6.3 ms                         |
+
+The binding, `ComputeLayout`, takes **243–350 ms** for the same 5k nodes on the disk backend,
+so the arrangement is under a twentieth of the wait. The CPU profile puts about 72% of it in
+`hydrate`: `GetEvents` reads each event one by one *and* reads its raw record from the cold store
+(§5.5), then decodes it. Layout uses none of that. Every field it reads (timestamp, correlation
+keys, event id) is on the node, which the list path's batched `hydrateIDs` returns without
+touching the payload log. Switching is a proposed fix, not yet made.
+
+**Not done.**
+
+- `Result.Groups` (step, tree, column and lane names) is not drawn; the panel shows only "N nodes
+  in M groups" and the `Note`. The undated tray is set apart by position alone.
+- **The cycle count can over-report.** Forcing the lowest remaining id breaks no cycle when that
+  node only sits downstream of one, so one cycle can be reported as two, and the downstream event
+  is drawn as contemporaneous with its cause. Lineage's forced pass has the same flaw, and its note
+  ("every event in them has a parent inside the group") is then false for that group.
+- A layout refused for the node cap or an unknown profile is coded `internal_error`, although it is
+  the request's fault. The message carries the remedy, so nothing visible is wrong today.
+- The toolbar's *Save layout* saves whatever is on the canvas, including a preview never kept.
+- The ▦ grid button still ships, with no preview and no *Put back*.
+
+### 14.2 Clusters
+
+**What it does.** The *Group* panel draws an outline, a *hull*, around sets of cards. Any group can
+be *folded* into one card that always shows how many events it holds. Links that cross the group's
+boundary are re-pointed at the card.
+
+| Mode                  | Panel label            | Membership                                         | Cluster id                     | Leftovers                                     |
+| --------------------- | ---------------------- | -------------------------------------------------- | ------------------------------ | --------------------------------------------- |
+| `component` (default) | What is joined to what | connected cards, ignoring direction; a partition   | `component-<lowest member id>` | an unconnected card is its own group          |
+| `rule`                | Which rule found it    | the rules whose edges touch the card; **may overlap** | `rule-<rule id>`            | `rule-none`, "Not from a rule"                |
+| `slot`                | Which session or account | the card's value of one correlation field; a partition | `slot-<value>`            | `slot-absent`, "Not recorded"                 |
+
+**How it works.**
+
+- **Grouping is backend and pure:** `graphlayout.Clusters`
+  ([backend/graphlayout/clusters.go](backend/graphlayout/clusters.go)). `GraphAPI.Clusters` uses the
+  same canvas membership as layout, passes only ids and correlation keys, and writes nothing.
+  Components use union-find (a structure that merges sets as edges arrive). Every mode orders its
+  result the same way: largest first, then label, then id.
+- **The view state is frontend and never saved.** [stores/clusters.js](frontend/src/stores/clusters.js)
+  holds the mode, the list, the folded set and whether outlines are on. Loading a new grouping
+  clears the folded set, and switching graphs resets the store.
+- **Drawing** ([lib/graph/clusters.js](frontend/src/lib/graph/clusters.js)): the hull is the convex
+  hull of the four corners of every member card, padded outward.
+  [GraphHulls.svelte](frontend/src/components/graph/GraphHulls.svelte) draws hulls beneath the edges
+  and cards; clicking a label folds the group.
+- **Folding changes only what is drawn.** Each member of a folded group maps to a proxy id
+  `c:<cluster id>`, one card sits at the centre of the cards it replaces, and each crossing edge is
+  re-pointed at it **keeping its relation id**, so clicking the edge still inspects the real
+  relation. Members stay in `$graph.nodes`, so unfolding restores them exactly.
+
+**Why it was built that way.**
+
+- **Ids come from the lowest member, not the union-find root.** The root depends on the order the
+  unions happened in, so a root-based id would rename a group whose members had not changed, and
+  the canvas remembers folded groups by id.
+- **Rule groups overlap on purpose.** One event really can be the 4624 in two chains, and picking a
+  winner would be arbitrary (`TestRuleClustersOverlapRatherThanPickingAWinner`).
+- **Nothing is dropped.** Cards no rule touched get their own group, a missing value is never a
+  shared value (`TestSlotClustersDoNotCorrelateAbsentValues`), and components cover every node
+  exactly once (`TestComponentsPartitionEveryNodeExactlyOnce`).
+- **The hull goes through card corners, not card origins.** A hull through the top-left corners cuts
+  through cards, making them look outside a group they belong to.
+- **Edges are re-pointed, not dropped.** A folded card that lost its edges would look less connected
+  than it is, and the links *between* groups are the point of folding.
+- **The folded set is not persisted.** What an analyst has folded is a reading posture, not a finding.
+
+**Not done.** `Clusters` has no node cap, unlike `Compute`. Folding does not feed into auto-layout:
+a profile still positions the folded members.
+
+### 14.3 The relationship heatmap
+
+**What it does.** The heatmap counts relations per time bucket per group, so it shows **when the
+things rohy inferred actually happened**. It lives on the Timeline page, off by default, in two
+shapes: a strip of totals laid over the histogram (§9), and a matrix with one lane per group —
+by rule, kind of link, computer, inferred-or-asserted, or step in the chain.
+
+**How it works.** The query lives in `graphene`, because it needs event timestamps and shares the
+timeline's bucketing: `Store.RelationHeatmap` in
+[backend/graphene/graphene_heatmap.go](backend/graphene/graphene_heatmap.go). It is read-only.
+
+1. It loads the relations: one graph's, or the whole case's.
+2. It scans every event in the case **once**, decoding only the sort view (§8), rather than looking
+   each endpoint up.
+3. Each relation is placed at its **later endpoint's timestamp**. A relation with an undated or
+   missing endpoint is counted as `Undated`; one beyond an explicitly requested window is counted
+   as `Outside`. Neither is dropped silently.
+4. Buckets come from the same function the timeline uses, so the strip and the histogram beneath it
+   agree on every bucket boundary. Lanes are busiest first, with the rest folded into `(other)`.
+
+The binding takes the active graph by default; the whole case needs an explicit `AllGraphs` flag,
+because `GraphID` 0 already means "the active graph" everywhere else in that binding.
+
+**Why it was built that way.**
+
+- **Later endpoint, never `CreatedAt`.** `CreatedAt` is when the rule ran, so a heatmap keyed on it
+  shows one spike at build time and nothing about the case. The test fixture sets `CreatedAt` in
+  2030 so a regression cannot hide (`TestHeatmapPlacesRelationsAtTheirLaterEndpointNotAtBuildTime`).
+- **Every relation is accounted for.** Placed + Undated + Outside = Total, and lanes and buckets each
+  add up to Placed (`TestHeatmapLanesAddUpToWhatWasPlaced`).
+- **Count, don't clamp.** Clamping out-of-window relations into the edge bucket would pile them into
+  the right-most column: activity shown at a time it did not happen.
+- **One colour scale.** The matrix scales against the backend's `Max`, not per lane, because a
+  per-lane scale makes a quiet rule and a busy one look the same. An empty cell is drawn as nothing,
+  not as the palest shade.
+
+**Cost.** One scan of the case's sort views, whatever the graph. At 100 000 events and 50 000
+relations on disk, the case-wide heatmap costs 813 ms against the timeline's 675 ms over the same
+case, and **one graph of 2 500 relations still costs 670 ms**: the scan, not the relations, is the
+price (PERFORMANCE.md §21).
+
+**Not done.** The heatmap is re-fetched when it is switched on or its grouping or scope changes, not
+when the timeline's own extent changes. A small graph pays the whole-case scan.
+
+### 14.4 Replay and the shared playhead
+
+**What it does.** Replay shows the graph assembling in the order the evidence says it happened:
+*Play*/*Pause*, *Show all*, a scrub slider and four speeds. The *playhead*, the current instant, is
+shared with the Timeline page's cursor.
+
+**How it works.** Replay is entirely frontend.
+
+- [lib/graph/replay.js](frontend/src/lib/graph/replay.js) is pure. `build` turns the canvas into a
+  schedule: a node appears at its event's timestamp; an edge appears at its **later** endpoint's
+  time; an edge with one undated end appears at the dated end's time and is listed as
+  *approximate*; undated nodes are visible from the start and counted.
+- [stores/replay.js](frontend/src/stores/replay.js) holds `{active, playing, speed, t}`, where `t` is
+  an **absolute** instant. It is never saved, and a graph switch resets it.
+- `ReplayBar` scales time so the graph's whole span plays in `GRAPH.REPLAY_DURATION_MS` at 1×.
+  `GraphCanvas` filters by the schedule *before* folding clusters, so the two combine.
+
+**Why it was built that way.**
+
+- **Event time, never `created_at`.** `created_at` is a few milliseconds of one build; animating in
+  that order shows the shape of the tooling, not of the incident. It is the heatmap's rule, for the
+  heatmap's reason.
+- **Undated nodes are not animated in at t=0.** That would claim they happened first. The bar always
+  says how many events are undated and how many links are approximate.
+- **The shared value is an instant, not a fraction.** The timeline spans the filtered event set and
+  the canvas spans the active graph, so a shared fraction would point the two views at different
+  moments while they appeared to agree.
+- **"Replay off" and "nothing has happened yet" are different.** The first draws everything, the
+  second draws nothing, and they must not render alike.
+
+**Not done.**
+
+- Approximate links are counted but **not drawn as weaker** on the canvas, although the copy
+  (`REPLAY_APPROXIMATE`) says they are.
+- Replay and the heatmap disagree on a link with one undated end: replay shows it as approximate,
+  the heatmap counts it as unplaceable.
+
+### 14.5 Snapshots
+
+**What it does.** A snapshot records what one graph's canvas looked like at a moment: which events
+were on it, where each card sat, the pan and zoom, and the links between them. It can be put back
+later, and a restore is always shown first as a *plan*: what will be re-applied, which links may be
+re-created, and what can no longer be found. The package is
+[backend/snapshot](backend/snapshot/snapshot.go), the binding is `SnapshotAPI` in
+[backend/api/api_snapshot.go](backend/api/api_snapshot.go), and the panel is
+[SnapshotPanel.svelte](frontend/src/components/graph/SnapshotPanel.svelte).
+
+**How it works.** Each snapshot is one JSON file, `rohy-data/snapshots/<graphID>/<snapID>.json`.
+
+| Field                          | Meaning                                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `snapshot_version`             | The format guard, `1`. A file with a higher number is refused, never half-read.                                 |
+| `id`                           | `snap-YYYYMMDD-HHMMSS.mmm` in UTC, also the file name, so a folder listing reads in time order.                  |
+| `label`, `graph_id`, `taken_at` | The analyst's optional name, which graph, and when.                                                            |
+| `store_version`, `app_version` | Recorded for reference only; no restore reads either. `store_version` is the in-process write counter, which restarts each run, so it cannot be compared across sessions. A restore reports a changed case only through `reingested` (a hash that now resolves to a different id). |
+| `nodes[]`                      | `id`, **`hash`** (the event's `hash_normalized`), `x`, `y`, and a `descriptor` (event id, computer, time), so a snapshot still says what it held after its events have gone. |
+| `relations[]`                  | `id`, **`from_hash`**, **`to_hash`**, type, label, `created_by`, and the rule provenance, copied verbatim.        |
+
+`TakeSnapshot` records the layout sidecar **as last saved**. A card placed and saved is included even
+if it is not linked, but positions and cards not yet saved are not, and a graph whose layout was
+never saved (just after a rule build, say) gives an empty snapshot: unlike `ComputeLayout`, it
+does not fall back to the edges' endpoints. A relation is recorded only when **both** its ends are on the canvas; otherwise a
+restore could re-create a link to something the snapshot never showed.
+
+A restore is two calls. `PreviewRestore` builds the plan and writes nothing. `ApplyRestore` builds
+the plan **again** from the case as it is now, and then writes.
+
+```mermaid
+flowchart LR
+    n["snapshot node<br/>(id, hash)"] --> h{"hash in the case now?"}
+    h -->|no| NU["unresolved<br/>named by descriptor"]
+    h -->|"yes, same id"| NA["applied"]
+    h -->|"yes, different id"| NM["moved<br/>reingested = true"]
+    r["snapshot relation<br/>(from_hash, to_hash)"] --> e{"both ends resolve?"}
+    e -->|no| RU["unresolved<br/>says which end is gone"]
+    e -->|yes| l{"same edge id between<br/>the same two events?"}
+    l -->|yes| RA["applied: nothing to write"]
+    l -->|no| RR["recreatable: offered, unticked"]
+```
+
+`ApplyRestore` then:
+
+1. **writes the layout first** — each resolved node's position onto its **live** id, and the
+   viewport. Nodes and links added since the snapshot are left alone: a restore puts things back, it
+   does not roll the graph back;
+2. **re-creates only the links the analyst ticked**, and only if the fresh plan still offers them,
+   each as `created_by: "user"` with the basis `restored from snapshot <id>` and no rule fields;
+3. **commits those links once**, in one `InsertRelations` batch.
+
+Taking, deleting and applying hold the case lock shared (§18.4), so they are refused while a
+redaction runs and in a read-only session (§18.5). Listing and previewing take no lock.
+
+**Why it was built that way.**
+
+- **Events are matched by hash, not by id.** Node ids are handed out in order, so a re-ingest gives
+  id 1 to a different event. A restore that matched on id would put the saved picture onto unrelated
+  records, and the canvas would look entirely normal. Matching on the hash turns that into `moved`
+  rows and a note that the case was re-ingested
+  (`TestRestoreResolvesThroughHashesAfterAReingest`). An edge id that survived onto different
+  endpoints is not trusted either (`TestPlanDoesNotTrustAnEdgeIdWhoseEndpointsChanged`).
+- **Nothing restores silently.** The package stores and plans; it never writes to the case store
+  (`TestPreviewRestoreWritesNothing`), and every node and relation lands in exactly one bucket
+  (`TestEveryItemLandsInExactlyOneBucket`).
+- **Inferred ≠ asserted (§0).** A link re-created today is the analyst's claim, not something a rule
+  found. Keeping the old `rule_id` would make it look like output of the current rules, and an
+  export would say so (`TestARecreatedEdgeIsAssertedByTheAnalystNotByARule`). By default nothing is
+  re-created, and the panel ticks nothing for you.
+- **Layout first, then the links in one batch.** The layout is always safe to apply, so a failed link
+  write does not also cost the arrangement. The links used to be inserted one at a time — a durable
+  write each, and a failure part way left some of them; they now commit once (PERFORMANCE.md §18,
+  "Signing and attribution"). The restore as a whole is two writes, not one.
+- **A snapshot is never destroyed to make room.** At 50 per graph a new one is refused, not the
+  oldest evicted, and a file is never overwritten: two snapshots taken in the same millisecond once
+  replaced each other silently on a Linux CI runner
+  (`TestTwoSnapshotsInTheSameMillisecondBothSurvive`).
+- **Redaction (§18.4) scrubs what a snapshot copied.** A snapshot holds copies of event content — the
+  descriptor and the rules' `basis` values — so the redaction's sidecar step calls `Store.Scrub`: the
+  descriptor becomes `(redacted event)` and touching relations lose their `basis`. A file it cannot
+  read fails the step; it is never treated as clean.
+
+**Not done.**
+
+- Snapshot thumbnails.
+- `Save` writes a temporary file and renames it without an fsync; only `Scrub` writes durably.
+- **A re-created link is offered again.** The plan treats a link as present only if the snapshot's
+  *old* relation id is live, and a re-created link gets a new id. After a restore that re-created
+  links, the next preview offers them again, and applying it again duplicates them.
+- `store_version` is recorded and never compared (see the table above).
+
+### 14.6 Annotation layers
+
+**What it does.** An annotation is the analyst's own mark on one graph: a **note** pinned to an
+event, a **region**, or an **arrow**. Marks sit on **layers** that can be shown, hidden and reordered.
+The package is [backend/annotate](backend/annotate/annotate.go), the binding `AnnotateAPI`
+([backend/api/api_annotate.go](backend/api/api_annotate.go)), and the UI
+[LayerPanel.svelte](frontend/src/components/graph/LayerPanel.svelte) with
+[lib/graph/annotations.js](frontend/src/lib/graph/annotations.js).
+
+An annotation is stored like a finding (§13), but its scope differs:
+
+|              | Finding (§13)                        | Annotation                               |
+| ------------ | ------------------------------------ | ---------------------------------------- |
+| It is about  | an **event**                         | a **picture**                            |
+| It appears   | in every graph that holds the event  | only on the graph it was drawn on        |
+| Example      | "this 4624 is the account takeover"  | "this cluster is the lateral movement"   |
+
+**How it works.** One file per graph, `rohy-data/annotations/<graphID>.json`, with
+`annotations_version: 1`, holding `layers[]` (`id`, `name`, `colour`, `visible`, `z`) and `items[]`
+(`id`, `layer`, `kind`, `anchor`, `to` for arrows, `text`, timestamps). An **anchor** is either
+`event`, which stores the event's **hash**, or `world`, a fixed position on the canvas. Every change
+rewrites the file (a temporary file, then a rename).
+
+`Annotations(graphID)` returns the document plus two things the canvas needs, worked out afresh on
+every call: `node_of`, mapping each anchored hash to the node that holds it **now**, and `orphaned`,
+the anchored hashes no event carries any more. The frontend then places each mark. If any step
+fails, the mark has no position: it is **not drawn, and it is counted**. The panel splits the count
+into "no longer in the case" and "not on this canvas", because the fixes differ. The two figures are
+different units, so the split is approximate. The first is the number of distinct anchored events
+gone from the case (`orphaned`, every layer included). The second is the undrawn marks minus that
+number, floored at 0, so two notes on one deleted event read as 1 + 1. A mark that *can* be placed
+on a hidden layer is skipped and not counted, because hiding it was the analyst's choice. A mark
+that cannot be placed is counted whether or not its layer is shown.
+
+| Limit ([backend/consts/consts.go](backend/consts/consts.go)) | Value | When it is exceeded                     |
+| ------------------------------------------------------------ | ----- | --------------------------------------- |
+| Layers per graph                                             | 16    | refused                                 |
+| Annotations per graph                                        | 200   | new ones refused; editing still works   |
+| Text                                                         | 2000  | refused, never truncated                |
+| Layer name                                                   | 120   | truncated                               |
+
+Writes hold the case lock shared, like snapshots; reads take none.
+
+**Why it was built that way.**
+
+- **An event is anchored by its hash, never by its node id**, for the snapshot's reason: a re-ingest
+  reuses ids (`TestAnnotationsFollowTheEventAfterAReingest`). The hash-to-id map is never stored,
+  because a stored map would bring back exactly the staleness the hash exists to avoid.
+- **A mark is drawn only where it can be honestly placed.** A pin at the origin, or snapped to the
+  nearest card, would point at the wrong evidence; a mark that quietly vanished would look like one
+  never made (`TestAnnotationsReportAnOrphanRatherThanDroppingIt`). The orphan itself is kept: it is
+  the analyst's.
+- **Deleting a layer deletes everything on it**, and the confirm dialog shows how many marks first.
+  Moving them elsewhere would leave marks the analyst thought were gone.
+- **Bad input is refused, not guessed at.** An unknown kind or anchor is refused with the accepted
+  list; a `to` on anything but an arrow is dropped, so a later build cannot start honouring values
+  nobody chose.
+- **Redaction leaves annotations alone.** An annotation holds only a hash and the analyst's own words;
+  rohy copied nothing into it. After the strip the event reports no hash, so its notes count as "no
+  longer in the case".
+
+**Not done.** Regions and arrows render, but only notes can be created, from the layer panel. The
+panel cannot edit or delete one note, rename a layer or change its colour, though the bindings exist.
+The limits count bytes, not characters. An annotation id is built from the millisecond and the item
+count, so a delete and a create in the same millisecond can repeat an id. The file is written by
+rename without an fsync.
+
 ---
 
 ## 15. Frontend architecture
@@ -1538,14 +2013,14 @@ outside the routed content so an ingest stays visible across navigation.
 
 | Struct           | Responsibility                                                              |
 | ---------------- | --------------------------------------------------------------------------- |
-| `EventsAPI`      | ingestion control, event queries, counts, adjacency, timeline, export       |
-| `GraphAPI`       | relations, named graphs, canvas layout, relationship inspection             |
+| `EventsAPI`      | ingestion control, live capture, permission checks and elevation, event queries, counts, timeline |
+| `GraphAPI`       | relations, named graphs, canvas layout, auto-layout, clusters, heatmap, relationship inspection |
 | `RulesAPI`       | rule listing, import, export, save, delete, enable/disable, format descriptor |
 | `BuildAPI`       | run correlation rules, report progress, dry-run a rule without persisting   |
 | `FindingsAPI`    | flags, tags, notes, tag list, stats, audit                                  |
-| `SystemAPI`      | build identity, init stages, window controls, elevation checks              |
-| `MaintenanceAPI` | opt-in work over the whole case: integrity, backfill, seals, redaction, checkpoints |
-| `SnapshotAPI`    | named graph snapshots: save, list, restore, delete                          |
+| `SystemAPI`      | build identity, init stages, the analyst's session                          |
+| `MaintenanceAPI` | opt-in work over the whole case: the case check and its fixes, backfill, compaction, seals and the image check, proofs and custody, redaction, signing, checkpoints, cancel |
+| `SnapshotAPI`    | named graph snapshots: take, list, preview and apply a restore, delete      |
 | `AnnotateAPI`    | the analyst's layers and annotations on a graph                             |
 | `QueryAPI`       | the read-only query console: `Describe` and `Run`, nothing else (#33)       |
 
@@ -1912,6 +2387,130 @@ Invariants, each a test:
 - The held digest is never prefilled from the case. A seal fingerprint pasted there is pointed to
   the custody check.
 
+### 18.7 The case check — and what it could not see
+
+**What it does.** The Maintenance page (`Alt+7`) has **Check case** and **Deep check**. Each reads the
+whole case and returns a report: what it looked at, what it found grouped by severity, and for each
+finding the fix it needs. The check is [backend/caseintegrity](backend/caseintegrity/caseintegrity.go),
+and it has one rule: **it reads and reports. It repairs nothing on its own and deletes nothing,
+ever.** A fix is a separate button the analyst presses.
+
+It is built around one distinction: a case that is **broken** and a case that is only **empty**.
+"This rule found nothing" and "this rule could not have found anything" both show up as a zero; a
+report that treats them alike has the analyst trusting an answer that was never computed.
+
+```mermaid
+flowchart LR
+    page["MaintenanceView<br/>Check case · Deep check"] --> bind["MaintenanceAPI.CheckIntegrity(deep)"]
+    bind --> deps["narrow read-only interfaces<br/>over the concrete stores"]
+    deps --> run["caseintegrity.Run"]
+    run --> rep["Report: findings · counts · errors · deep"]
+    rep --> page
+    page -- "fix button" --> fix["RepairRelationIndex · RebuildIndexes ·<br/>BackfillCorrelationKeys · CompactCase · …"]
+    fix -- "re-check at the same depth" --> bind
+```
+
+#### One run
+
+`Run` first reads `graphene.Inventory`: one pass over every event, decoding a small view of each,
+collecting counts per channel, coverage per correlation slot, the stale-projection count and the
+furthest payload byte any event references. It then runs its detectors in a fixed order, checking
+for cancellation between them, and sorts the findings by severity, code and subject, so the same
+case always gives the same report. The report carries `findings` (never `null`), `counts` (what was
+looked at), `deep`, and `errors` — the checks that **could not run**.
+
+#### The detectors
+
+| #   | Detector             | Code → severity                                                 | Fix                                  | Cost                         |
+| --- | -------------------- | --------------------------------------------------------------- | ------------------------------------ | ---------------------------- |
+| 1   | Index verification   | `index_damaged` → error                                         | **Rebuild the indexes**              | **deep only**, whole store   |
+| 2   | Unindexed relations  | `unindexed_relations` → error                                   | **Repair the relation index**        | every relation               |
+| 3   | Findings audit       | `orphan_findings`, `stale_findings` → warning; `redacted_findings` → info | ingest · review              | one hash set                 |
+| 4   | Dangling relations   | `dangling_relations` → error                                    | review                               | every relation               |
+| 5–6 | Orphan / empty graphs | `orphan_graph` → warning; `empty_graph` → info                 | review                               | one count per graph          |
+| 7   | Orphan layouts       | `orphan_layout` → info                                          | review                               | one folder listing           |
+| 8   | Payload tail         | `payload_tail` → info                                           | —                                    | two numbers                  |
+| 9   | Stale projection     | `stale_projection` → warning                                    | **Fill in correlation fields**       | the inventory pass           |
+| 10  | Missing channel      | `missing_channel` → warning; `channel_undeclared` → info        | ingest                               | the inventory pass           |
+| 11  | Rule inertness       | `rule_inert`, `rule_blocked` → warning                          | ingest · **Fill in correlation fields** | one count per distinct event id |
+| —   | Redactions           | `redaction_journal` → error; `redaction_pending` → warning      | review · **Finish the redactions**   | in memory                    |
+
+A fix in **bold** is a button; the rest are advice, because "ingest the missing log" needs files
+rohy does not have.
+
+v0.3.0 added the **forensic detectors**, numbered 12 to 18, plus checks of the seal history and of
+the session. They ask a different question — what the case can **prove**, not whether it is broken —
+so most report a *posture*, not a fault: an unverified image, a case never sealed, unsigned seals, no
+fingerprint kept outside the case, the redaction ledger, checkpoints. Each is explained where its
+evidence is: §18.2 (sealing and the history), §18.5 (signing, the session, the ledger) and §18.6
+(checkpoints). Their order matters: a case whose fingerprint cannot be read, or that was never
+sealed, stops there, so the image, signing and checkpoint checks run only on a sealed case.
+
+#### Three zeros: inert, blocked, unmatched
+
+Every enabled rule gets one of three verdicts:
+
+1. **Inert** (`rule_inert`). Some event id the rule needs has no events. A lineage rule has no
+   `sequence`, so its ids are its creation ids (by default `4688`); reading `sequence` alone would
+   call every lineage rule satisfiable. Each distinct id is counted once and cached across rules.
+2. **Blocked** (`rule_blocked`). Every id has events, but a `match_fields` slot has zero coverage: no
+   event carries that value, so the rule can only report zero. The fix offered is the backfill,
+   because on an older case that is the usual cause.
+3. **Unmatched** — neither. It is the only clean result, and it produces **no finding**.
+
+A count that fails is stored as `-1` and treated as *present*: the rule is not called inert, and the
+failure goes into `errors`. A wrong finding from an internal error is worse than a missing one,
+because it sends the analyst looking for evidence that is there.
+
+A rule that declares no `channels` is never reported missing; it is counted, once as
+`channel_undeclared` and once as `counts.rules_unchecked`, which the page shows even at zero. Every
+built-in declares its channels, and a test enforces it, so on a fresh case the check covers the
+whole shipped library.
+
+#### Saying what it could not see
+
+- **`errors`, never silence.** A read that fails becomes a line in `errors`, and the page then says
+  the report is **incomplete** — "read this as unknown, not as clean".
+- **A quick check says it was quick.** A clean quick report adds that the index itself was not
+  verified, and on a sealed case adds `image_unverified`.
+- **An unread forensic input is a note**, never a pass.
+- **No guessed numbers.** If the inventory cannot be read, the payload tail detector stays quiet
+  rather than reporting the whole log as a tail.
+
+#### How it stays read-only
+
+The detectors receive **narrow interfaces** that list only the reads they need — `EventStore`,
+`FindingStore`, `GraphRegistry`, `RuleSource`, `ForensicStore`, `RootHistory` — never the concrete
+stores, so a write is out of reach without a type assertion. `CountUnindexedRelations` exists for
+this reason: `RepairRelationIndex` repairs while it counts, so asking it "is a repair needed?" would
+change what is being reported. `TestCheckIntegrityWritesNothing` runs a deep check and asserts the
+node count and the store version did not move. A read-only session (§18.5) removes every write
+action from the report, and the page disables those buttons.
+
+The check takes **no** maintenance lock, so an analyst can find out why the case looks wrong while it
+is being repaired. Each fix binding does take it, so a second pass is refused rather than queued, and
+after a fix the page runs the check again at the same depth.
+
+#### Why it is built this way
+
+- **A tidy checker destroys evidence.** One that repaired as it went would erase the proof that
+  something went wrong — the only thing a report is for. It is the rule that keeps orphaned findings
+  on disk (§13).
+- **Deep is opt-in.** The index and image checks cost time in proportion to the whole store, and
+  running them on every check re-proves something almost always true (PERFORMANCE.md §12a, §18).
+- **Narrow interfaces make each detector testable** against a handful of literals, with no live case.
+
+**Not done, or not yet true.**
+
+- **Stop does not reach a running check.** `CheckIntegrity` passes `context.Background()` to `Run`,
+  although its comment says it shares the maintenance cancellation.
+- **A deep check verifies the image without the lock the button takes.** The *Check the case has not
+  changed* button holds the maintenance lock so its ~449 MB of allocation never runs beside a
+  backfill; a deep check reaches the same `VerifyImage` holding none. It slows both passes, and makes
+  neither wrong.
+- The inventory is read twice per check: once for the payload size, once in `Run`.
+- `rule_unmatched` is declared and never emitted: "unmatched" is the absence of a finding.
+
 ---
 
 ## 19. Performance decisions ledger
@@ -1930,9 +2529,33 @@ The full reasoning is in [PERFORMANCE.md](PERFORMANCE.md). The short version —
 | `Degree(id, nil)` over the typed form                | The typed form is ~**488×** dearer — it inspects every label |
 | `EdgesOf(..., nil)` — no edge-type filter            | `EdgeRelation` is the only label rohy writes, so filtering costs and selects nothing extra |
 | Store the correlation projection **by position**     | +138 B/event saved against the same values keyed by name      |
-| Bound each correlation slot to its own domain        | Format worst case 819 → **324 B/event**; 71 B on a real 4688 |
-| Prepare the correlation dataset **once per build**   | 20 rules: 480 → **222 ms**, and 56.1 → **16.2 MB** allocated  |
+| Bound each correlation slot to its own domain        | Format worst case 819 → **324 B/event** (381 B at v3's thirteen slots); 71 B on a real 4688 |
+| Prepare the correlation dataset **once per build**   | 20 rules: 505 → **282 ms**, and 56.1 → **16.2 MB** allocated  |
 | Index `rule_id` on edges, but not `match_id`         | Low-cardinality answers "which edges did this rule produce"; a near-unique key is the shape that cost 8.0 s at open |
+
+Added in v0.3.0:
+
+| Decision                                            | Measured effect (100k events unless stated)                 |
+| --------------------------------------------------- | ----------------------------------------------------------- |
+| Verify the image on a button; `VerifyOnOpen` off 🔒   | On, it would add **+617 ms and +449 MB** of allocation to every launch |
+| Seal once per ingest **request**, deferred 🔒         | A seal costs the case, not the ingest: **1325 ms, 566 MB** to add 500 events |
+| Ask `Unsealed()` before sealing                      | **1.1 ms, 1.6 KB** instead of a ~1.3 s compaction on close   |
+| `src_ip` is an alias of `ip_address`, not a slot     | v3's three network slots cost **+57 B** (324 → 381), budgeted at 300–450 |
+| Prove one event on a click, unoptimised             | `ProveEvent` **94 ms, 50 MB**, linear                        |
+| Custody report: two proofs, not one shared          | `EventCustody` **184 ms**; sharing would halve it and open a second path |
+| Do **not** index `hash_raw` for redaction            | Preview **597 ms, 127 MB** once per redaction, against an entry per event on every open |
+| Every write is an attributed transaction             | One 512-event batch: 2.6–3.2 → **2.4–4.7 ms**, within the spread |
+| Checkpoint reads walk histories, not events          | `Histories` + `Holds` + `Current`: **2.2 ms**, flat in events |
+| Ingest chunks in file order, a window of 12          | Live heap 18–23 → **17–25 MiB**; ceiling 96 MiB unchanged    |
+| The relation repair checks every key, not one        | **+20–40%** time, transient memory; a build step, not a hot path |
+| A build's memory grows with the case, not its rules  | 20 rules ≈ **1.25×** the heaviest one; `TestTheBuildStaysBounded` fails above 2× |
+
+Measured in v0.3.0 and not yet acted on (PERFORMANCE.md §21): the layout binding spends ~72% of
+its time reading the cold store it does not use (§14.1); a heatmap of one small graph pays the
+whole-case event scan (§14.3); and the correlation-key backfill's live heap grows with the case
+(5.9 MiB held after a 10k run, 58.4 MiB after a 100k one), although it works in fixed batches. A
+compaction gives back about 85% of it: the engine's delta layer holds every rewritten node until
+then.
 
 That `EdgesOf` entry carries a standing caveat in the source: **if a second edge type is
 ever introduced, that call must filter again.** It is one reason process lineage models
@@ -1943,7 +2566,7 @@ The cost model in one table — know what dominates before optimising anything:
 | Layer                     | What dominates                          | What does **not**                          |
 | ------------------------- | --------------------------------------- | ------------------------------------------ |
 | Event queries             | Decoding matched records                | Locating candidate ids                     |
-| Ingest / graph build      | The number of **durable commits**       | Property encoding                          |
+| Ingest / graph build      | The number of **durable commits**; in a build, ~40% is decoding node records | Property encoding |
 | Store open                | Loading the property index              | Loading the graph itself (~131 ms at 100k) |
 | Ordering / paging         | Decoding a minimal per-node view        | Re-querying — the order is cached          |
 
@@ -1955,8 +2578,21 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**482 Go test functions** and **364 frontend test cases**, and both suites run in
-CI on every platform before any artefact is packaged.
+**1,140 Go test functions**, 10 fuzz targets, 65 benchmarks, **795 frontend test
+cases** in 51 files, and **58 extension tests**.
+
+Where each runs:
+
+- **Every release build job** (Windows, both Linux runners, macOS) runs
+  `go test ./backend/...` and the frontend's `npm test` before it builds, so a
+  release is never packaged from a failing tree.
+- **`ci.yml`**, on every push to `main` and every pull request, runs on Linux only:
+  `go vet`, the backend, `cmd` and `tools` tests, the race detector over
+  `graphene`, `evtx`, `api` and `graphbuild`, the frontend tests, the built-in
+  rules' format and load check, and the schema golden. Its build job compiles each
+  platform without testing again.
+- **The local gate only:** the integration suite (`-tags=integration`) and the
+  extension tests. A CI job for each is deferred with the other CI additions.
 
 | Kind                | Where                                                       | What it proves                                          |
 | ------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
@@ -1970,6 +2606,10 @@ CI on every platform before any artefact is packaged.
 | Crash / idempotency | `graphene_*` + `evtx_*`                                     | an interrupted build re-runs without duplicating          |
 | Contract            | `cmd/rohyctl/validatejson_test.go` + `tools/vscode-rohy/test/fixtures` | `rohyctl validate --json` prints what the extension reads |
 | Extension           | `tools/vscode-rohy/test/` (`npm test`, Node's own runner)    | which files are checked, when, and which answer is kept — through a fake VS Code API |
+| Fuzz                | 10 targets: `evtx` parse, `query` run, proof verify, the analyst profile and register, anchor receipts, the keyfile and redaction-journal decoders, fingerprint normalization, and payload redaction | untrusted bytes never panic, and what is accepted round-trips |
+| Integration         | `backend/integration/` (`-tags=integration`)                 | the real pipeline on disk over a committed EVTX fixture, against a golden summary; crash recovery; a build's memory bound |
+| Parity              | frontend tests that read backend files: `lib/api/errors.test.js`, `lib/rules/*.test.js`, `lib/query/spec.test.js` | every backend error code has its JS twin; the editor and query page agree with the Go cases and vocabulary |
+| Golden              | `rules/testdata`, `backend/query/testdata/`                   | the rule schema and the query vocabulary change only on purpose |
 
 Two testing choices worth copying:
 
@@ -2118,14 +2758,55 @@ come for free — that is the entire reason the sink is a separate function.
 ### Add a page
 
 1. `frontend/src/routes/YourView.svelte`.
-2. `lib/consts` — add the route id and its label.
-3. `lib/shortcuts.js` — add it to `NAV_KEYS`; **the menu derives itself.** Add the binding to
-   `SHORTCUTS` too, or the self-documentation test fails.
-4. `App.svelte` — add it to the route switch.
+2. `lib/consts` — add the id to `ROUTES` and its label to `UI` (`NAV_…`).
+3. `routes/views.js` — map the id to the component in `ROUTE_VIEWS`. `views.test.js` fails for a
+   route with no view. `App.svelte` needs nothing: it renders `viewFor($route)`.
+4. `lib/shortcuts.js` — add it to `NAV_KEYS` and `NAV_LABELS`; **the menu derives itself.** Add
+   the binding to `SHORTCUTS` too, or the self-documentation test fails. Alt+9 is the last digit
+   left; a tenth page needs a different way in.
 5. Add it to `frontend/src/components/smoke.test.js`. Svelte compiles for the server, so a
    component can be rendered in plain Node — no jsdom, no testing-library. It catches a
    `ReferenceError` that `vite build` cannot, because an undefined identifier in a `<script>`
    block is legal JavaScript.
+
+### Add a backend error code
+
+1. `backend/consts` — add `ErrCodeYours = "yours_error"` beside the others.
+2. Return it from the binding as `AsError(consts.ErrCodeYours, err)`. `FormatError` carries the
+   code across (§16.2); wrapping with `%w` keeps it, because the formatter finds the code with
+   `errors.As` and takes the message from the outermost error.
+3. `frontend/src/lib/consts` — add it to `ERROR_CODES`. `lib/api/errors.test.js` reads
+   `consts.go` and fails until every `ErrCode*` has its twin.
+4. In the screen, branch on `errorCode(e)` from `lib/api/errors.js`, never on the message text.
+
+### Add a query console field
+
+1. If the store cannot answer it yet, teach `graphene` first: a field on `EventFilter` (the first
+   recipe above) or `RelationFilter`. To group by it, add a short scalar to `eventSortView`, its
+   name to `EventGroupFields`, and a case to `sortViewField`, the switch `CountEventsBy` uses
+   (`graphene_console.go`). Miss the case and the switch's default reads `SourceIdentifier`
+   instead, silently.
+2. `backend/query/vocabulary.go` — add a `Field` to `eventFields` or `relationFields`: key, label,
+   kind, ops, `Groupable`, enum `Values`, and `Help` worded for the analyst.
+3. `backend/query/run.go` — map the condition onto the filter and, if it groups, read its value.
+4. Regenerate the golden (`go test ./backend/query/ -run TestVocabularyGolden
+   -update-vocabulary-golden`) and add accepted and refused cases to
+   `backend/query/testdata/spec-cases.json`, which the Go and the JS tests both read.
+
+The Query page needs nothing: it builds its form from `Describe()`.
+
+### Add a bound struct
+
+1. `backend/api/api_yours.go` — a struct over **narrow interfaces**, a `NewYoursAPI` constructor,
+   and methods that adapt arguments and call one thing. Wails binds **every** exported method, so
+   a helper that should not be callable from the page must be unexported.
+2. If it emits events, give it `Startup(ctx)` and call it from `App.startup` in `app.go`.
+3. Build it in `NewApp` (`app.go`) and add it to `Bind` in `main.go`.
+4. Regenerate `frontend/wailsjs/` (any `wails build` or `wails dev` does).
+5. `frontend/src/lib/api/index.js` — a struct-name constant and one wrapper per method over
+   `call()`. Nothing else in the frontend touches `window.go`.
+6. Add a row to §16.1. If the struct must stay read-only, pin its method set with a reflection
+   test, as `QueryAPI`'s does.
 
 ---
 
@@ -2164,6 +2845,58 @@ An honest list, for anyone about to change something.
 - **A CSS animation runs once per element lifetime.** Anything that must re-play needs its
   key to change — persist what should move (so transitions animate), re-key what should
   re-draw.
+
+Added with v0.3.0:
+
+- **The error formatter must return a string.** The Wails runtime rejects with
+  `x instanceof Error ? x : new Error(x)`, so an object reaches every handler as
+  "[object Object]". `FormatError` returns the JSON of an `ErrorEvent` *as a string*, and
+  `call()` decodes it.
+- **Two failures never reach the formatter.** An argument that fails to parse arrives as plain
+  text, so `errorCode` defaults to `internal_error`. A panic in a binding leaves the page's
+  promise unsettled for good, so a binding that can panic on its input recovers itself, as
+  `QueryAPI.Run` does.
+- **Wails binds every exported method** of a bound struct. A helper on one is callable from the
+  page.
+- **Wails logs a failed call's arguments.** On a parse failure or a panic it writes the raw call
+  message, and a passphrase crosses as an argument. `SafeLogger` withholds the call; replace it
+  and the passphrase can reach the log.
+- **Edge order is not id order.** The disk store returns delta edges before compacted ones, and a
+  property lookup keeps the first key's order. Anything that pages or compares relations sorts
+  the ids first.
+- **The memory and disk stores differ on an unknown node.** `EdgesOf` returns `ErrNotFound` in
+  memory and an empty list on disk. Treat both as "no edges".
+- **Reads take no case lock** (🔒 `api_caselock.go`). An edge can be gone between listing its
+  id and reading it, so a scan skips what vanished and says so, and a list drops what it
+  showed when a redaction reports.
+- **An indexed relation query can miss a relation a crash left half-indexed**, until the next
+  repair. The case check reports the gap; the query does not.
+- **`GetEvents` fails on the first missing id**, and deleting an event prunes no layout sidecar.
+  A canvas that still names a deleted event — another graph's, or this one's before *Save layout* —
+  fails to load, arrange, cluster or snapshot. The list path's `hydrateIDs` fails the same way; any
+  read over a sidecar's ids must decide what a vanished id means.
+- **A redacted event has no properties.** It is undated and its fields are blank, so it must be
+  told apart from an event that was blank to begin with (`Event.Redacted`).
+- **Every compaction makes a new fingerprint**, even over identical content. Ask `Unsealed()`
+  before sealing, or a case that has not changed grows a history of seals.
+- **`sealMu` is a plain mutex, not re-entrant.** A function documented "called under sealMu"
+  that takes it again deadlocks the seal, the checkpoint and the integrity check together.
+- **The engine's three files can end torn.** `graphene.audit`, `graphene.redactions` and
+  `graphene.checkpoints` are appended after whatever is there, so rohy checks the last record is
+  whole before an append; a torn tail would misframe every record after it.
+- **`eventproof` mirrors graphene's leaf layout**, which graphene does not export.
+  `TestLeafLayoutMatchesGraphene` is what notices if an upgrade changes it; upgrading graphene
+  without running it can accept or refuse a proof wrongly.
+- **`rules-state.json` lives in the rules folder and is not a rule.** Anything that walks the
+  folder skips it by name, as `rules/import.go` does.
+- **A record handed over on another goroutine needs `guardRecord`.** `runIngestion`'s recover
+  cannot catch a panic on a goroutine it did not start.
+- **Columns count runes, not UTF-16 units.** The JS formatter counts `[...s].length` to match
+  Go's rune count; `s.length` would disagree on any character outside the basic plane.
+- **Tab in the raw editor indents.** That traps a keyboard user, so Escape must stay free to
+  leave the field. With no suggestion list open it reaches the dialog, which closes (or asks
+  first when there are unsaved edits). The hint under the editor does not yet say so, although
+  the `CodeArea.svelte` comment claims it does.
 
 ---
 

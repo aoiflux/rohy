@@ -8,10 +8,30 @@
 
 ---
 
-## Unreleased (v0.3.0)
+## v0.3.0 — "Perseus"
 
-_Work in progress. Rename this heading to `## v0.3.0 — "<name>"` before tagging: the release job
-publishes only a `## v<version>` section._
+_The release that can show its work to someone who was not there._
+
+v0.2.0 learned to say what a match proves. It could not yet prove anything about the case itself
+to anyone outside it. A reviewer, a court or a colleague had to take the analyst's word that the
+events on screen were the events that were ingested, that nothing had been removed, and that the
+person who sealed the case was who they said.
+
+v0.3.0 gives them something to check instead. A case keeps a fingerprint for every seal and checks
+the chain between them. One event can be exported with a proof that anyone holding the fingerprint
+verifies without the case or rohy. Each event can account for itself layer by layer. A redaction
+is recorded, attributed and kept from coming back. Every change names the analyst who made it,
+seals can be signed, and a checkpoint's digest can be published somewhere the case cannot reach.
+The integrity check now reports what the case **cannot** prove, and never reports what it could
+not read as fine.
+
+Beside that: a read-only query console, error codes that reach the screen, network correlation
+fields, ingest in file order with an integration suite over the real pipeline, and a VS Code
+extension for rule files.
+
+> **Named for Perseus**, who stands beside Andromeda in the sky, as Andromeda stands beside
+> Cassiopeia. v0.1.0 ordered events and v0.2.0 related them. v0.3.0 makes a claim about the case
+> that someone else can hold it to.
 
 ### ⚠️ Action required: run the correlation backfill
 
@@ -47,8 +67,8 @@ whole answer.
 - **The case fingerprint stays the same until the case changes.** Every seal makes a new
   fingerprint, even over identical content, and rohy used to seal on every close. So a
   fingerprint you exported went stale the next time you closed the app. The seals after an
-  ingest and on close are now skipped when nothing was written since the last one. **Seal case**
-  on the Maintenance page still always seals.
+  ingest and on close are now skipped when nothing was written since the last one. *Seal the
+  case* on the Maintenance page still always seals.
 - **Every seal is recorded**, not only the ones whose fingerprint was exported. The integrity
   check uses that history to report a case whose database is **older than the last one rohy
   sealed**, such as a restored backup. That image passes every other check, because nothing about
@@ -228,8 +248,9 @@ whole answer.
   always did.
 - **A read-only session refuses every change**, names why, and is marked in the status bar. The
   image check still runs.
-- **The fingerprint history is in format 2**: it records who sealed and the seal's signature. An
-  earlier build keeps a format-2 history aside rather than drop those fields by rewriting it.
+- **The fingerprint history records who sealed and the seal's signature** (format 2). A build that
+  reads only format 1 keeps a format-2 history aside rather than drop those fields by rewriting it;
+  no released build reads format 1.
 - **Some writes now commit once instead of once per relation**: a snapshot restore, the migration of
   relations from before named graphs, and clearing a graph whose relations had drifted.
 
@@ -250,6 +271,53 @@ whole answer.
 - **Parser faults are contained.** A parser that fails on hostile input now skips and reports the
   chunk or record it was reading instead of ending the application, and a damaged EVTX chunk
   reports how many of its declared records could not be read instead of losing them silently.
+
+### Under the hood
+
+- **Verifying the image stays a button.** Run at every open, it would add **617 ms and 449 MB** of
+  allocation to each launch of a 100 000-event case. Off is a reported state, never a silent one.
+- **A case seals once per ingest request**, never per file, because a seal costs the whole case
+  (about 1.3 s at 100 000 events) however little was added. A case with nothing new is not sealed
+  again: asking costs about a millisecond.
+- **Attribution costs nothing measurable.** Every write is now an attributed transaction, and a
+  512-event batch takes the same time inside the run-to-run spread, signed or not.
+- **GrapheneDB 0.4.0 and Wails 2.13.0**, both unchanged from v0.2.0.
+- **Ten new backend packages** (`analyst`, `anchor`, `custody`, `durable`, `eventproof`, `keyfile`,
+  `query`, `redaction`, and `synth` and `integration` for tests), the `tools/profile` harness, and
+  33 Go packages in total.
+- **1,140 Go tests, 10 fuzz targets and 65 benchmarks; 795 frontend tests; 58 extension tests.**
+  The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
+  backend (PERFORMANCE.md §21).
+
+### Compatibility
+
+- **`format_version` is still `1`.** Every v0.2.0 rule loads. Some match differently: a `sequence`
+  rule with `match_scope: "global"` now matches per computer, temporal chains with a repeated event
+  ID are assembled correctly, and `ip_address` values are normalized and, on inbound WFP events,
+  oriented by initiator (see Fixed and Changed).
+- **A v0.2.0 case opens unchanged, with the same fingerprint.** The redaction ledger and the audit
+  log are added empty. Its events report stale correlation keys until the backfill runs (see the
+  action above).
+- **The fingerprint history (`roots.json`, format 2) is new in this release.** v0.2.0 neither reads
+  nor writes it, so a seal v0.2.0 makes is not recorded. If a case goes back to v0.2.0 and returns,
+  the integrity check reports that its image does not follow the last recorded seal.
+- **New portable files are versioned from 1**: event proofs (checked with this release's
+  `rohyctl verify-proof`) and signing keys.
+
+### Not in this release
+
+Stated rather than left to be discovered:
+
+- Code signing and notarization. Windows SmartScreen and macOS Gatekeeper will still warn.
+- Manual verification on Linux and macOS — both build in CI, neither has been exercised by hand.
+- `rohyctl` in the release downloads. A recipient checking a proof builds it with
+  `go build ./cmd/rohyctl`.
+- The VS Code extension on the Marketplace. It is packaged by hand from `tools/vscode-rohy`; its
+  README says how.
+- In the query console: an expression language, saved queries, export, and conditions on findings.
+- Snapshot thumbnails, and drawing regions or arrows directly on the canvas — both render, but only
+  notes can be authored, from the layer panel.
+- The integration suite and the extension's tests in CI. They run in the local gate.
 
 ---
 
@@ -488,8 +556,8 @@ Stated rather than left to be discovered:
 
 <div align="center">
 
-Releases are named after constellations. v0.1.0 was **Cassiopeia**; v0.2.0 is **Andromeda**, her
-daughter.
+Releases are named after constellations. v0.1.0 was **Cassiopeia**; v0.2.0 was **Andromeda**, her
+daughter; v0.3.0 is **Perseus**, who stands beside them both.
 
 The version this build reports comes from the linker, and is written down in exactly one place —
 [README.md](README.md).

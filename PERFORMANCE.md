@@ -229,6 +229,10 @@ iteration seeds a store.
 | `graphene_bench_test.go`           | Unfiltered paging: first page, scroll, count                                                             |
 | `graphene_adoption_bench_test.go`  | Time-range queries, relation writes (memory **and** disk), graph clear, adjacency                        |
 | `graphene_lifecycle_bench_test.go` | Open (compacted/uncompacted, 10k–100k), close, compact, warm, lazy open, plus index-attribution controls |
+| `graphene_heatmap_bench_test.go`   | The relationship heatmap beside the timeline histogram, case-wide and for one graph, at 100k (§21)       |
+| `graphene_backfill_bench_test.go`  | The correlation-key backfill at 10k and 100k: throughput, live heap held, and after a compaction (§21)   |
+| `graphlayout/graphlayout_bench_test.go` | Each auto-layout profile alone, at 5k nodes and at the cap (§21)                                   |
+| `api/api_layout_bench_test.go`     | The layout binding end to end, the read included, at 5k nodes (§21)                                     |
 
 ### The coverage obligation
 
@@ -1136,4 +1140,90 @@ here.
 go test -tags=integration ./backend/integration/ -run TestTheBuildStaysBounded -count=1 -v
 go test ./backend/graphene/ -run XXX -bench RepairRelationIndexHealthy -benchtime 10x
 go run ./tools/profile -events 100000 && go tool pprof -top profiles/cpu-build-100000.pprof
+```
+
+## 21. Layout, the heatmap and the backfill: the last three benchmarks (item 36)
+
+The plan listed three benchmarks with a claim each (plan §11.2). All three are now written, on the
+disk backend, and each asserts that the work was done (every node placed, every relation counted,
+every event projected) so an early return cannot pass for a fast one. Ryzen 9 5980HS throughout.
+
+### Auto-layout: the arrangement is not the cost, the read is
+
+**Claim:** "layout is not the bottleneck at 5k nodes." True of the arrangement, and beside the
+point. `BenchmarkComputeLayout` times `graphlayout.Compute` alone, over process trees of eight
+nodes with one node in fifty undated:
+
+| Profile  | 5 000 nodes | 20 000 nodes (the cap) |
+| -------- | ----------: | ---------------------: |
+| sequence |     12.3 ms |                35.4 ms |
+| lineage  |      8.8 ms |                37.7 ms |
+| resource |      1.8 ms |                 7.5 ms |
+| temporal |      1.3 ms |                 6.3 ms |
+
+`BenchmarkComputeLayoutBinding5k` times what the analyst waits for: `GraphAPI.ComputeLayout` over a
+5 000-event graph on disk, with a real record's ~1.6 KB of raw XML per event. It takes **243–350
+ms and allocates 46–49 MB**, so the arrangement is under a twentieth of it.
+
+The CPU profile says where the rest goes: of 11.27 s sampled, `GetEvents` is 10.17 s and `hydrate`
+alone 8.07 s. `GetEvents` reads each event on its own and then reads its raw record from the cold
+store and decodes it (§14). Layout reads none of that: the timestamp, the correlation keys and the
+event id are all on the node. The list path's `hydrateIDs` returns exactly those, in one batched
+read, without touching the payload log.
+
+⚠️ **Not changed yet.** The same `GetEvents` read sits under clusters, snapshots and
+`GraphAPI.GetEvents`. Each is a candidate for the same fix, once someone checks that no field it
+reads lives only in the cold store.
+
+### The heatmap: one scan of the case, whatever the graph
+
+**Claim:** the heatmap "reuses the timeline path's cost profile". True, including the part nobody
+wanted. `BenchmarkRelationHeatmap100k` seeds 100 000 events and 50 000 rule-made relations across
+20 graphs, and measures the timeline histogram beside it as the baseline:
+
+| Query                                        | Time    | Allocated |
+| -------------------------------------------- | ------: | --------: |
+| Timeline histogram (baseline)                | 675 ms  |   87.7 MB |
+| Heatmap, whole case, by rule                 | 813 ms  |  105.7 MB |
+| Heatmap, whole case, by computer             | 1026 ms |  105.7 MB |
+| Heatmap, one graph of 2 500 relations        | 670 ms  |   87.0 MB |
+
+The case-wide heatmap is one timeline plus reading its relations. **A graph with one relation in
+twenty costs the same as the timeline**, because the heatmap finds each relation's later endpoint
+by scanning every event's sort view (`matchingRows`) rather than looking the endpoints up. For a
+small graph, looking up its endpoints would be far cheaper; nothing is changed for it here, because
+the heatmap is fetched on a click, not per frame.
+
+### The backfill: linear in time, and its memory is the engine's
+
+**Claim:** "throughput and bounded peak memory." `BenchmarkBackfill10k` and `BenchmarkBackfill100k`
+backfill a fresh copy of a store written the way v0.1.0 wrote it, every iteration, with the copy
+and the open outside the timer:
+
+| Events | Time          | Throughput      | Allocated | Live heap held after the run | After a compaction |
+| -----: | ------------: | --------------: | --------: | ---------------------------: | -----------------: |
+| 10k    | 0.53–0.83 s   | 12–19k events/s |   125 MB  |                      5.9 MiB |           0.75 MiB |
+| 100k   | 5.8–10.7 s    | 9–17k events/s  |  1.25 GB  |                     58.4 MiB |            8.6 MiB |
+
+Time is linear and noisy between runs; read the throughput as "about ten to fifteen thousand
+events a second". Allocation is linear and stable: ~12.5 KB per event, most of it the cold-store
+read and decode each event needs.
+
+**The memory grows with the case**, about 610 B per event (58.4 MiB over 100 000), although the run works in fixed
+batches. The live heap was measured, not the total, so it is not garbage waiting to be collected.
+The benchmark separates the two causes it could have: it measures what is still reachable after
+the run, then again after a compaction. **The compaction gives back about 85% of it.** The disk
+engine keeps every node a transaction rewrites in its in-memory delta layer until a compaction
+merges it, and a backfill rewrites every event. The batches themselves hold what they should.
+
+⚠️ `MaintenanceAPI.BackfillCorrelationKeys` neither seals nor compacts when it finishes, so that
+memory stays held until the next seal (an ingest, *Seal the case*, or closing the case). At
+100 000 events that is about 58 MiB. At a million it would be about 580 MiB, which is the size at
+which it starts to matter.
+
+```
+go test ./backend/graphlayout/ -run XXX -bench ComputeLayout -benchtime 20x
+go test ./backend/api/ -run XXX -bench ComputeLayoutBinding -benchtime 10x
+go test ./backend/graphene/ -run XXX -bench RelationHeatmap -benchtime 5x
+go test ./backend/graphene/ -run XXX -bench Backfill -benchtime 3x
 ```

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"rohy/backend/anchor"
 	"rohy/backend/caseintegrity"
@@ -112,7 +113,11 @@ func TestAReceiptRoundTrip(t *testing.T) {
 	c.write("a")
 	m := c.maintenance()
 	c.publish(m)
-	r, err := m.RecordCheckpointReceipt(1, "TSA serial 0x2A", "2026-11-06T10:00:00Z")
+	// The receipt's time is read off the clock, not written down: a receipt must fall between its
+	// checkpoint's capture and now (each give or take consts.ReceiptTimeSlack), and the checkpoint is
+	// captured when the test runs, so a fixed date passes for one day and then fails for good.
+	publishedAt := time.Now().UTC().Format(time.RFC3339)
+	r, err := m.RecordCheckpointReceipt(1, "TSA serial 0x2A", publishedAt)
 	if err != nil || r.Receipt.Ref != "TSA serial 0x2A" || r.AuditGap != "" {
 		t.Fatalf("%+v %v", r, err)
 	}

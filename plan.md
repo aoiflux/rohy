@@ -34,10 +34,10 @@ P3 Pipeline/caching  ███████████████████�
 P4 Editor            ████████████████████ 100%  9/9    #23 ✅ (§15.13)
 P5 Graph             ████████████████████ 100%  7/7    carve-outs: thumbnail, canvas region/arrow, export layers
 P6 Integrity & DX    ████████████████████ 100%  4/4
-P7 Tooling           ██████████████████░░  90%  4½/5   #32b ✅ (§15.14), #33 ✅ (§15.12), #34 ✅ (§15.11); #36 docs ½
+P7 Tooling           ████████████████████ 100%  5/5    #32b ✅ (§15.14), #33 ✅ (§15.12), #34 ✅ (§15.11), #36 ✅ (§15.15)
 P8 Forensic          ████████████████████ 100%  7/7    #37 ✅ (§15.5), #38 ✅ (§15.4), #39 ✅ (§15.6), #40 ✅ (§15.7), #41 ✅ (§15.8), #42 ✅ (§15.10), #43 ✅ (§15.9)
 ───────────────────────────────────────────────────────
-Overall              ███████████████████░  99%  46½/47
+Overall              ████████████████████ 100%  47/47
 Definition of done   ██████████████████░░  91%  10/11  the integration path: the suite exists (#34), CI does not run it (minimal CI); proof gate ✅ via #38; redaction ✅ via #40; postures ✅ via #41 + #43 (+ the window, #42)
 ```
 
@@ -105,6 +105,13 @@ they are typed with `rohyctl validate --json`, the loader's own check, and forma
 partial. Building it found that `rohyctl validate` failed on every real rules folder, because it read
 the app's `rules-state.json` as a rule. The testbench's dead filter read is gone: it covers the whole
 case on purpose now (owner, 2026-11-07). **What is left:** #36 ½.
+
+**#36 landed 2026-11-07** (§15.15): the docs caught up with v0.3.0, which is stamped **"Perseus"**
+(owner, 2026-11-07). The last three §11.2 benchmarks were written and measured, and two of their
+claims did not hold as stated: layout's wait is the read, not the arrangement, and the backfill's
+memory grows with the case because the engine holds every rewritten node until a compaction. **Every
+numbered item is done.** The Definition of done still lacks the integration path in CI, which is
+deferred with the other CI additions.
 
 ---
 
@@ -1910,18 +1917,18 @@ Every v0.2.0 decision above follows from this: the projection avoids decoding, t
 dataset avoids re-sorting, batching is untouched, and **no new index keys are added on the node**
 because index size is an open-time cost paid by every user on every launch.
 
-### 11.2 Benchmarks ❌ (added to the existing 28)
+### 11.2 Benchmarks ✅ (added to the existing 28; the last three in #36, §15.15)
 
 | Benchmark | Asserts |
 |---|---|
-| `BenchmarkResidentBytesPerEvent` | 🟡 correlation keys add ≤ **200 B/event p95** — **fails the build if exceeded** |
-| `BenchmarkStoreOpen/{10k,100k}` | 🟡 open time does not regress vs the v0.1.0 baseline (0.8 s at 100k) |
+| `BenchmarkResidentBytesPerEvent` | 🟡 correlation keys add ≤ **400 B/event at the format's worst case** (~381 B under v3, ~71 B on a typical 4688; the 200 B p95 was an estimate made before the code) — **fails the build if exceeded**. Built as the test `TestCorrelationProjectionBudget` |
+| `BenchmarkStoreOpen/{10k,100k}` | 🟡 open time does not regress vs the v0.1.0 baseline (0.8 s at 100k). Built as `BenchmarkOpen{Compacted,Uncompacted,Plain,Verified}*` |
 | `BenchmarkPrepare/{10k,100k}` × requirement sets | preparation is linear-ish and pays only for what is asked |
 | `BenchmarkGenerate/{sequence,field,temporal,lineage}` | per-algorithm cost at 10k/100k |
 | `BenchmarkBuild/{1,5,20}rules` | 🟡 20 rules cost ≈ 1 sort, not 20 — the GAP-4 fix, measured |
-| `BenchmarkBackfill/100k` | throughput and bounded peak memory |
-| `BenchmarkComputeLayout/{profile}` | layout is not the bottleneck at 5k nodes |
-| `BenchmarkRelationHeatmap` | reuses the timeline path's cost profile |
+| `BenchmarkBackfill/100k` | throughput and bounded peak memory. **Built as `BenchmarkBackfill{10k,100k}`.** Throughput holds; the memory does not stay flat. It grows about 610 B/event, and a compaction gives 85% back: the engine's delta layer, not the batches (PERFORMANCE.md §21) |
+| `BenchmarkComputeLayout/{profile}` | layout is not the bottleneck at 5k nodes. **True of the arrangement (1–12 ms); the binding takes 243–350 ms, ~72% of it a cold-store read layout does not use** (`BenchmarkComputeLayoutBinding5k`) |
+| `BenchmarkRelationHeatmap` | reuses the timeline path's cost profile. **True, including for one small graph, which pays the whole-case scan** (`BenchmarkRelationHeatmap100k`) |
 
 🔒 Benchmark the **disk** backend. In-memory runs understate write-path changes badly, because
 commit count only costs on disk — recorded caveat, easy to forget.
@@ -2428,8 +2435,8 @@ console, which is a Phase 7 item and belongs with the rest of the tooling work.
 
     `go vet` and `go test` now cover `./cmd/...` and `./tools/...` as well as `./backend/...`, so
     the CLI and the generator are held to the same bar as everything else.
-36. Docs: `LLD.md` (new §s for the projection, the dataset, provenance, layout, integrity;
-    update §19's ledger and §22's recipes; update §23's sharp edges), `README.md`,
+36. ✅ Docs (§15.15): `LLD.md` (new §s for the projection, the dataset, provenance, layout,
+    integrity; update §19's ledger and §22's recipes; update §23's sharp edges), `README.md`,
     `PERFORMANCE.md` (new measurements), release notes.
 
 ### Phase 8 — Forensic integrity (weeks 13–15) 🔴 added after the audit; see §14
@@ -3939,3 +3946,81 @@ folder by default, plus a `rohy.ruleFiles` setting; tests use Node's own runner 
 - Packaging was not run: fetching `@vscode/vsce` was refused here.
 - The extension has not run inside a real VS Code. The README lists the five hand checks.
 - The `extension` CI job stays deferred with the other CI additions.
+
+### 15.15 #36 docs, and the last three benchmarks (2026-11-07)
+
+**Decisions (owner, 2026-11-07):** v0.3.0 is stamped **"Perseus"** (README header, the
+`## v0.3.0 — "Perseus"` heading the release job extracts, the footer); the LLD gets full
+what/how/why sections verified against the code; the missing §11.2 benchmarks are written and
+measured rather than listed as not built.
+
+**Built:**
+- **LLD.md:**
+  - New §14.1–14.6 (auto-layout profiles, clusters, the heatmap, replay, snapshots, annotation
+    layers) and §18.7 (the case check). §18.7 is a subsection because code cites §23, §7.1, §12 and
+    §11.4 by number.
+  - Refreshed: the §1 picture, the §2 repository map (13 packages were missing), §3 layering from
+    the real import graph, §6 the on-disk tree, the §16.1 rows, the §19 ledger (12 v0.3.0 rows, two
+    stale numbers corrected: 505→282 ms, 381 B under v3), §20 the counts and where each suite runs.
+  - §22: "Add a page" corrected (`ROUTE_VIEWS`, `NAV_LABELS`; `App.svelte` needs nothing); new
+    recipes for a backend error code, a query console field and a bound struct.
+  - §23: 17 v0.3.0 sharp edges, each checked against the code.
+- **README.md:** the header, the features and usage, and the roadmap. v0.2.0's "Next" still listed
+  layout profiles and the case check, which shipped in v0.2.0.
+- **RELEASE_NOTES.md:** the heading, a headline, Under the hood, Compatibility, Not in this release,
+  and the footer.
+- **PERFORMANCE.md §21** and four benchmark files:
+  - `graphlayout_bench_test.go`
+  - `api_layout_bench_test.go`
+  - `graphene_heatmap_bench_test.go`
+  - `graphene_backfill_bench_test.go`. Each asserts the work was done.
+
+**Measured:**
+
+| Claim | Held? |
+|---|---|
+| Layout is not the bottleneck at 5k nodes | The arrangement takes 1–12 ms. The binding takes 243–350 ms, and ~72% of that is `GetEvents` reading the cold store, which layout does not use |
+| The heatmap reuses the timeline's cost profile | Yes: 813 ms against the timeline's 675 ms at 100k. A graph of 2,500 relations still costs 670 ms |
+| The backfill: throughput and bounded peak memory | Throughput is 9–17k events/s. Memory grows ~610 B/event: 58.4 MiB held after a 100k run, 8.6 MiB after a compaction. The cause is the engine's delta layer |
+
+**Found, not fixed (for the owner).** Each was checked twice against the code by independent
+read-only agents, one of them trying to refute it.
+- 🔴 **Deleting an event breaks every other canvas that holds it.** `Store.GetEvents` fails on the
+  first missing id, and `DeleteEvent` prunes no layout sidecar. So the canvas of another graph
+  holding the event fails to load (and Arrange, Clusters and Take snapshot fail with it). Pressing
+  *Save layout* on that empty canvas then overwrites its sidecar. A redacted event is not affected:
+  its node survives.
+- The layout binding, clusters, snapshots and `GraphAPI.GetEvents` hydrate the cold store, and none
+  of them uses it (the cold fields are `json:"-"`). `hydrateIDs` is the cheaper read; it is
+  unexported, so the fix needs an exported node-only read.
+- `BackfillCorrelationKeys` neither seals nor compacts, so the rewritten nodes stay in the engine's
+  delta layer until the next seal. Until then the store's lock-free CSR read path is off, and the
+  WAL holds every rewrite.
+- **A re-created snapshot link is offered again**, and a second apply duplicates it: the plan
+  matches live links by the snapshot's old relation id.
+- **The layout's cycle count over-reports.** The node forced when none is ready need not be on a
+  cycle; one cycle can read as two, and lineage's note is then false for that group.
+- `CheckIntegrity` passes `context.Background()`, although its comment says it shares the
+  maintenance cancellation. Stop is shown during a check and does nothing.
+- A deep check calls `VerifyImage` without the maintenance lock that the image button takes. It is
+  contention, not a wrong answer, and a backfill started from the Rules page makes it reachable.
+- The replay copy says approximate links are "drawn as a weaker claim", but nothing draws them.
+- The heatmap is fetched only on toggle, its grouping or its scope. When the case changes while the
+  page is open and the histogram reloads (the lane *Group by*, *Retry*), the heatmap keeps the old
+  extent, and its columns no longer line up with the histogram's.
+- **Findings limits disagree across the boundary.** The note is checked in UTF-16 units in the
+  editor and in bytes in Go, so a long non-Latin note is refused with no warning. A tag is cut to
+  64 *bytes*, which can split a character. Annotation text and snapshot labels are checked in bytes
+  while their messages say "characters".
+- The annotation cache (and the findings map) is changed before the file is written, with no
+  rollback, so a failed write leaves the screen ahead of the disk.
+- `annotate.newID` derives from `len(items)`, so a delete then a create in the same millisecond can
+  repeat an id. It is unlikely from the UI.
+- A layout refused for the node cap or an unknown profile is coded `internal_error`.
+- Wording: v0.2.0's notes promise a resource column "per host", but no host slot exists;
+  `lineage.go:21` says the lowest-id parent, but the code takes the first one reached; the comment
+  at `consts.go:1485` says the oldest snapshot is refused; `api_layout.go:247` says `GetEvents`
+  returns a found-set; `CodeArea.svelte` says the hint mentions Escape.
+- Dead code: `windowEvents` (`graphene_query.go`) and `SystemAPI.setEmitter`.
+
+**Still open:** the integration suite and the extension tests run only in the local gate.

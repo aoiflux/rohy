@@ -9,7 +9,7 @@
 Ingest EVTX logs, map how events relate, and correlate them with rules you
 control — entirely on your own machine.
 
-`v0.2.0` "Andromeda" · Windows / Linux / macOS · Go + Wails + Svelte
+`v0.3.0` "Perseus" · Windows / Linux / macOS · Go + Wails + Svelte
 
 </div>
 
@@ -31,7 +31,8 @@ automatically with correlation rules.
   shared field values, bounded time windows, and process ancestry. Thirty-five
   conservative rules ship built in.
 - **Map** events on a graph canvas, by hand or generated from a rule — one rule,
-  one graph.
+  one graph. Arrange it by sequence, lineage, resource or time, fold clusters,
+  replay it in the order it happened, and snapshot it.
 - **Place** everything in time on a dedicated timeline with zoom, pan, scrub,
   range selection and lanes — sharing one selection with the graph canvas.
 - **Annotate** with your own findings — a flag, tags and a note per event, kept
@@ -39,6 +40,13 @@ automatically with correlation rules.
 - **See provenance** everywhere: a relation the tool inferred and one you
   asserted never look the same — and every generated edge can name the rule,
   algorithm, match and step that produced it.
+- **Ask** the case directly from a read-only query console: conditions on what
+  the case stores, listed or counted by a field.
+- **Prove** what the case holds: fingerprints you keep elsewhere, per-event
+  proofs anyone can check, signed seals, published checkpoints, and redaction
+  that is recorded rather than silent.
+- **Check** the case for what quietly goes wrong — missing logs, rules that
+  cannot match, damaged indexes — with a report that repairs nothing on its own.
 - **Learn how it works** from an explainer page that animates each correlation
   algorithm step by step over a worked example.
 
@@ -52,12 +60,12 @@ the machine.
 | **Ingestion**   | `.evtx` files/folders, SQLite `.db` (two documented schemas), live capture with durable per-channel bookmarks, pause/resume, hash-based de-duplication with per-source occurrence counts |
 | **Events**      | Accurate counts, progressive loading, collapsible search with persisted filters, relation-aware quick filters, CSV/JSON export                                                           |
 | **Rules**       | Portable one-file-per-rule JSON, 35 built-ins, import/delete, enable/disable, inspector showing the rule exactly as authored, byte-exact bundle export, field-level diff against the saved file, and a testbench that dry-runs a rule without writing anything |
-| **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content, selectable edges with a relationship inspector that traces an edge back to its rule and match |
+| **Graphs**      | Multiple named graphs, manual and rule-generated edges, connect mode, snap-to-target, box select, fit-to-content, selectable edges with a relationship inspector that traces an edge back to its rule and match; four auto-layout profiles (sequence, lineage, resource, time) previewed before anything is kept; clusters that fold into one card; a relationship heatmap over the timeline; replay with a playhead shared with the timeline; snapshots that survive a re-ingest and never restore silently; annotation layers of notes, regions and arrows |
 | **Timeline**    | Backend density histogram (cheap at any size), zoom/pan/scrub, range selection that filters, lanes by provider, channel, user, computer or graph, shared selection with the canvas       |
 | **Findings**    | Per-event flag, tags and note in a plain-JSON sidecar; tag suggestions, finding filters on the event list, and an audit that reports orphaned findings rather than deleting them         |
 | **Correlation** | Four algorithms — sequence, field, temporal and lineage — scoped per computer, non-overlapping, capped; one prepared dataset per build rather than one per rule; idempotent rebuilds (re-running replaces, never duplicates) |
 | **Evidence**    | Each ingest that adds something seals the case with a fingerprint (a Merkle snapshot root) you can save and keep elsewhere; every seal is recorded, so a database restored from an older backup is reported; on-demand image verification; per-event proofs that anyone holding the fingerprint can check with `rohyctl verify-proof`, without the case or rohy; a per-event custody report that lists what the case can and cannot account for; redaction that removes an event's content from everywhere rohy put it, records when and why, and keeps it from being ingested again; who did what — every change names the analyst, seals can be signed with a key kept outside the case, and an audit log records seals, redactions and exports; an integrity check that states what the case cannot prove — unsigned seals, unsigned removal records, no checkpoint published — and never reports what it could not read as fine; checkpoints whose digest you publish somewhere the case cannot reach, with the receipt you get back recorded and the window since it reported, and a check of the case against a digest you hold |
-| **Maintenance** | Opt-in, resumable correlation-key backfill for cases ingested by an older build, with a status readout that explains why a field or lineage rule found nothing |
+| **Maintenance** | A case check that reads and reports — missing log channels, rules that are inert or blocked, dangling or unindexed relations, damaged indexes on a deep check, and what the case cannot prove. A finding rohy can fix carries the button that fixes it, and the rest say what you can do; opt-in, resumable correlation-key backfill for cases ingested by an older build, with a status readout that explains why a field or lineage rule found nothing |
 | **Query**       | A read-only console over events and relations: conditions on any stored field (rule, algorithm, who made a relation, host, user, time and more), listed or counted by a field, at most 1000 rows with the full total and anything left out always stated. A structured builder, never a query language |
 
 ## Install
@@ -67,7 +75,7 @@ Get-FileHash .\rohy.exe -Algorithm SHA256   # Windows — compare against SHA256
 ```
 
 > **Binaries are not code-signed yet.** Windows SmartScreen and macOS Gatekeeper
-> will warn you. That is expected at v0.2.0 — signing and notarization are
+> will warn you. That is expected at v0.3.0 — signing and notarization are
 > planned, and this note will go away when they land rather than being quietly
 > dropped.
 
@@ -79,8 +87,8 @@ same versions CI builds releases with.
 
 ```bash
 git clone <repo> && cd rohy
-./build.sh 0.2.0             # Linux / macOS — the version shown at the top of this file
-.\build.ps1 -Version 0.2.0   # Windows
+./build.sh 0.3.0             # Linux / macOS — the version shown at the top of this file
+.\build.ps1 -Version 0.3.0   # Windows
 ```
 
 The version argument is **required** and has no default anywhere — not in the build
@@ -147,6 +155,12 @@ measured.
    so the page says how many there are and links to them.
 6. **Annotate** — flag an event, tag it, or write a note. Findings are saved to
    a readable JSON sidecar and can be filtered on from the Events page.
+7. **Check and prove** — the Maintenance page (`Alt+7`) checks the case, fills
+   in correlation fields for an older case, seals, signs and publishes
+   checkpoints, and finishes an interrupted redaction. The event drawer saves a
+   proof of one event, accounts for it, and redacts it.
+8. **Ask** — the Query page (`Alt+8`) lists or counts events and relations by
+   any stored field, and always says how many it did not show.
 
 Press <kbd>?</kbd> anywhere for the full keyboard reference.
 
@@ -333,15 +347,28 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for what changed and how to upgrade an 
 further correlation algorithms (field, temporal, lineage), the prepared dataset
 that costs one pass per build rather than one per rule, edge-level provenance and
 the relationship inspector, the rule testbench and field-level diff, byte-exact
-rule bundle export, and the algorithms explainer page.
+rule bundle export, auto-layout profiles, clusters, the relationship heatmap,
+replay, snapshots, annotation layers, the case check on the Maintenance page,
+`rohyctl`, and the algorithms explainer page.
+
+**Delivered in v0.3.0** — forensic integrity: every seal recorded and its
+history checked, per-event proofs checked with `rohyctl verify-proof`, a custody
+report per event, attributable redaction, analyst attribution and signed seals,
+checkpoints published outside the case, and an integrity check that states what
+the case cannot prove. Also three network correlation fields, the read-only
+query console, error codes that reach the screen, file-order ingest and the
+integration suite, bracket pairing and format-on-save in the raw editor, and a
+VS Code extension for rule files.
 
 **Next**
 
-- **Graph layout profiles**, clustering, and a density heatmap.
-- **Case integrity** — missing-channel detection and inert-rule reporting.
 - **Code signing and notarization** for released binaries.
 - **Manual verification on Linux and macOS** — both build in CI today, but
   neither has been exercised by hand.
+- **Shipping `rohyctl` with each release**, so a recipient can check a proof
+  without building it.
+- **The CI additions** — the integration suite and the extension's tests run in
+  the local gate today, not in CI, and a benchmark smoke run is not built yet.
 
 **Deferred, deliberately** — streaming progress for very large rule runs,
 windowed evaluation for very large event sets, a full keyboard-only connect path
