@@ -1401,7 +1401,8 @@ sequenceDiagram
 
 Three decisions worth understanding:
 
-**Repair before clear.** A relation whose index entry was never registered still
+**Repair before clear.** Since v0.3.0 a relation's index entries commit with it, so only a case
+written before that can hold the following. A relation whose index entry was never registered still
 shows up in adjacency (adjacency reads incident edges directly) but is invisible
 to graph-scoped queries (those resolve through the `graph_id` index). Structural
 verification cannot catch this — the edge and its adjacency agree, so nothing is
@@ -2301,8 +2302,9 @@ corrupted case.
 | ---------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
 | Crash mid-ingest                                     | Everything flushed before the crash        | Re-run the ingest; hash idempotency collapses the overlap to occurrence counts     |
 | Crash between payload write and event commit         | Orphan bytes in `payloads.log`             | Harmless waste; reclaimed by re-ingesting                                          |
-| Crash between event commit and index registration    | The event exists but is not findable        | `RebuildIndexes` restores structure; re-running the write restores property entries |
-| Crash between edge commit and index registration     | The edge exists but its graph or its rule does not list it | `RepairRelationIndex`, over every index key — and every rule build calls it first |
+| Crash during an insert                               | All of the commit or none of it, index entries included (since v0.3.0) | Nothing to recover: records and entries commit together |
+| Crash between edge commit and index registration, in a case written before v0.3.0 | The edge exists but its graph or its rule does not list it | `RepairRelationIndex`, over every index key — and every rule build and restore calls it first |
+| The same for an event, in a case written before v0.3.0 | The event exists but is not findable        | Re-running the ingest registers the entries; `RebuildIndexes` restores structure only |
 | Crash during live capture                            | The bookmark trails the durable write       | Next run re-reads a little; dedup collapses it. **It can never skip.**              |
 | Uncompacted close (kill, power loss)                 | The WAL                                    | Replayed automatically on next open                                                 |
 | Corrupt capture sidecar                              | —                                          | Treated as "no positions": costs a re-read, not a failed startup                     |

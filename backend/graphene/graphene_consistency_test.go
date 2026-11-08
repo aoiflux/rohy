@@ -1,6 +1,8 @@
 package graphene
 
 import (
+	"github.com/aoiflux/graphene/disk"
+
 	"testing"
 
 	"rohy/backend/consts"
@@ -8,10 +10,10 @@ import (
 
 // Consistency tests (2.2.5, 2.6.3).
 //
-// These cover the gap every batched write path has: a record commit and its index
-// registration are two separate steps, because index registration is not part of a commit.
-// The code documents what a crash in between leaves behind; these tests check that the
-// documentation is true, and that the stated recovery actually recovers.
+// These cover the gap rohy's write paths had before graphene v0.10, when a record commit and
+// its index registration were two separate steps. New writes commit both together
+// (TestInsertsCommitTheirIndexEntriesWithTheirRecords); a case written before that can still
+// hold what a crash in between left, and these tests check that the recovery recovers it.
 //
 // A unit test cannot kill the process mid-write, so what is exercised here is the state a
 // crash would PRODUCE — records present, index entries absent — and the recovery path from
@@ -295,5 +297,45 @@ func TestDeleteEventCascadeRemovesEdgeIndexEntries(t *testing.T) {
 	}
 	if err := s.VerifyIndexes(); err != nil {
 		t.Errorf("index inconsistent after cascade delete: %v", err)
+	}
+}
+
+// 🔒 An insert's index entries commit with its records: every index record an insert writes to the
+// log sits inside the batch its commit closes. A crash can therefore never leave an event or a
+// relation that exists but cannot be found by the keys it was written under.
+func TestInsertsCommitTheirIndexEntriesWithTheirRecords(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	a, b := seedTwoEvents(t, s)
+	if _, err := s.InsertRelation(&Relation{From: a, To: b, GraphID: 1, RelationType: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertRelations([]*Relation{
+		{From: b, To: a, GraphID: 1, RelationType: "batch"},
+		{From: a, To: b, GraphID: 2, RelationType: "batch"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	wal, err := disk.InspectWAL(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	props := 0
+	for _, r := range wal.Records {
+		if r.TypeName != "node-prop" && r.TypeName != "edge-prop" {
+			continue
+		}
+		props++
+		if !r.InBatch {
+			t.Errorf("a %s record at %d was written outside its commit", r.TypeName, r.Offset)
+		}
+	}
+	if props == 0 {
+		t.Fatal("the inserts wrote no index records to the log")
 	}
 }

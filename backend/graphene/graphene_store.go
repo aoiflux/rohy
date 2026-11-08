@@ -461,12 +461,14 @@ func (s *Store) RebuildIndexes() error {
 // RepairRelationIndex re-registers index entries for relations whose entries are missing,
 // and returns how many it repaired.
 //
-// This is the recovery for the one gap every batched write path has: a record commit and
-// its index registration are separate steps, because registration is not part of a commit.
-// A crash in between leaves an edge that exists but is invisible to every graph-scoped
-// query, since those resolve through the graph_id index — while adjacency still shows it,
-// because adjacency reads incident edges directly. The result is an event displaying a
-// relation that belongs to no graph and that clearing the graph cannot remove.
+// This is the recovery for a gap rohy's writes had until graphene v0.10: a relation was
+// committed first and its index entries registered after, so a crash in between left an edge
+// that exists but is invisible to every graph-scoped query, since those resolve through the
+// graph_id index — while adjacency still shows it, because adjacency reads incident edges
+// directly. The result is an event displaying a relation that belongs to no graph and that
+// clearing the graph cannot remove. Writes now commit their entries with their records
+// (TestInsertsCommitTheirIndexEntriesWithTheirRecords), so only a case written before that
+// can still hold such an edge — which is why the graph build and a restore still repair first.
 //
 // Structural verification does not catch this. A property entry that was never written is
 // not damage to the index's structure — the edge and its adjacency agree — so
@@ -485,24 +487,20 @@ func (s *Store) RepairRelationIndex() (int, error) {
 		return 0, err
 	}
 	gaps, err := relationIndexGaps(g)
-	if err != nil {
+	if err != nil || len(gaps) == 0 {
 		return 0, err
 	}
-	repaired := 0
+	// One attributed commit for the lot: the repair is all or nothing, and names who made it.
+	tx := s.tx(g)
 	for _, gap := range gaps {
 		// Only the entries that are missing: the rest are already listed.
-		if err := g.IndexEdgeProperties(gap.id, gap.missing); err != nil {
-			if repaired > 0 {
-				s.bumpVersion()
-			}
-			return repaired, err
-		}
-		repaired++
+		tx.IndexEdgeProperties(gap.id, gap.missing)
 	}
-	if repaired > 0 {
-		s.bumpVersion() // relations became visible; any cached ordering is now stale
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
-	return repaired, nil
+	s.bumpVersion() // relations became visible; any cached ordering is now stale
+	return len(gaps), nil
 }
 
 // InsertEvents persists a batch of events and registers their secondary indexes.
@@ -557,12 +555,13 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 		nodes[i] = n
 	}
 
-	// One attributed commit for the batch (item 41). The engine's own batch insert commits as
-	// actor 0; a transaction carries the session's analyst, and is just as atomic.
+	// One attributed commit for the batch (item 41), records and index entries together: an event
+	// is never committed without the keys it is found by.
 	tx := s.tx(g)
 	ids := make([]store.NodeID, len(nodes))
 	for i, n := range nodes {
 		ids[i] = tx.AddNode(n)
+		tx.IndexNodeProperties(ids[i], events[i].indexValues())
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -572,54 +571,32 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 	for i, id := range ids {
 		events[i].ID = uint64(id)
 		out[i] = uint64(id)
-		if err := g.IndexNodeProperties(id, events[i].indexValues()); err != nil {
-			return out, err
-		}
 	}
 	return out, nil
 }
 
-// InsertRelation persists a single mapped relation and registers its indexes,
+// InsertRelation persists a single mapped relation and its index entries in one commit,
 // stamping the relation's ID. Src and Dst nodes must already exist.
 func (s *Store) InsertRelation(r *Relation) (uint64, error) {
-	defer s.bumpVersion() // relations feed the relation-state filter
-	g, err := s.graph()
+	ids, err := s.InsertRelations([]*Relation{r})
 	if err != nil {
 		return 0, err
 	}
-	edge, err := r.toEdge()
-	if err != nil {
-		return 0, err
-	}
-	tx := s.tx(g)
-	id := tx.AddEdge(edge)
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	r.ID = uint64(id)
-	if err := g.IndexEdgeProperties(id, r.indexValues()); err != nil {
-		return uint64(id), err
-	}
-	return uint64(id), nil
+	return ids[0], nil
 }
 
-// InsertRelations persists a batch of relations in ONE commit and registers their
-// indexes, stamping each relation's ID. Src and Dst nodes must already exist.
+// InsertRelations persists a batch of relations and their index entries in ONE commit,
+// stamping each relation's ID. Src and Dst nodes must already exist.
 //
 // This is the write path a rule-generated graph takes, where relations arrive by the
 // thousand. Inserting them one at a time costs one durable write per edge — the WAL is
 // what a crash-safe write buys, and it is not tunable — so the batch is the whole
 // difference between a graph build that is write-bound per edge and one that pays a
-// single framed commit for the lot. The batch is atomic: on error nothing is applied and
-// no ids are returned, so a failed build cannot leave a half-built graph behind.
-//
-// Indexing is deliberately a separate pass after the commit: index registration is not
-// part of a batch commit, so the edges must exist before their entries are registered.
-// A crash in between leaves edges that are present but not yet findable by graph_id — the
-// build is idempotent and re-running it replaces the graph wholesale, which is the
-// recovery path.
+// single framed commit for the lot. The batch is atomic, index entries included: on error
+// nothing is applied and no ids are returned, and a crash leaves either the whole batch,
+// findable by graph_id, or none of it (TestInsertsCommitTheirIndexEntriesWithTheirRecords).
 func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
-	defer s.bumpVersion()
+	defer s.bumpVersion() // relations feed the relation-state filter
 	if len(rels) == 0 {
 		return nil, nil
 	}
@@ -637,6 +614,7 @@ func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
 			return nil, err
 		}
 		ids[i] = tx.AddEdge(ed)
+		tx.IndexEdgeProperties(ids[i], r.indexValues())
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -646,11 +624,6 @@ func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
 	for i, id := range ids {
 		rels[i].ID = uint64(id)
 		out[i] = uint64(id)
-		// One call per relation rather than one per key: registration takes a lock per
-		// entry, so the per-entity form is the cheaper shape.
-		if err := g.IndexEdgeProperties(id, rels[i].indexValues()); err != nil {
-			return out, err
-		}
 	}
 	return out, nil
 }

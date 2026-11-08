@@ -221,9 +221,10 @@ func (a *SnapshotAPI) PreviewRestore(graphID uint64, id string) (snapshot.Plan, 
 // twice. A restore takes seconds, so it is refused while an ingest or a capture runs rather than
 // letting one of them in.
 //
-// 🔒 It repairs the link index before it plans, as every rule run does (graphbuild). A restore
-// that crashed after committing an edge and before registering it left a link the graph's list
-// cannot see, and planning without the repair would offer it again and write it twice.
+// 🔒 It repairs the link index before it plans, as every rule run does (graphbuild). A write by a
+// build before v0.3.0 that crashed after committing an edge and before registering it left a
+// link the graph's list cannot see, and planning without the repair would offer it again and
+// write it twice. Writes now commit both together, but a case can be older than that.
 func (a *SnapshotAPI) ApplyRestore(req RestoreRequest) (RestoreResult, error) {
 	release, busy := theCase.exclusive(consts.CaseActivityRestore)
 	if busy != nil {

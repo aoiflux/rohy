@@ -419,8 +419,9 @@ paths neither build touches, so only interleaved numbers are quoted.
 - [ ] Does any indexed value change? If so, use the `*Indexed` update form.
 - [ ] Does the write path call `bumpVersion()`? The ordering cache must never
       survive a write.
-- [ ] If a `Tx` is used: are index registrations placed after commit, and is the
-      crash gap documented?
+- [ ] Are the index entries in the same `Tx` as the records (`tx.IndexNodeProperties`,
+      `tx.IndexEdgeProperties`)? An entry registered after the commit reopens the gap
+      §12a describes.
 - [ ] Does a partial failure leave a state some other code would mistake for a
       complete one?
 
@@ -530,11 +531,20 @@ change, not a tuning change.
 Performance work created the one durable correctness hazard in this layer, so it
 belongs here rather than in a separate document.
 
-### The commit/index gap
+### The commit/index gap (closed for new writes in v0.3.0)
 
-A record commit and its index registration are **two separate steps** — index
-registration is not part of a commit. A crash between them does not simply lose
-the relation. It leaves an edge that is:
+Until graphene v0.10, a record commit and its index registration were **two
+separate steps**: registration was not part of a commit. Since v0.10 a
+transaction carries its index entries (`tx.IndexNodeProperties`,
+`tx.IndexEdgeProperties`), and every rohy write path puts them in the same commit
+as the records; `TestInsertsCommitTheirIndexEntriesWithTheirRecords` checks that
+each index record in the log sits inside its commit's batch. It also made batched
+relation writes on disk **3.2× faster** (42.9 → 13.6 ms for 1 000 relations), since
+the entries no longer go out as separate durable writes.
+
+**A case written before that can still hold the gap**, so what follows stays true
+for old cases, and the recovery stays. A crash between the two steps did not
+simply lose the relation. It left an edge that is:
 
 - **committed and visible to adjacency**, which reads incident edges directly;
 - **invisible to every graph-scoped query**, which resolves through `graph_id`;
@@ -554,9 +564,8 @@ build adds a second copy alongside it.
 
 ### Rules
 
-- **Any new batched write path inherits this gap.** Register index entries after
-  commit, and state in a comment what a crash in the gap leaves and how it
-  recovers.
+- **A new write path registers its index entries in its own transaction.** Never
+  after the commit: that is the gap, reopened.
 - **Recovery belongs before the destructive step.** The graph build repairs once
   per run _before_ clearing, so a previous run's leftovers are folded into the
   rebuild rather than duplicated. A repair that ran afterwards would be useless.
@@ -591,6 +600,7 @@ the decision is being changed — check that it is on purpose.
 | `TestIncrementDedupCountsBatched`                       | A missing id skips rather than aborting the pass                    |
 | `TestIndexesVerifyAfterEveryWritePath`                  | Every write path leaves the index structurally truthful             |
 | `TestReopenAfterUncleanShutdownReplaysWAL`              | An uncompacted close still replays into a consistent store          |
+| `TestInsertsCommitTheirIndexEntriesWithTheirRecords`    | Every insert's index entries commit with its records (§12a)         |
 | `TestCommitIndexGapLeavesEdgesInvisibleToGraphQueries`  | The exact shape of the gap (§12a) — not merely "relation missing"   |
 | `TestRepairOrphanedRelationsRecoversFromCommitIndexGap` | Repair works and is idempotent                                      |
 | `TestRunRecoversFromAnInterruptedPreviousBuild`         | A crashed build reruns without duplicating relations                |
