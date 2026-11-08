@@ -1,0 +1,28 @@
+{
+  "checkpoint": {
+    "seq": 1,
+    "captured_at": "2026-11-08T11:24:27.5880325Z",
+    "actor_id": 4242,
+    "snapshot": "33ee097a19516144aba42a9a00c799ae3590d85d2f33bd5355d5644faedfc7f6",
+    "audit_head": "1c7c2ce5a2fd9b35c9fc91f96fccd2436951daec5d350f9f2893e82a1345b651",
+    "redaction_head": "69e14d99858e6424beea7b2b46e5538600f4a5b004ba8eecb8014bf68ca723f1",
+    "segment_count": 0,
+    "audit_count": 3,
+    "redaction_count": 1,
+    "grant_count": 0,
+    "digest": "1da91622b3a84ec5ffd5c2726b59e0941dd970f58efa6d4c3fa1de136f23289a"
+  },
+  "events": [
+    1,
+    2,
+    3
+  ],
+  "redacted_event": 3,
+  "relations": [
+    1,
+    2
+  ],
+  "sealed_root": "33ee097a19516144aba42a9a00c799ae3590d85d2f33bd5355d5644faedfc7f6",
+  "wal_event": 4,
+  "written_by": "rohy d4e4b54 with github.com/aoiflux/graphene v0.4.0 (image format v8)"
+}

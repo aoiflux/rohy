@@ -16,3 +16,7 @@
 # fails on Windows only. That is exactly how the v0.2.0 release build broke: macOS and Linux
 # passed, Windows failed on TestSchemaGolden, and the release job was skipped.
 *.json  text eol=lf
+
+# A graphene case written by an older engine, opened by a test to prove the upgrade path. Its
+# files are hashed and parsed byte for byte, so no checkout may rewrite a line ending in them.
+backend/graphene/testdata/v8-case/case/** binary
