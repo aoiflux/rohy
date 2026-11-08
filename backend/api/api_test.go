@@ -462,6 +462,48 @@ func TestGraphManagementBindings(t *testing.T) {
 	}
 }
 
+// cascadeFunc is a GraphCascade from a function.
+type cascadeFunc func(graphID uint64) error
+
+func (f cascadeFunc) DeleteGraph(graphID uint64) error { return f(graphID) }
+
+// A binding built without a layout store (as SaveLayout and LoadLayout allow) still deletes a graph:
+// its links go and its sidecars are cleared, with no canvas to remove.
+func TestDeleteGraphWithoutALayoutStore(t *testing.T) {
+	store := graphene.OpenInMemory()
+	defer store.Close()
+	all := seedTwo(t, store)
+	reg, err := graphreg.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.EnsureDefault(consts.DefaultGraphName, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	var cleared []uint64
+	graph := NewGraphAPI(store, nil, reg).WithCascades(cascadeFunc(func(id uint64) error {
+		cleared = append(cleared, id)
+		return nil
+	}))
+	g2, err := graph.CreateGraph(GraphRequest{Name: "Case B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := graph.CreateRelation(RelationRequest{From: all[0].ID, To: all[1].ID, GraphID: g2.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := graph.DeleteGraph(g2.ID); err != nil {
+		t.Fatalf("DeleteGraph: %v", err)
+	}
+	if rels, _ := graph.GetGraphRelations(g2.ID); len(rels) != 0 {
+		t.Errorf("deleted graph still has %d relations", len(rels))
+	}
+	if len(cleared) != 1 || cleared[0] != g2.ID {
+		t.Errorf("sidecars cleared for %v, want [%d]", cleared, g2.ID)
+	}
+}
+
 func TestGraphLayoutRoundTrip(t *testing.T) {
 	store := graphene.OpenInMemory()
 	defer store.Close()

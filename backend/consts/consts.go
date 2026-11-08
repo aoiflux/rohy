@@ -1050,6 +1050,15 @@ const MsgNodesMissing = "%d of %d events could not be loaded (missing node ids: 
 // canvas that cannot be read at all).
 const MsgEventDeletedCanvasStale = "event %d was deleted, but not every saved canvas could be updated: %w"
 
+// MsgInspectEndpointUnreadable reports a link whose end the case holds but could not read. It is
+// an error rather than a link drawn with one end missing, which would read as "that event is not in
+// the case".
+const MsgInspectEndpointUnreadable = "relation %d: could not read event %d: %w"
+
+// MsgInspectSiblingsUnreadable reports a link whose other links from the same match could not be
+// listed. Showing none would read as "this link stands alone".
+const MsgInspectSiblingsUnreadable = "relation %d: could not list the other links of match %s: %w"
+
 // --- Wails event channel names (backend → frontend) ---
 const (
 	EventIngestStarted   = "ingest:started"

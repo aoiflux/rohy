@@ -174,7 +174,7 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,212 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**1,215 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
 **875 frontend test cases** and **58 extension tests**.
 
 ---
@@ -1882,8 +1882,8 @@ re-created, and what can no longer be found. The package is
 | `id`                           | `snap-YYYYMMDD-HHMMSS.mmm` in UTC, also the file name, so a folder listing reads in time order.                  |
 | `label`, `graph_id`, `taken_at` | The analyst's optional name (at most 200 characters), which graph, and when.                                   |
 | `store_version`, `app_version` | Recorded for reference only; no restore reads either. `store_version` is the in-process write counter, which restarts each run, so it cannot be compared across sessions. A restore reports a changed case only through `reingested` (a hash that now resolves to a different id). |
-| `nodes[]`                      | `id`, **`hash`** (the event's `hash_normalized`), `x`, `y`, and a `descriptor` (event id, computer, time), so a snapshot still says what it held after its events have gone. |
-| `relations[]`                  | `id`, **`from_hash`**, **`to_hash`**, type, label, `created_by`, and the rule provenance, copied verbatim.        |
+| `nodes[]`                      | `id`, **`hash`** (the event's `hash_normalized`), `x`, `y`, and a `descriptor` (event id, computer, time), so a snapshot still says what it held after its events have gone. In id order. |
+| `relations[]`                  | `id`, **`from_hash`**, **`to_hash`**, type, label, `created_by`, and the rule provenance, copied verbatim. In id order. |
 
 `TakeSnapshot` records the layout sidecar **as last saved**. A card placed and saved is included even
 if it is not linked, but positions and cards not yet saved are not, and a graph whose layout was
@@ -1987,8 +1987,6 @@ anything, including the layout.
 - `Save` writes a temporary file and renames it without an fsync; only `Scrub` writes durably.
 - **A preview after a crash can still offer a link again.** The preview writes nothing, so it does
   not repair; applying it repairs first and writes nothing twice.
-- `TakeSnapshot` lists the canvas's ids from a map, so the order of `nodes[]` in the file varies
-  between two snapshots of the same canvas.
 - `store_version` is recorded and never compared (see the table above).
 
 ### 14.6 Annotation layers
@@ -2826,7 +2824,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,212 Go test functions**, 10 fuzz targets, 65 benchmarks, **875 frontend test
+**1,215 Go test functions**, 10 fuzz targets, 65 benchmarks, **875 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:

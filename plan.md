@@ -4128,6 +4128,9 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - Error codes (annotate refusals, heatmap grouping): 3 new Go test functions, 1,204 → 1,207.
 - Backfill visibility (`maintenance:state`, Stop withdrawn for the seal, failed-pass error): 5 new
   Go test functions, 1,207 → 1,212; 20 new frontend test cases, 855 → 875.
+- Four small fixes (read-only canvas save, `DeleteGraph` without a layout store, snapshot order,
+  inspector errors): 3 new Go test functions, 1,212 → 1,215, and one more call in the read-only
+  test's table.
 
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
@@ -4207,11 +4210,23 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - **Units:** on WebKit (macOS, Linux) the tag input's `maxlength` may count grapheme clusters, so a
   typed tag can pass 64 code points; not checked on those builds. Tags and layer names already cut by
   bytes keep their U+FFFD.
-- **Found in passing, not touched:** `SaveLayout` has no `theCase.writable()` gate; `DeleteGraph`
-  calls `a.layout.Delete` without the nil check its neighbours make; `TakeSnapshot` lists ids from a
-  map, so `nodes[]` order varies between snapshots; `InspectRelation` swallows `GetEvent` errors;
-  comments in `api_snapshot_test.go` and `api_annotate_test.go` imply ids are reused; the comment at
-  `api_events.go:53` still names `SetEmitter`.
+- ✅ **Found in passing, fixed before the tag:**
+  - `SaveLayout` now asks `theCase.writable()`, so a read-only session refuses it with
+    `case_read_only`. It takes no case lock: a canvas holds no event content, so a redaction need
+    not exclude it. It is in the read-only test's table (`TestEveryCaseWriteIsRefusedInAReadOnlySession`).
+  - `DeleteGraph` skips the canvas step when the binding has no layout store; it used to panic
+    (`TestDeleteGraphWithoutALayoutStore`).
+  - `TakeSnapshot` writes `nodes[]` and `relations[]` in id order
+    (`TestTakeSnapshotListsNodesAndRelationsByID`).
+  - `InspectRelation` returns `persistence_error` naming the relation and the event when an end
+    cannot be read (`MsgInspectEndpointUnreadable`); an end the case no longer holds is still left
+    out. A failure listing the match's other links is returned the same way
+    (`MsgInspectSiblingsUnreadable`; no test, since an open store does not fail that read on
+    demand). Tested with a raw-record log cut short (`TestInspectRelationReportsAnEndpointItCannotRead`).
+    The canvas still hides every inspector failure (`inspectEdge`), on purpose, for a link deleted
+    between the click and the call.
+- **Found in passing, not touched:** comments in `api_snapshot_test.go` and `api_annotate_test.go`
+  imply ids are reused; the comment at `api_events.go:53` still names `SetEmitter`.
 - **Not automated:** the heatmap effect has no test (view tests render on the server, where effects
   do not run), and `RulesView` has no route test; its message choice is tested through
   `backfillNotice`. The wails bindings were regenerated with `wails generate module`; a normal build

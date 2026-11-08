@@ -1,8 +1,11 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -100,10 +103,11 @@ func (a *SnapshotAPI) TakeSnapshot(req SnapshotRequest) (snapshot.Summary, error
 		return out, AsError(consts.ErrCodePersistence, err)
 	}
 
-	ids := make([]uint64, 0, len(saved.Nodes))
-	for id := range saved.Nodes {
-		ids = append(ids, id)
-	}
+	// By id, so two snapshots of one canvas write the same file apart from their id and time. The
+	// sidecar is a map, whose order Go randomises.
+	ids := slices.Sorted(maps.Keys(saved.Nodes))
+	rels = slices.DeleteFunc(rels, func(r *graphene.Relation) bool { return r == nil })
+	slices.SortFunc(rels, func(x, y *graphene.Relation) int { return cmp.Compare(x.ID, y.ID) })
 	// An event the case no longer holds is left out: the snapshot records what the canvas can show.
 	events, err := a.store.GetEventRecords(ids)
 	if err != nil {
@@ -124,9 +128,6 @@ func (a *SnapshotAPI) TakeSnapshot(req SnapshotRequest) (snapshot.Summary, error
 
 	out2 := make([]snapshot.Relation, 0, len(rels))
 	for _, r := range rels {
-		if r == nil {
-			continue
-		}
 		from, okFrom := hashOf[r.From]
 		to, okTo := hashOf[r.To]
 		if !okFrom || !okTo {

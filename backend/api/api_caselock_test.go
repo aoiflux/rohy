@@ -10,6 +10,7 @@ import (
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
+	"rohy/backend/layout"
 )
 
 // The case lock (plan §14.5, item 40).
@@ -301,6 +302,10 @@ func everyCaseWrite(t *testing.T) (*graphene.Store, []*graphene.Event, *EventsAP
 			return err
 		},
 		readOnlyOnly + "ResetCapture": func() error { return ev.ResetCapturePositions("") },
+		// A canvas holds ids and positions, no event content; it is the analyst's arrangement.
+		readOnlyOnly + "SaveLayout": func() error {
+			return g.SaveLayout(graphID, layout.Layout{Nodes: map[uint64]layout.Position{events[0].ID: {X: 1, Y: 2}}})
+		},
 	}
 	return store, events, ev, calls
 }

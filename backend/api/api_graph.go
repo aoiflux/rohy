@@ -83,11 +83,11 @@ func (a *GraphAPI) InspectRelation(id uint64) (RelationDetail, error) {
 	out.Relation = rel
 	out.Recorded = rel.RelVersion > 0
 
-	if from, err := a.store.GetEvent(rel.From); err == nil {
-		out.From = from
+	if out.From, err = a.endpoint(rel.ID, rel.From); err != nil {
+		return out, err
 	}
-	if to, err := a.store.GetEvent(rel.To); err == nil {
-		out.To = to
+	if out.To, err = a.endpoint(rel.ID, rel.To); err != nil {
+		return out, err
 	}
 	if a.registry != nil {
 		// Scanned rather than looked up: a case holds a handful of named graphs, so a linear
@@ -105,15 +105,32 @@ func (a *GraphAPI) InspectRelation(id uint64) (RelationDetail, error) {
 	// of thousands of relations; the match id is deliberately not indexed because it is
 	// near-unique, and narrowing one rule's edges in memory is the cheaper shape.
 	if rel.MatchID != "" && rel.RuleID != "" {
-		if siblings, err := a.store.RelationsByRule(rel.RuleID); err == nil {
-			for _, s := range siblings {
-				if s.MatchID == rel.MatchID && s.ID != rel.ID {
-					out.SiblingIDs = append(out.SiblingIDs, s.ID)
-				}
+		siblings, err := a.store.RelationsByRule(rel.RuleID)
+		if err != nil {
+			return out, AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgInspectSiblingsUnreadable, rel.ID, rel.MatchID, err))
+		}
+		for _, s := range siblings {
+			if s.MatchID == rel.MatchID && s.ID != rel.ID {
+				out.SiblingIDs = append(out.SiblingIDs, s.ID)
 			}
 		}
 	}
 	return out, nil
+}
+
+// endpoint reads one end of a link for the inspector. An event the case no longer holds is nil,
+// which the inspector leaves out; any other failure is returned, because an end that is there but
+// cannot be read is not an end that is gone.
+func (a *GraphAPI) endpoint(relID, eventID uint64) (*graphene.Event, error) {
+	e, err := a.store.GetEvent(eventID)
+	if err == nil {
+		return e, nil
+	}
+	var nf *store.ErrNotFound
+	if errors.As(err, &nf) {
+		return nil, nil
+	}
+	return nil, AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgInspectEndpointUnreadable, relID, eventID, err))
 }
 
 // activeGraphID returns the caller-supplied graph id, or the active graph when the
@@ -221,8 +238,10 @@ func (a *GraphAPI) DeleteGraph(id uint64) error {
 	if _, err := a.store.DeleteGraphRelations(id); err != nil {
 		return AsError(consts.ErrCodePersistence, err)
 	}
-	if err := a.layout.Delete(id); err != nil {
-		return AsError(consts.ErrCodePersistence, err)
+	if a.layout != nil {
+		if err := a.layout.Delete(id); err != nil {
+			return AsError(consts.ErrCodePersistence, err)
+		}
 	}
 	// The graph's own sidecars go with it. Best-effort and in order: a failure here leaves files
 	// nothing can list rather than a graph that half exists, which is the better of the two.
@@ -401,7 +420,13 @@ func (a *GraphAPI) DeleteEvent(id uint64) (DeleteEventResult, error) {
 // can be restored exactly. Layout is UI state (not graph data) stored as a per-graph
 // JSON sidecar; the node id set doubles as the graph's canvas membership. A nil layout
 // store makes this a no-op.
+//
+// A read-only session refuses it, as it refuses creating or renaming a graph: a canvas holds no
+// event content, so a redaction need not exclude it, but it is the analyst's work on the case.
 func (a *GraphAPI) SaveLayout(graphID uint64, l layout.Layout) error {
+	if err := theCase.writable(); err != nil {
+		return err
+	}
 	if a.layout == nil {
 		return nil
 	}

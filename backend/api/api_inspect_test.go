@@ -1,6 +1,11 @@
 package api
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,5 +166,52 @@ func TestInspectMissingRelationIsAnError(t *testing.T) {
 	api, _ := inspectFixture(t)
 	if _, err := api.InspectRelation(999999); err == nil {
 		t.Fatal("inspecting an edge that does not exist must be an error, not an empty detail")
+	}
+}
+
+// An endpoint the case holds but cannot read is a failure, not an edge with an end missing. The
+// inspector used to drop the error and show the link with one event gone, which reads as "the
+// event is not in the case".
+func TestInspectRelationReportsAnEndpointItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	store, err := graphene.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	events := []*graphene.Event{
+		{EventID: "4625", Computer: "HOST-A", Timestamp: base, HashNormalized: "r1", RawXML: "<Event>one</Event>"},
+		{EventID: "4624", Computer: "HOST-A", Timestamp: base.Add(time.Second), HashNormalized: "r2", RawXML: "<Event>two</Event>"},
+	}
+	if _, err := store.InsertEvents(events); err != nil {
+		t.Fatal(err)
+	}
+	rel := &graphene.Relation{
+		From: events[0].ID, To: events[1].ID, GraphID: consts.DefaultGraphID,
+		RelationType: consts.RelationDefault, CreatedBy: consts.CreatedByUser,
+	}
+	if _, err := store.InsertRelation(rel); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The raw records are lost; the events and the link are not.
+	if err := os.Truncate(filepath.Join(dir, consts.PayloadDirName, consts.PayloadLogFile), 0); err != nil {
+		t.Fatal(err)
+	}
+	store, err = graphene.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	_, err = NewGraphAPI(store, nil, nil).InspectRelation(rel.ID)
+	var ae ErrorEvent
+	if !errors.As(err, &ae) || ae.Code != consts.ErrCodePersistence {
+		t.Fatalf("inspect over an unreadable endpoint: %v, want a persistence_error", err)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprint(events[0].ID)) {
+		t.Errorf("the error does not name the event it could not read: %v", err)
 	}
 }

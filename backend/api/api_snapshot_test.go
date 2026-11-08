@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -653,5 +654,65 @@ func TestTakeSnapshotLeavesOutAnEventTheCaseNoLongerHolds(t *testing.T) {
 	}
 	if got.Nodes != 1 || got.Relations != 0 {
 		t.Errorf("snapshot holds %d nodes / %d relations, want 1/0", got.Nodes, got.Relations)
+	}
+}
+
+// Two snapshots of one canvas list the same nodes in the same order: by id. The ids come from the
+// layout sidecar's map, whose order Go randomises, so the file would differ between two snapshots
+// of an unchanged canvas.
+func TestTakeSnapshotListsNodesAndRelationsByID(t *testing.T) {
+	api, store, layoutStore, graphID, _ := snapFixture(t)
+	base := time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
+	more := make([]*graphene.Event, 30)
+	for i := range more {
+		more[i] = &graphene.Event{
+			EventID: "4688", Computer: "HOST-B", Timestamp: base.Add(time.Duration(i) * time.Second),
+			HashNormalized: fmt.Sprintf("hash-more-%02d", i),
+		}
+	}
+	if _, err := store.InsertEvents(more); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := layoutStore.Load(graphID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, e := range more {
+		saved.Nodes[e.ID] = layout.Position{X: float64(i), Y: float64(i)}
+		if i == 0 {
+			continue
+		}
+		rel := &graphene.Relation{
+			From: more[i-1].ID, To: e.ID, GraphID: graphID,
+			RelationType: consts.RelationDefault, CreatedBy: consts.CreatedByUser,
+		}
+		if _, err := store.InsertRelation(rel); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := layoutStore.Save(graphID, saved); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := api.TakeSnapshot(SnapshotRequest{GraphID: graphID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := api.snaps.Get(graphID, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Nodes) != 32 || len(doc.Relations) != 30 {
+		t.Fatalf("snapshot holds %d nodes / %d relations, want 32/30", len(doc.Nodes), len(doc.Relations))
+	}
+	for i := 1; i < len(doc.Nodes); i++ {
+		if doc.Nodes[i-1].ID >= doc.Nodes[i].ID {
+			t.Fatalf("nodes out of id order at %d: %d then %d", i, doc.Nodes[i-1].ID, doc.Nodes[i].ID)
+		}
+	}
+	for i := 1; i < len(doc.Relations); i++ {
+		if doc.Relations[i-1].ID >= doc.Relations[i].ID {
+			t.Fatalf("relations out of id order at %d: %d then %d", i, doc.Relations[i-1].ID, doc.Relations[i].ID)
+		}
 	}
 }
