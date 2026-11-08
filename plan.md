@@ -4147,8 +4147,10 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
     and rename paths share it, and the Rules switch flips back on failure. Tests:
     `TestAFailedWriteLeavesTheRegistryAsItWas` (7 mutators), `TestAFailedFirstDefaultLeavesTheRegistryEmpty`,
     `TestAFailedToggleWriteLeavesTheRuleAsItWas`, `TestAFailedDeleteStateWriteKeepsTheRule`.
-  - The "restored from" note is not part of a link's identity in a restore (the owner's fix named
-    it). Confirm.
+  - ✅ The "restored from" note is not part of a link's identity in a restore. Confirmed (owner,
+    2026-11-08): a link is the same claim whichever snapshot restored it, and counting the note
+    would offer it again from every other snapshot and beside every hand-drawn or rule-built copy.
+    No code change; LLD §14.5 already says so.
   - ✅ The pre-run backfill copy (`BACKFILL_STALE_DETAIL`, `MAINT_PROJECTION_STALE`) now says the
     fingerprint will change. ✅ A pass that fails after a good seal now says so in its error
     (see *Maintenance page* below).
