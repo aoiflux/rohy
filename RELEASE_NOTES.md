@@ -283,9 +283,12 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A read-only session no longer saves a canvas.** *Save layout* wrote the graph's positions in a
   session that refuses every other change to the case; it is now refused with the reason, as
   creating or renaming a graph is.
-- **The relationship inspector reports an event it cannot read.** It used to show the link with
-  that end missing, which reads as an event no longer in the case. It now fails with the event and
-  the reason, and so does a failure listing the other links of the same match.
+- **The relationship inspector says why a link would not open.** A link with an end the case holds
+  but cannot read used to open with that event missing, which reads as an event no longer in the
+  case, and any other failure closed the panel without a word. The canvas now says why, naming the
+  event, and a failure listing the other links of the same match is reported the same way.
+- **A refused graph change no longer reads as a fault in rohy.** Deleting the last graph, naming a
+  graph that is not there, or leaving a graph's name empty is now reported as the request's fault.
 - **Two snapshots of the same canvas now write the same list.** Nodes and links are stored in id
   order; the node order used to change from one snapshot to the next.
 - **The relationship heatmap kept the timeline's old range.** After the timeline reloaded over a
@@ -378,7 +381,7 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,215 Go tests, 10 fuzz targets and 65 benchmarks; 875 frontend tests; 58 extension tests.**
+- **1,216 Go tests, 10 fuzz targets and 65 benchmarks; 878 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
   backend (PERFORMANCE.md §21).
 

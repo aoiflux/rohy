@@ -5,7 +5,7 @@
   // nodes opens a dialog to name the link (free-text label) and pick its type; the
   // edge is persisted via the backend (P7.4/P8), never local-only.
   import { graph, LAYOUT } from '../../stores/graph.js';
-  import { selection as sel, highlightedEdges } from '../../stores/selection.js';
+  import { selection as sel, highlightedEdges, inspectRelation } from '../../stores/selection.js';
   import { relationsOfSelection, stepRelation } from '../../lib/graph/relations.js';
   import { clusters } from '../../stores/clusters.js';
   import { memberIndex, proxyCards, remapEdges } from '../../lib/graph/clusters.js';
@@ -515,16 +515,13 @@
   /**
    * inspectEdge selects a relation and pulls in everything the inspector shows.
    *
-   * A failure is silent on purpose: the edge may have been deleted by another view between the
-   * click and the call, and an error dialog for "the thing you clicked is gone" is worse than
-   * simply not opening a panel about it.
+   * A failure closes the panel and says why in a passing message (inspectRelation): an edge
+   * deleted by another view reads as not found, and an event that cannot be read is not hidden.
    */
   async function inspectEdge(id) {
-    try {
-      sel.selectRelation(await api.inspectRelation(id));
-    } catch {
-      sel.clearRelation();
-    }
+    const { detail, error } = await inspectRelation(api.inspectRelation, id);
+    sel.selectRelation(detail);
+    if (error) snackbar.error(error);
   }
 
   /**

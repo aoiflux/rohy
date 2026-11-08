@@ -798,6 +798,7 @@ export const UI = Object.freeze({
   INSPECTOR_CONFIDENCE_HINT:
     'How exact the match was — not how likely the activity is to be malicious.',
   INSPECTOR_BASIS: 'Matched because',
+  INSPECTOR_FAILED: (reason) => `Could not open the link: ${reason}`,
   INSPECTOR_PART_OF: 'Part of one match:',
   INSPECTOR_EDGES_HIGHLIGHTED: 'edges highlighted on the canvas.',
   INSPECTOR_UNRECORDED:

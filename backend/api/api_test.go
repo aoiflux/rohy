@@ -786,3 +786,41 @@ func TestSingleFileIngestReportsOneOfOne(t *testing.T) {
 		t.Errorf("single file reported as %d of %d, want 1 of 1", ev.FileIndex, ev.FileTotal)
 	}
 }
+
+// A graph request rohy refuses is the request's fault, not rohy's: the last graph, a graph that is
+// not there, a name left empty. Each is a parse_error, so the screen does not report a fault in
+// rohy for something the analyst can change.
+func TestGraphRefusalsAreTheRequestsFault(t *testing.T) {
+	store := graphene.OpenInMemory()
+	defer store.Close()
+	graph := newTestGraphAPI(t, store)
+	only := graph.ActiveGraph()
+	const unknown = 999
+
+	for name, call := range map[string]func() error{
+		"delete the last graph":   func() error { return graph.DeleteGraph(only) },
+		"delete an unknown graph": func() error { return graph.DeleteGraph(unknown) },
+		"rename an unknown graph": func() error {
+			_, err := graph.RenameGraph(GraphRequest{ID: unknown, Name: "g"})
+			return err
+		},
+		"activate an unknown graph": func() error { return graph.SetActiveGraph(unknown) },
+		"create without a name": func() error {
+			_, err := graph.CreateGraph(GraphRequest{Name: "  "})
+			return err
+		},
+		"rename to no name": func() error {
+			_, err := graph.RenameGraph(GraphRequest{ID: only, Name: ""})
+			return err
+		},
+	} {
+		err := call()
+		var ae ErrorEvent
+		if !errors.As(err, &ae) || ae.Code != consts.ErrCodeParse {
+			t.Errorf("%s: %v, want a parse_error", name, err)
+		}
+	}
+	if left, _ := graph.ListGraphs(); len(left) != 1 || left[0].ID != only {
+		t.Errorf("a refused request changed the graphs: %+v", left)
+	}
+}

@@ -174,8 +174,8 @@ rohy/
 ```
 
 Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,215 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
-**875 frontend test cases** and **58 extension tests**.
+**1,216 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
+**878 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -1500,7 +1500,8 @@ renamed it.
 Two refusals are deliberate, and neither is an error:
 
 - **The last graph cannot be deleted.** The application always needs somewhere to
-  put a hand-drawn relation.
+  put a hand-drawn relation. The binding codes it `parse_error`, as it does a graph id
+  that is not there and an empty name (`graphError`): the request is at fault, not rohy.
 - **The graph currently being viewed is never auto-deleted.** Removing the active
   view out from under someone mid-investigation is worse than leaving one empty
   graph in the list.
@@ -2824,7 +2825,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,215 Go test functions**, 10 fuzz targets, 65 benchmarks, **875 frontend test
+**1,216 Go test functions**, 10 fuzz targets, 65 benchmarks, **878 frontend test
 cases** in 56 files, and **58 extension tests**.
 
 Where each runs:

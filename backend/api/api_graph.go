@@ -172,7 +172,7 @@ func (a *GraphAPI) SetActiveGraph(id uint64) error {
 		return nil
 	}
 	if err := a.registry.SetActive(id); err != nil {
-		return AsError(consts.ErrCodePersistence, err)
+		return graphError(err)
 	}
 	return nil
 }
@@ -187,11 +187,11 @@ func (a *GraphAPI) CreateGraph(req GraphRequest) (*graphreg.Graph, error) {
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, AsError(consts.ErrCodeInternal, errors.New("graph name is required"))
+		return nil, AsError(consts.ErrCodeParse, errors.New(consts.MsgGraphNameRequired))
 	}
 	g, err := a.registry.Create(name, strings.TrimSpace(req.Description), time.Now().UTC())
 	if err != nil {
-		return nil, AsError(consts.ErrCodePersistence, err)
+		return nil, graphError(err)
 	}
 	return g, nil
 }
@@ -206,13 +206,23 @@ func (a *GraphAPI) RenameGraph(req GraphRequest) (*graphreg.Graph, error) {
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, AsError(consts.ErrCodeInternal, errors.New("graph name is required"))
+		return nil, AsError(consts.ErrCodeParse, errors.New(consts.MsgGraphNameRequired))
 	}
 	g, err := a.registry.Rename(req.ID, name, strings.TrimSpace(req.Description), time.Now().UTC())
 	if err != nil {
-		return nil, AsError(consts.ErrCodePersistence, err)
+		return nil, graphError(err)
 	}
 	return g, nil
+}
+
+// graphError codes a registry failure. A refusal (the last graph, a graph that is not there) is the
+// request's fault, parse_error, so it does not read as a fault in rohy; anything else is a failed
+// write.
+func graphError(err error) error {
+	if errors.Is(err, graphreg.ErrLastGraph) || errors.Is(err, graphreg.ErrNotFound) {
+		return AsError(consts.ErrCodeParse, err)
+	}
+	return AsError(consts.ErrCodePersistence, err)
 }
 
 // DeleteGraph removes a graph and cascades to its relations and layout — but never to
@@ -227,10 +237,7 @@ func (a *GraphAPI) DeleteGraph(id uint64) error {
 		return nil
 	}
 	if err := a.registry.Delete(id); err != nil {
-		if errors.Is(err, graphreg.ErrLastGraph) || errors.Is(err, graphreg.ErrNotFound) {
-			return AsError(consts.ErrCodeInternal, err)
-		}
-		return AsError(consts.ErrCodePersistence, err)
+		return graphError(err)
 	}
 	// Registry entry is gone; now drop the graph's edges + layout (events are shared and
 	// left intact). Best-effort: a failure here leaves orphaned edges scoped to a

@@ -1050,6 +1050,9 @@ const MsgNodesMissing = "%d of %d events could not be loaded (missing node ids: 
 // canvas that cannot be read at all).
 const MsgEventDeletedCanvasStale = "event %d was deleted, but not every saved canvas could be updated: %w"
 
+// MsgGraphNameRequired refuses creating or renaming a graph with an empty name.
+const MsgGraphNameRequired = "graph name is required"
+
 // MsgInspectEndpointUnreadable reports a link whose end the case holds but could not read. It is
 // an error rather than a link drawn with one end missing, which would read as "that event is not in
 // the case".

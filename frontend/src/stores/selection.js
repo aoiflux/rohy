@@ -1,6 +1,8 @@
 // Selection/detail store (P5.2). Tracks the event opened in the detail view and the
 // queue of events the user has marked "Add to Graph" (consumed by the canvas in P7).
 import { writable } from 'svelte/store';
+import { UI } from '../lib/consts/index.js';
+import { errorMessage } from '../lib/api/errors.js';
 
 function create() {
   const { subscribe, update } = writable({
@@ -49,6 +51,26 @@ function create() {
 export function highlightedEdges(detail) {
   const ids = [detail?.relation?.id, ...(detail?.sibling_ids ?? [])];
   return new Set(ids.filter((id) => Number.isInteger(id) && id > 0));
+}
+
+/**
+ * inspectRelation asks for one link's detail and returns what the canvas does with the answer:
+ * the detail to show, or the message to report.
+ *
+ * Every failure is reported, a link deleted elsewhere between the click and the call included.
+ * "Not found" is a true and passing message; silence would also hide an event the case holds but
+ * cannot read, which the backend reports as a failure for exactly this reason.
+ *
+ * @param {(id: number) => Promise<any>} load the inspector call
+ * @param {number} id
+ * @returns {Promise<{detail: any, error: string}>}
+ */
+export async function inspectRelation(load, id) {
+  try {
+    return { detail: await load(id), error: '' };
+  } catch (e) {
+    return { detail: null, error: UI.INSPECTOR_FAILED(errorMessage(e)) };
+  }
 }
 
 export const selection = create();

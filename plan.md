@@ -4131,6 +4131,8 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
 - Four small fixes (read-only canvas save, `DeleteGraph` without a layout store, snapshot order,
   inspector errors): 3 new Go test functions, 1,212 → 1,215, and one more call in the read-only
   test's table.
+- Inspector failures shown, graph refusals coded `parse_error`: 1 new Go test function,
+  1,215 → 1,216; 3 new frontend test cases, 875 → 878.
 
 **Still open:**
 - **Decided (owner, 2026-11-08):** every recommendation accepted. The items below go into v0.3.0
@@ -4164,8 +4166,11 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
   `TestAnnotateBindingsTellARefusedRequestFromAFailedWrite`, and the sentinel and code asserted in
   `TestItemLimit`, `TestLayerLimit`, `TestHeatmapRefusesAnUnknownGroupingAndNamesTheSet` and
   `TestRelationHeatmapRefusesAnUnknownGrouping`. The heatmap's store-failure code has no test: an
-  open store does not fail that read on demand. Seen in passing, not changed: `DeleteGraph` codes
-  the last graph and an unknown graph `internal_error`.
+  open store does not fail that read on demand. ✅ `DeleteGraph` coded the last graph and an
+  unknown graph `internal_error`; decided (owner, 2026-11-08): every graph refusal is
+  `parse_error` (`graphError`: the last graph, an unknown id on delete, rename and activate, an
+  empty name), and a failed write stays `persistence_error`. Test:
+  `TestGraphRefusalsAreTheRequestsFault`.
 - ✅ **Restore:** a crash between `InsertRelations`' edge commit and its index step left a link the
   next apply wrote again, and a restore that planned beside a rule rebuild, a hand-drawn link or a
   maintenance pass could write a duplicate. `ApplyRestore` now holds the case lock alone and runs
@@ -4225,8 +4230,10 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
     out. A failure listing the match's other links is returned the same way
     (`MsgInspectSiblingsUnreadable`; no test, since an open store does not fail that read on
     demand). Tested with a raw-record log cut short (`TestInspectRelationReportsAnEndpointItCannotRead`).
-    The canvas still hides every inspector failure (`inspectEdge`), on purpose, for a link deleted
-    between the click and the call.
+    The canvas hid every inspector failure (`inspectEdge`), on purpose, for a link deleted
+    between the click and the call; decided (owner, 2026-11-08): it now reports every failure in a
+    passing message, `UI.INSPECTOR_FAILED`, through the pure `inspectRelation` in
+    `stores/selection.js` (3 cases in `selection.test.js`). A deleted link reads as not found.
 - **Found in passing, not touched:** comments in `api_snapshot_test.go` and `api_annotate_test.go`
   imply ids are reused; the comment at `api_events.go:53` still names `SetEmitter`.
 - **Not automated:** the heatmap effect has no test (view tests render on the server, where effects
