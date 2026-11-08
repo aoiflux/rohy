@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/aoiflux/graphene/store"
 
 	"rohy/backend/consts"
 )
@@ -56,6 +59,23 @@ func TestEveryBindingErrorCrossesWithItsCode(t *testing.T) {
 }
 
 // Wails calls the formatter only with a failure, but a nil must still not cross as success.
+// 🔒 After the engine's log stops, every call is refused, reads too; whichever the analyst meets
+// first says to restart, coded or not.
+func TestAStoppedLogSaysToRestartWhereverItIsMet(t *testing.T) {
+	stopped := fmt.Errorf("get event 7: %w", store.ErrStopped)
+	for name, err := range map[string]error{
+		"coded":   AsError(consts.ErrCodePersistence, stopped),
+		"uncoded": stopped,
+	} {
+		if got := formatted(t, err); !strings.Contains(got.Message, "restart rohy") || !strings.Contains(got.Message, "get event 7") {
+			t.Fatalf("%s: %q, want the restart and the call that met it", name, got.Message)
+		}
+	}
+	if got := formatted(t, AsError(consts.ErrCodePersistence, errors.New("disk full"))); got.Message != "disk full" {
+		t.Fatalf("an ordinary error was reworded: %q", got.Message)
+	}
+}
+
 func TestANilErrorStillCrossesAsAFailure(t *testing.T) {
 	if got := formatted(t, nil); got.Code != consts.ErrCodeInternal || got.Message == "" {
 		t.Errorf("got %+v", got)

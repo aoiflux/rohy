@@ -489,6 +489,34 @@ func TestAStrictOpenThatFailsOffersRecovery(t *testing.T) {
 	}
 }
 
+// 🔒 A case another program holds is refused with a message that says so, and recovery is not
+// offered: a recovery open would meet the same lock.
+func TestACaseHeldElsewhereOffersNoRecovery(t *testing.T) {
+	c := newSessionCase(t).open()
+	c.begin(SessionRequest{Name: "Ada"})
+	c.write("a")
+	c.close()
+
+	holder, err := graphene.Open(c.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	c.open()
+	_, err = c.session.Begin(SessionRequest{})
+	var ev ErrorEvent
+	if !errors.As(err, &ev) || ev.Code != consts.ErrCodeSession || !strings.Contains(ev.Message, "another program") {
+		t.Fatalf("a held case: %v, want a session error naming another program", err)
+	}
+	v := c.session.Status()
+	if v.Began || v.OpenError == "" || slices.Contains(v.Choices, consts.SessionRecovery) {
+		t.Fatalf("after a held case refused: %+v", v)
+	}
+
+	holder.Close()
+	c.begin(SessionRequest{})
+}
+
 // Closing the app at the session step opens nothing and seals nothing.
 func TestClosingAtTheSessionStepOpensNothing(t *testing.T) {
 	c := signedCase(t)

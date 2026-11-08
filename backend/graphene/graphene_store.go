@@ -14,6 +14,7 @@ import (
 	"rohy/backend/payload"
 
 	"github.com/aoiflux/graphene"
+	"github.com/aoiflux/graphene/disk"
 	"github.com/aoiflux/graphene/signing"
 	"github.com/aoiflux/graphene/store"
 )
@@ -40,15 +41,15 @@ type Store struct {
 	openMu    sync.Mutex
 	ready     atomic.Bool
 	attempted bool
-	closed    bool // set by Close, under openMu
 	openErr   error
 	awaiting  bool
 	session   chan struct{} // closed once a session has opened the store
-	stopping  chan struct{} // closed when shutdown begins: waiters stop waiting
+	stopping  chan struct{} // closed when shutdown begins: waiters stop waiting, nothing reopens
 	stopOnce  sync.Once
-	// poisoned is set when a seal replaced the image on disk but this session's copy no longer
-	// matches it: nothing more is written until a restart reopens it.
-	poisoned atomic.Bool
+	// halted is why this open may no longer write, or nil: a seal replaced the image on disk but
+	// this open's copy no longer matches it (Poison), or the engine's log stopped taking records
+	// (noteStopped). Either way the open itself is the problem, so the next open clears it.
+	halted atomic.Pointer[string]
 	// order caches the id ordering of the most recent event query so that paging through
 	// a filter does not rescan and re-sort the whole matching set for every page. Any
 	// write invalidates it (see bumpVersion).
@@ -142,8 +143,36 @@ func (s *Store) BeginSession(p Posture) error {
 	return nil
 }
 
-// ErrNotOpen is a reopen of a store that is not open.
+// ErrNotOpen is a reopen of a store that is not open, or whose shutdown has begun.
 var ErrNotOpen = errors.New("the case is not open")
+
+// ErrCaseHeld is an open refused because another program holds the case: the engine's lock is
+// exclusive to a writer, and a reader shares it only with readers.
+var ErrCaseHeld = errors.New(consts.MsgCaseHeld)
+
+// ErrLogRefused is an open refused because the case's log is damaged before its end. The engine
+// cuts a crash's torn tail itself, but records after damage were acknowledged, so it cuts nothing
+// and the analyst decides: a backup, or a cut that gives those records up.
+var ErrLogRefused = errors.New(consts.MsgLogRefused)
+
+// NoPostureOpens reports whether err is an open refused for a reason no other posture gets past,
+// so the session step does not offer recovery as a way in: a recovery open meets the same lock and
+// replays the same log.
+func NoPostureOpens(err error) bool {
+	return errors.Is(err, ErrCaseHeld) || errors.Is(err, ErrLogRefused)
+}
+
+// explainOpen says in the analyst's terms why the engine refused an open, keeping the engine's
+// error, which names the holder's process or the damaged byte, inside it.
+func explainOpen(err error) error {
+	switch {
+	case errors.Is(err, disk.ErrStoreLocked):
+		return fmt.Errorf("%w: %w", ErrCaseHeld, err)
+	case errors.Is(err, disk.ErrLogMalformed):
+		return fmt.Errorf("%w: %w", ErrLogRefused, err)
+	}
+	return err
+}
 
 // Reopen closes the case and opens it again under p. It is how a session that began read-only
 // becomes writable: a read-only open holds a shared lock and cannot write, and only a new open
@@ -161,7 +190,7 @@ func (s *Store) Reopen(p Posture) error {
 	s.openMu.Lock()
 	defer s.openMu.Unlock()
 	old := s.cur.Load()
-	if old == nil || s.closed || s.inMemory {
+	if old == nil || s.inMemory || s.shuttingDown() {
 		return ErrNotOpen
 	}
 	defer s.bumpVersion() // nothing cached from the old open outlives it
@@ -174,7 +203,8 @@ func (s *Store) Reopen(p Posture) error {
 		return nil
 	}
 	if rerr := s.openLocked(old.posture); rerr != nil {
-		s.closed = true
+		// cur still holds the closed open, so every call is refused as closed until a reopen
+		// succeeds or the app shuts down.
 		return errors.Join(err, rerr)
 	}
 	return err
@@ -212,8 +242,17 @@ func (s *Store) KeptAside() []KeptTail {
 // at the session step never opens a case only to seal it.
 func (s *Store) Opened() bool { return s.ready.Load() }
 
-// Shutdown stops anything waiting for a session. Idempotent.
+// Shutdown stops anything waiting for a session, and any reopen. Idempotent.
 func (s *Store) Shutdown() { s.stopOnce.Do(func() { close(s.stopping) }) }
+
+func (s *Store) shuttingDown() bool {
+	select {
+	case <-s.stopping:
+		return true
+	default:
+		return false
+	}
+}
 
 // OpenLazy returns a disk-backed store that opens on FIRST USE rather than immediately.
 //
@@ -285,7 +324,7 @@ func (s *Store) openLocked(p Posture) error {
 		if guard != nil {
 			guard.discard()
 		}
-		return err
+		return explainOpen(err)
 	}
 	var kept []KeptTail
 	if guard != nil {
@@ -304,6 +343,7 @@ func (s *Store) openLocked(p Posture) error {
 		return err
 	}
 	s.cur.Store(&caseOpen{g: g, payloads: pl, posture: p, readOnly: readOnlyErr, kept: kept})
+	s.halted.Store(nil) // a fresh open loaded the image on disk and holds a log that takes records
 	s.ready.Store(true)
 	return nil
 }
@@ -372,18 +412,18 @@ func nodeEventType() store.NodeType {
 }
 
 // Close releases the underlying store resources. Closing a store that was never opened is
-// a no-op — nothing was acquired to release.
+// a no-op — nothing was acquired to release. Idempotent: the engine and the payload log each close
+// once and answer a second Close with nil, and a call after Close is refused as closed by them.
 func (s *Store) Close() error {
 	s.Shutdown()
 	// Holding openMu means a session's open cannot be half way through while this closes.
 	s.openMu.Lock()
 	defer s.openMu.Unlock()
-	// A second Close finds nothing to close. ready is not cleared: a closed store must never look
-	// unopened, or the next accessor would open it again behind the caller's back.
-	if !s.ready.Load() || s.closed {
+	// ready is not cleared: a closed store must never look unopened, or the next accessor would
+	// open it again behind the caller's back.
+	if !s.ready.Load() {
 		return nil
 	}
-	s.closed = true
 	return s.cur.Load().close()
 }
 
@@ -418,7 +458,7 @@ func (s *Store) Compact() error {
 	if err != nil {
 		return err
 	}
-	return g.Compact()
+	return s.noteStopped(g.Compact())
 }
 
 // VerifyIndexes cross-checks the store's indexes against the records they describe and
@@ -496,7 +536,7 @@ func (s *Store) RepairRelationIndex() (int, error) {
 		// Only the entries that are missing: the rest are already listed.
 		tx.IndexEdgeProperties(gap.id, gap.missing)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		return 0, err
 	}
 	s.bumpVersion() // relations became visible; any cached ordering is now stale
@@ -563,7 +603,7 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 		ids[i] = tx.AddNode(n)
 		tx.IndexNodeProperties(ids[i], events[i].indexValues())
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		return nil, err
 	}
 
@@ -616,7 +656,7 @@ func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
 		ids[i] = tx.AddEdge(ed)
 		tx.IndexEdgeProperties(ids[i], r.indexValues())
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		return nil, err
 	}
 
@@ -661,7 +701,7 @@ func (s *Store) updateRelations(rels []*Relation) (int, error) {
 		edge.ID = store.EdgeID(r.ID)
 		tx.UpdateEdgeIndexed(edge, r.indexValues())
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		return 0, err
 	}
 	return len(rels), nil
@@ -680,7 +720,7 @@ func (s *Store) DeleteRelation(id uint64) error {
 	}
 	tx := s.tx(g)
 	tx.DeleteEdge(store.EdgeID(id))
-	return tx.Commit()
+	return s.commit(tx)
 }
 
 // DeleteEvent removes an event node and cascades to every relation incident to it, so
@@ -697,7 +737,7 @@ func (s *Store) DeleteEvent(id uint64) error {
 	}
 	tx := s.tx(g)
 	tx.DeleteNode(store.NodeID(id))
-	return tx.Commit()
+	return s.commit(tx)
 }
 
 // IncrementDedupCounts adds each delta to the deduplication_count of an existing
@@ -759,7 +799,7 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 		updated.ID = n.ID
 		tx.UpdateNodePartialIndex(updated, indexChanges(indexed, e))
 	}
-	return tx.Commit()
+	return s.commit(tx)
 }
 
 // indexChanges returns the index entries of e that differ from before: exactly what an update of
@@ -825,7 +865,7 @@ func (s *Store) DeleteGraphRelations(graphID uint64) (int, error) {
 	for _, r := range rels {
 		tx.DeleteEdge(store.EdgeID(r.ID))
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		// A relation that is already gone is not a failure: the caller's intent is that
 		// the graph ends up empty. Fall back to a per-edge pass that tolerates it.
 		var nf *store.ErrNotFound
@@ -862,7 +902,7 @@ func (s *Store) deleteRelationsIndividually(rels []*Relation) (int, error) {
 		tx.DeleteEdge(store.EdgeID(r.ID))
 		deleted++
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		return 0, err
 	}
 	return deleted, nil

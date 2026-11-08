@@ -1041,12 +1041,20 @@ const (
 	MsgReadOnlyLocked   = "it signs its work and the key is locked; unlock the key on the Maintenance page"
 	MsgReadOnlyRecovery = "it was opened for recovery: %s"
 	MsgReadOnlyPoisoned = "a seal replaced the case image but this session's copy no longer matches it; restart rohy"
-	MsgNoSession        = "the case is not open: no session was started"
-	MsgSessionStarted   = "the case is already open in this session"
-	MsgSlotWrongKey     = "key %d is not the key this session signs with (%d)"
-	MsgRetentionOff     = "kept off: a retained log segment would keep the content a redaction removed"
-	MsgAuditTorn        = "the audit log is %d bytes but its entries end at byte %d: the rest is a torn write"
-	MsgAuditMisframed   = "the audit log cannot be read: %v"
+	MsgReadOnlyStopped  = "a write to the case's log failed and the engine stopped taking records; restart rohy to reopen the case: %v"
+	// MsgCaseStopped is any call refused by an engine whose log stopped: reads are refused too, so a
+	// read cannot answer with a commit its caller was told had failed.
+	MsgCaseStopped = "the case stopped answering after a write to its log failed; restart rohy to reopen it (%s)"
+	MsgCaseHeld    = "the case is open in another program, most likely another rohy; close it there and begin the session again"
+	MsgLogRefused  = "the case's log is damaged before its end, so rohy opens nothing and cuts nothing. Restore the case folder " +
+		"from a backup, or keep what replays by cutting the log at the byte named after this with " +
+		"`graphene wal cut -at <byte> -save <a file outside the case>`, which keeps the bytes it cuts"
+	MsgNoSession      = "the case is not open: no session was started"
+	MsgSessionStarted = "the case is already open in this session"
+	MsgSlotWrongKey   = "key %d is not the key this session signs with (%d)"
+	MsgRetentionOff   = "kept off: a retained log segment would keep the content a redaction removed"
+	MsgAuditTorn      = "the audit log is %d bytes but its entries end at byte %d: the rest is a torn write"
+	MsgAuditMisframed = "the audit log cannot be read: %v"
 )
 
 // --- Store read integrity ---

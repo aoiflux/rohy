@@ -7,8 +7,11 @@
 package api
 
 import (
+	"fmt"
+
 	"rohy/backend/consts"
 	"rohy/backend/evtx"
+	"rohy/backend/graphene"
 )
 
 // Emitter abstracts Wails' runtime.EventsEmit so the binding layer can be unit
@@ -62,7 +65,16 @@ func (e ErrorEvent) Error() string { return e.Message }
 
 // AsError wraps a Go error in the uniform shape with the given code.
 func AsError(code string, err error) ErrorEvent {
-	return ErrorEvent{Code: code, Message: err.Error()}
+	return ErrorEvent{Code: code, Message: describe(err)}
+}
+
+// describe is err's message for the analyst. A call the engine refused because its log stopped says
+// how to recover, whichever call met it first: after a stop, reads are refused too.
+func describe(err error) string {
+	if graphene.StoppedLog(err) {
+		return fmt.Sprintf(consts.MsgCaseStopped, err)
+	}
+	return err.Error()
 }
 
 // --- Binding request DTOs ---

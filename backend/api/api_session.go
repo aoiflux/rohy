@@ -116,7 +116,7 @@ type Session struct {
 	mu    sync.Mutex
 	began bool
 	begun chan struct{}
-	// openErr is the last failed open: the step then offers recovery.
+	// openErr is the last failed open: the step then offers recovery, unless no posture opens.
 	openErr  error
 	slot     *graphene.KeySlot
 	flagged  bool
@@ -259,7 +259,8 @@ func (s *Session) decide(f facts) decision {
 	default:
 		d.choices = []string{consts.SessionStart}
 	}
-	if s.openErr != nil && !slices.Contains(d.choices, consts.SessionRecovery) {
+	// A recovery open meets the same lock and replays the same log, so it is no way past either.
+	if s.openErr != nil && !graphene.NoPostureOpens(s.openErr) && !slices.Contains(d.choices, consts.SessionRecovery) {
 		d.choices = append(d.choices, consts.SessionRecovery)
 	}
 

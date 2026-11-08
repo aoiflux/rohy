@@ -2565,6 +2565,21 @@ The invariants, each a test:
   refused in a flagged session.
 - **Nothing is lost to a failed open.** A strict open that fails leaves the store closed and offers
   recovery; closing the window at the session step opens nothing and seals nothing.
+- **Some opens no posture gets past** (`graphene.NoPostureOpens`), and for these the step offers no
+  recovery:
+  - **A case another program holds** (`ErrCaseHeld`, wrapping `disk.ErrStoreLocked`). One rohy per
+    case: graphene's lock is exclusive to a writer, and a reader shares it only with readers.
+  - **A log damaged before its end** (`ErrLogRefused`, wrapping `disk.ErrLogMalformed`). The engine
+    cuts a crash's torn tail itself. It cuts nothing after damage, because the records there were
+    acknowledged. The message names the byte and both repairs: restore a backup, or keep what
+    replays with `graphene wal cut`, which saves what it cuts. The log is left byte for byte as it
+    was.
+- **A log that stops stops the session writing.** After a failed write or fsync to the log, graphene
+  refuses every call until a reopen, reads included, so a read cannot answer with a commit its
+  caller was told had failed. Every commit, compaction and redaction goes through
+  `Store.noteStopped`, which makes the session read-only with a reason naming the restart, as a seal
+  that poisons the image does. `api.AsError` and `FormatError` rewrite any call the stop refused to
+  say the same, whichever call meets it first. The next open clears both reasons.
 - **A read-only session writes nothing** — not the case, not its sidecars, not the audit log, not a
   damaged seal history moved aside (`custody.OpenDeferred`); the image check still runs. The engine
   and the payload log open read-only, because a writable open repairs the case as it opens it (it

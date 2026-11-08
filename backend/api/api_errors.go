@@ -28,7 +28,7 @@ func FormatError(err error) any {
 	if err == nil {
 		err = errors.New(consts.ErrCodeInternal)
 	}
-	out := ErrorEvent{Code: consts.ErrCodeInternal, Message: err.Error()}
+	out := ErrorEvent{Code: consts.ErrCodeInternal, Message: describe(err)}
 	var coded ErrorEvent
 	if errors.As(err, &coded) && coded.Code != "" {
 		out.Code = coded.Code

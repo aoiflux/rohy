@@ -226,7 +226,7 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 	if pending == 0 {
 		return res, nil
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commit(tx); err != nil {
 		// Nothing in the batch was applied, so nothing was projected.
 		return res, err
 	}

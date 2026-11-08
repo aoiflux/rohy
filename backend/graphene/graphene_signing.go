@@ -279,8 +279,8 @@ func (s *Store) Writable() error {
 	if s.awaiting && !s.ready.Load() {
 		return ErrNoSession
 	}
-	if s.poisoned.Load() {
-		return fmt.Errorf("%w: "+consts.MsgCaseReadOnly, ErrReadOnly, consts.MsgReadOnlyPoisoned)
+	if why := s.halted.Load(); why != nil {
+		return fmt.Errorf("%w: "+consts.MsgCaseReadOnly, ErrReadOnly, *why)
 	}
 	if o := s.cur.Load(); o != nil {
 		return o.readOnly
@@ -298,7 +298,27 @@ func (s *Store) Session() (p Posture, ok bool) {
 
 // Poison stops this session writing: a seal replaced the case image on disk, but the engine's copy
 // in memory no longer matches it. Only a restart, which reopens the image, makes the two agree.
-func (s *Store) Poison() { s.poisoned.Store(true) }
+func (s *Store) Poison() { s.halt(consts.MsgReadOnlyPoisoned) }
+
+// noteStopped stops this session writing when err says the engine's log stopped taking records,
+// and returns err. The engine then refuses every call, reads too, until the case is reopened; the
+// session says so before a write is tried, so nothing is written beside the case (a payload, a
+// finding) for a commit that cannot follow.
+func (s *Store) noteStopped(err error) error {
+	if StoppedLog(err) {
+		s.halt(fmt.Sprintf(consts.MsgReadOnlyStopped, err))
+	}
+	return err
+}
+
+// StoppedLog reports whether err is a call refused by an engine whose log stopped taking records.
+func StoppedLog(err error) bool { return errors.Is(err, store.ErrStopped) }
+
+// halt records why this open may no longer write. The first reason stands: it is the cause.
+func (s *Store) halt(why string) { s.halted.CompareAndSwap(nil, &why) }
+
+// commit commits tx, noting a log that stopped.
+func (s *Store) commit(tx *gr.Tx) error { return s.noteStopped(tx.Commit()) }
 
 // tx begins a transaction attributed to the session's analyst. Every write rohy can put in a
 // commit goes through one, so the commit records who made it; in a signed session the commit is
