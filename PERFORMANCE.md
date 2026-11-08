@@ -349,16 +349,62 @@ so the cost lands where it is least felt. It is recorded rather than acted on, b
 to watch is the ALLOCATION count, and the next upgrade should compare against these figures rather
 than against the older ones in §12.
 
+### Record: GrapheneDB v0.4.0 → v0.10.0
+
+Source-compatible by signature: every call rohy makes compiles unchanged. Four contracts changed, and
+the compiler caught none of them:
+
+- **The reindex policy now defaults to _reject_ (v0.5).** A plain `UpdateNode` / `UpdateEdge` of an
+  indexed entity fails at commit with `ErrIndexedPropertiesRequired`. Updates now use
+  `UpdateEdgeIndexed` and `UpdateNodePartialIndex` (`indexChanges`), never `SetReindexPolicy`.
+- **The image carries the property index (format v9, v0.7).** A damaged image is refused at open,
+  so `VerifyImage` no longer opens the store to probe it. A v8 case opens, and its first seal writes
+  v9; no older build opens it after that (`testdata/v8-case`).
+- **A writable open cuts torn tails** from every append-only file and records only a digest. rohy
+  keeps the bytes first (`graphene_torntail.go`), and opens a session that cannot write read-only.
+- **`Close` waits for in-flight calls; later calls return `store.ErrClosed`.**
+
+Measured A/B in one session: the committed v0.4.0 tree (exported with `git archive`) and this one,
+interleaved three times, `-benchtime=3x`, medians. The full-set runs before it moved by up to 2× on
+paths neither build touches, so only interleaved numbers are quoted.
+
+| Path | v0.4.0 | v0.10.0 | |
+| --- | ---: | ---: | --- |
+| Open, compacted 10k | 66 ms / 303 539 allocs | 27 ms / 491 allocs | **2.5× faster, 600× fewer allocs** |
+| Open, compacted 50k | 297 ms | 48 ms | **6× faster** |
+| Open, verified 100k | 1 286 ms | 588 ms | **2.2× faster** |
+| Open, uncompacted 10k | 106 ms | 137 ms | **1.3× slower** (log replay, plus the tail guard's copy) |
+| Open, uncompacted 100k | 1 138 ms | 1 343 ms | 1.18×, under the resolvable 25%; 17% fewer allocs |
+| `Compact()`, 10k | 117 ms / 410 149 allocs | 126 ms / 10 484 allocs | **40× fewer allocs** |
+| Close | 0.71 ms | 2.25 ms | 3×, still negligible |
+| Correlation backfill, 10k | 515 ms | 701 ms | 1.36× (the partial-index update) |
+| Relation adjacency | 1.8 ms | 2.9 ms (profiled: 2.5 vs 2.9) | within noise: rohy's JSON decode, 81% |
+
+**Two costs found on the way, worth knowing before the next change.**
+
+- `disk.InspectWAL` reads record by record, unbuffered: about **1.6 s for a 10k-event log**, roughly
+  ten times a sequential copy of the file. The first tail guard called it on every writable open and
+  made an uncompacted open 15× slower. The guard now copies the log instead (~120 ms at 7 MiB, ~160 ms
+  at 76 MiB), which costs nothing after a clean close: every close seals, so the log is near empty.
+- **The session step pays `InspectWAL` already**, in v0.4.0 as well (`InspectLog`, from
+  `Session.gather` and `Session.Close`). After a crash that left a large log, the session step is
+  slower than the open it precedes. The fix belongs upstream (a buffered walk).
+
 **Upgrade procedure:**
 
 1. **Move the version alone.** No capability adoption in the same step, or no
    regression is attributable.
 2. Diff the API by **signature**, not by name. Names alone reported this upgrade
    as "purely additive"; it was not.
-3. Check **non-API behaviour** too — default policies especially. The new
-   reindex policy defaults to _keep_, which happened to match the old implicit
-   behaviour; had it defaulted to _purge_, existing code would have silently
-   started losing index entries.
+3. Check **non-API behaviour** too — default policies especially. The reindex
+   policy defaulted to _keep_ in v0.4.0, matching the old implicit behaviour, and
+   flipped to _reject_ in v0.5.0: nothing failed to compile, and every update of
+   an indexed record failed at commit. Run the full test suite against the bump
+   before changing anything, and read each failure as a contract.
+6. **Interleave the A/B.** A full benchmark run takes 25 minutes, and on this rig
+   paths neither build touches moved by up to 2× between two of them. Export the
+   old tree (`git archive HEAD backend go.mod go.sum`), and run the paths in
+   question against both, alternating.
 4. For each compile break, ask **"did the contract change, or just the shape?"**
    Preserve the old contract unless changing it is a deliberate, separate
    decision.

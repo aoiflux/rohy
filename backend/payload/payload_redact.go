@@ -152,6 +152,9 @@ func (s *Store) Redact(owner uint64, refs ...Ref) error {
 	if s.closed {
 		return ErrClosed
 	}
+	if s.readOnly {
+		return ErrReadOnly
+	}
 
 	var todo []Ref
 	for _, r := range refs {

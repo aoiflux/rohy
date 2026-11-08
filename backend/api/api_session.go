@@ -485,17 +485,9 @@ func (s *Session) beginLocked(req SessionRequest) (SessionView, error) {
 		posture.Mode, posture.Slot, posture.Verifier, posture.Enabling = consts.CaseModeSigned, slot, reg.Keyring(), enabling
 	}
 
-	// A torn audit tail is moved aside before a session that will append to the log. A read-only
-	// session appends nothing, and leaves the file exactly as it found it.
-	tailKept := ""
+	// A session that will write keeps every torn tail beside its file as the store opens; one that
+	// cannot opens read-only and leaves every file exactly as it found it (graphene_torntail.go).
 	writes := posture.Mode != consts.CaseModeRecovery && (posture.Slot == nil || posture.Slot.Unlocked())
-	if writes && f.audit.Torn() {
-		aside, n, err := graphene.KeepAuditTailAside(s.d.DBDir, now)
-		if err != nil {
-			return refuse(err)
-		}
-		tailKept = fmt.Sprintf("audit tail of %d bytes kept aside as %s", n, baseName(aside))
-	}
 
 	if err := s.d.Store.BeginSession(posture); err != nil {
 		s.openErr = err
@@ -525,9 +517,7 @@ func (s *Session) beginLocked(req SessionRequest) (SessionView, error) {
 	if renamed != "" {
 		s.audit(consts.AuditActionIdentityRenamed, "analyst renamed")
 	}
-	if tailKept != "" {
-		s.audit(consts.AuditActionAuditTailKept, tailKept)
-	}
+	s.auditKeptTails()
 	switch choice {
 	case consts.SessionAddKey:
 		s.audit(consts.AuditActionKeyAdded, fmt.Sprintf("key %d added to the case by its holder", key.KeyID()))
@@ -670,9 +660,20 @@ func (s *Session) Unlock(passphrase string) error {
 	if k, ok := reg.Key(key.KeyID()); !ok || !reg.Bound(k) {
 		return AsError(consts.ErrCodeSession, fmt.Errorf(consts.MsgSessionKeyNotCase, info.Fingerprint))
 	}
-	if err := s.slot.Unlock(key); err != nil {
+	// The session's open is read-only while the key is locked, so unlocking reopens the case. Every
+	// other activity is held off while it does.
+	release, err := theCase.alone(consts.CaseActivityUnlock)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := s.d.Store.Unlock(key); err != nil {
 		return AsError(consts.ErrCodeSession, err)
 	}
+	if now, ok := s.d.Store.Session(); ok {
+		s.slot = now.Slot
+	}
+	s.auditKeptTails()
 	if _, err := s.d.Register.Touch(p, s.d.Now()); err != nil {
 		s.gap(err)
 	}
@@ -855,6 +856,13 @@ func (s *Session) audit(kind uint16, detail string) {
 	}
 	if err := s.d.Store.RecordAction(kind, detail); err != nil {
 		s.gap(err)
+	}
+}
+
+// auditKeptTails records each torn tail the store's open kept beside its file.
+func (s *Session) auditKeptTails() {
+	for _, k := range s.d.Store.KeptAside() {
+		s.audit(consts.AuditActionTailKept, k.String())
 	}
 }
 

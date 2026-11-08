@@ -20,7 +20,7 @@ func tombstoneOf(t *testing.T, s *Store, id, owner uint64) {
 	if e.Payload.IsZero() {
 		t.Fatalf("event %d has no payload to tombstone", id)
 	}
-	if err := s.payloads.Redact(owner, e.Payload); err != nil {
+	if err := s.payloadLog().Redact(owner, e.Payload); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -141,7 +141,7 @@ func TestHydrateSaysWhyAPayloadIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.payloads.Read(e.Payload); errors.As(err, &red) {
+	if _, err := s.payloadLog().Read(e.Payload); errors.As(err, &red) {
 		t.Fatal("the neighbour's payload reads as redacted")
 	}
 }

@@ -129,10 +129,10 @@ func (s *Store) Inventory() (Inventory, error) {
 // It is exposed here rather than by handing the payload store out, because the store is this
 // package's to own — the caller needs a number, not a writer.
 func (s *Store) PayloadSize() uint64 {
-	if s.payloads == nil {
+	if s.payloadLog() == nil {
 		return 0
 	}
-	return s.payloads.Size()
+	return s.payloadLog().Size()
 }
 
 // zeroTimestamp is how a zero time.Time marshals. Comparing against it is cheaper than parsing

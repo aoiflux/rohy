@@ -2564,7 +2564,11 @@ The invariants, each a test:
 - **Nothing is lost to a failed open.** A strict open that fails leaves the store closed and offers
   recovery; closing the window at the session step opens nothing and seals nothing.
 - **A read-only session writes nothing** — not the case, not its sidecars, not the audit log, not a
-  damaged seal history moved aside (`custody.OpenDeferred`); the image check still runs.
+  damaged seal history moved aside (`custody.OpenDeferred`); the image check still runs. The engine
+  and the payload log open read-only, because a writable open repairs the case as it opens it (it
+  cuts crash-torn tails). Unlocking the key mid-session therefore reopens the case writable
+  (`Store.Unlock`, under the case lock held alone); a reopen the engine refuses leaves the session
+  read-only, with its own slot still locked.
 - **The audit log holds no evidence.** rohy's entries are ids, counts and the analyst's reasons; a
   test searches the file for an ingested needle.
 - **No secret reaches the log.** Passphrases cross one struct argument; the key bindings recover
@@ -3162,9 +3166,14 @@ Added with v0.3.0:
   histogram has left, and its columns no longer sit over the histogram's.
 - **`sealMu` is a plain mutex, not re-entrant.** A function documented "called under sealMu"
   that takes it again deadlocks the seal, the checkpoint and the integrity check together.
-- **The engine's three files can end torn.** `graphene.audit`, `graphene.redactions` and
-  `graphene.checkpoints` are appended after whatever is there, so rohy checks the last record is
-  whole before an append; a torn tail would misframe every record after it.
+- **The engine's append-only files can end torn, and rohy keeps the tail.** Since graphene v0.10 a
+  writable open cuts every one of them (`graphene.wal`, `.audit`, `.checkpoints`, `.redactions`,
+  `.grants`) back to its last whole record and audits a digest of the cut, keeping nothing else.
+  Before the open, rohy copies each tail beside its file as `<file>.torn-<UTC>`
+  (`graphene_torntail.go`): the audit log and the checkpoint chain, which it can frame, are cut by
+  rohy first, and the rest are saved and compared after the open. Each kept tail is audited
+  (`AuditActionTailKept`), and `TestTheKeptTailIsTheOneTheEngineRecorded` pins that the engine's
+  digest is the digest of the copy.
 - **`eventproof` mirrors graphene's leaf layout**, which graphene does not export.
   `TestLeafLayoutMatchesGraphene` is what notices if an upgrade changes it; upgrading graphene
   without running it can accept or refuse a proof wrongly.

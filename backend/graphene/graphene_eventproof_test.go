@@ -251,14 +251,15 @@ func TestProvingANodeThatIsNotAnEventIsAnError(t *testing.T) {
 // events point at lies beyond its end — what a truncated or damaged payloads.log reads as.
 func unreadablePayloads(t *testing.T, s *Store) *payload.Store {
 	t.Helper()
-	orig := s.payloads
-	empty := payload.OpenInMemory()
-	s.payloads = empty
+	orig := s.cur.Load()
+	swapped := *orig
+	swapped.payloads = payload.OpenInMemory()
+	s.cur.Store(&swapped)
 	t.Cleanup(func() {
-		_ = empty.Close()
-		s.payloads = orig
+		_ = swapped.payloads.Close()
+		s.cur.Store(orig)
 	})
-	return empty
+	return swapped.payloads
 }
 
 // A raw record that cannot be read is damage, the same as one that reads and does not match its

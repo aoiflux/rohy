@@ -1,32 +1,39 @@
 package graphene
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"rohy/backend/consts"
 	"rohy/backend/payload"
 
 	"github.com/aoiflux/graphene"
+	"github.com/aoiflux/graphene/signing"
 	"github.com/aoiflux/graphene/store"
 )
 
 // Store is rohy's persistence facade over a graphene graph. It is the only
 // type the rest of the backend uses to read and write events and relations.
 type Store struct {
-	g   *graphene.Graph
 	dir string // empty for the in-memory store
 	// inMemory selects the in-memory backend when the store is first opened.
 	inMemory bool
+
+	// cur is the open: the engine, the payload log and the posture they were opened under. A reopen
+	// replaces it whole (Reopen), so a reader that loaded it holds one consistent open.
+	cur atomic.Pointer[caseOpen]
 
 	// The open. It is deferred until first use, so the application can show its window before
 	// paying for a WAL replay, and — for the application's store — until a session has fixed the
 	// posture (OpenAwaitingSession), because graphene takes the signer and the actor at open.
 	//
-	// ready is the happens-before edge that makes reading g lock-free once ensure() has returned:
-	// it is stored after g, under openMu, and loaded first by every reader.
+	// ready is set once cur has been stored, under openMu, and loaded first by every reader.
 	//
 	// A failed open is kept only for a lazy store, which has no other way to report it. A session's
 	// open can be tried again with another posture: nothing is kept from a failed attempt.
@@ -46,13 +53,36 @@ type Store struct {
 	// a filter does not rescan and re-sort the whole matching set for every page. Any
 	// write invalidates it (see bumpVersion).
 	order orderCache
-	// payloads holds the bulky per-event fields outside the graph, because the graph keeps
-	// its records resident. Opened alongside the graph so the two share a lifetime.
-	payloads *payload.Store
-	// forensic is the integrity posture this case was opened under (graphene_forensics.go).
-	// The zero value is the engine's permissive default, which is what every existing case
-	// already gets — see WithVerifyOnOpen for why that stays the default.
+	// forensic is the integrity posture this case is to be opened under (graphene_forensics.go);
+	// once it is open, the posture in force is cur's. The zero value is the engine's permissive
+	// default, which is what every existing case already gets — see WithVerifyOnOpen for why that
+	// stays the default.
 	forensic forensicOptions
+}
+
+// caseOpen is one open of the case. A reopen replaces it whole: a reader holds either the old open
+// or the new one, with the posture that open was made under, and never half of each.
+type caseOpen struct {
+	g *graphene.Graph
+	// payloads holds the bulky per-event fields outside the graph, because the graph keeps its
+	// records resident. Opened alongside the graph so the two share a lifetime.
+	payloads *payload.Store
+	posture  Posture
+	// readOnly is why this open cannot write, or nil. It is decided at the open and does not
+	// change with it: a key unlocked later does not make a read-only open writable (Unlock).
+	readOnly error
+	// kept is every torn tail this open kept aside on the way in (graphene_torntail.go).
+	kept []KeptTail
+}
+
+// close closes the payload log first: it is written before the events that reference it, so it is
+// flushed before them too.
+func (o *caseOpen) close() error {
+	if err := o.payloads.Close(); err != nil {
+		o.g.Close()
+		return err
+	}
+	return o.g.Close()
 }
 
 // Open opens (creating if necessary) a disk-backed store rooted at dir, eagerly. The WAL
@@ -105,10 +135,76 @@ func (s *Store) BeginSession(p Posture) error {
 		return err
 	}
 	s.forensic.posture = p
-	if err := s.openLocked(); err != nil {
+	if err := s.openLocked(p); err != nil {
 		return err
 	}
 	close(s.session)
+	return nil
+}
+
+// ErrNotOpen is a reopen of a store that is not open.
+var ErrNotOpen = errors.New("the case is not open")
+
+// Reopen closes the case and opens it again under p. It is how a session that began read-only
+// becomes writable: a read-only open holds a shared lock and cannot write, and only a new open
+// lifts that. If the open under p fails, the case is opened again under the posture it had and the
+// error is returned, so a refused reopen leaves the session as it was.
+//
+// 🔒 The caller holds every writer off for the duration (the API takes the case's exclusive lock).
+// A read in flight finishes on the old open, which the engine's Close waits for, and a read that
+// reaches the old open after it closed is refused with store.ErrClosed: never a crash, never a
+// stale answer.
+func (s *Store) Reopen(p Posture) error {
+	if err := p.validate(); err != nil {
+		return err
+	}
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	old := s.cur.Load()
+	if old == nil || s.closed || s.inMemory {
+		return ErrNotOpen
+	}
+	defer s.bumpVersion() // nothing cached from the old open outlives it
+	if err := old.close(); err != nil {
+		return err
+	}
+	err := s.openLocked(p)
+	if err == nil {
+		s.forensic.posture = p
+		return nil
+	}
+	if rerr := s.openLocked(old.posture); rerr != nil {
+		s.closed = true
+		return errors.Join(err, rerr)
+	}
+	return err
+}
+
+// Unlock makes a signed session that began with its key locked writable under key, by reopening the
+// case: its open is read-only, and only a new open lifts that. The new posture carries a fresh slot
+// holding key, and the session's own slot is left locked, so a refused reopen falls back to exactly
+// the read-only session it was.
+func (s *Store) Unlock(key *signing.Key) error {
+	p := s.posture()
+	if p.Mode != consts.CaseModeSigned || p.Slot == nil {
+		return fmt.Errorf("%w: a %s session has no key to unlock", ErrReadOnly, p.Mode)
+	}
+	if s.Writable() == nil {
+		return nil
+	}
+	slot := NewKeySlot(p.Slot.KeyID())
+	if err := slot.Unlock(key); err != nil {
+		return err
+	}
+	p.Slot = slot
+	return s.Reopen(p)
+}
+
+// KeptAside is every torn tail the current open kept beside its file, for the session to record.
+func (s *Store) KeptAside() []KeptTail {
+	if o := s.cur.Load(); o != nil {
+		return slices.Clone(o.kept)
+	}
 	return nil
 }
 
@@ -159,31 +255,72 @@ func (s *Store) ensure() error {
 	}
 	if !s.attempted {
 		s.attempted = true
-		s.openErr = s.openLocked()
+		s.openErr = s.openLocked(s.forensic.posture)
 	}
 	return s.openErr
 }
 
-// openLocked opens the graph under the store's posture, then the payload log. On failure nothing is
-// left open. Caller holds openMu.
-func (s *Store) openLocked() error {
+// openLocked opens the graph under p, then the payload log. On failure nothing is left open.
+// Caller holds openMu.
+//
+// A posture that cannot write opens both read-only, so the session changes nothing on disk. One
+// that can keeps every torn tail the engine is about to cut beside its file first.
+func (s *Store) openLocked(p Posture) error {
 	if s.inMemory {
-		s.g = graphene.NewInMemory()
-		s.payloads = payload.OpenInMemory()
+		s.cur.Store(&caseOpen{g: graphene.NewInMemory(), payloads: payload.OpenInMemory(), posture: p})
 		s.ready.Store(true)
 		return nil
 	}
-	g, err := s.openGraph()
+	readOnlyErr := p.writable()
+	readOnly := readOnlyErr != nil
+	var guard *tailGuard
+	if !readOnly {
+		var err error
+		if guard, err = guardTornTails(s.dir, time.Now()); err != nil {
+			return err
+		}
+	}
+	g, err := graphene.OpenWithOptions(s.dir, p.diskOptions(s.forensic.verifyOnOpen))
 	if err != nil {
+		if guard != nil {
+			guard.discard()
+		}
 		return err
 	}
-	p, err := payload.Open(filepath.Join(s.dir, consts.PayloadDirName))
+	var kept []KeptTail
+	if guard != nil {
+		if kept, err = guard.settle(); err != nil {
+			g.Close()
+			return err
+		}
+	}
+	openPayloads := payload.Open
+	if readOnly {
+		openPayloads = payload.OpenReadOnly
+	}
+	pl, err := openPayloads(filepath.Join(s.dir, consts.PayloadDirName))
 	if err != nil {
 		g.Close()
 		return err
 	}
-	s.g, s.payloads = g, p
+	s.cur.Store(&caseOpen{g: g, payloads: pl, posture: p, readOnly: readOnlyErr, kept: kept})
 	s.ready.Store(true)
+	return nil
+}
+
+// posture is the posture the store is open under, or, before it opens, the one it will open under.
+func (s *Store) posture() Posture {
+	if o := s.cur.Load(); o != nil {
+		return o.posture
+	}
+	return s.forensic.posture
+}
+
+// payloadLog is the open's payload log, or nil before the store opens.
+func (s *Store) payloadLog() *payload.Store {
+	if o := s.cur.Load(); o != nil {
+		return o.payloads
+	}
 	return nil
 }
 
@@ -225,7 +362,7 @@ func (s *Store) graph() (*graphene.Graph, error) {
 	if err := s.ensure(); err != nil {
 		return nil, err
 	}
-	return s.g, nil
+	return s.cur.Load().g, nil
 }
 
 // nodeEventType is the node label events are stored under; a tiny helper so the ordering
@@ -247,25 +384,18 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
-	// Close the payload log first: it is written before the events that reference it, so it
-	// is flushed before them too.
-	if s.payloads != nil {
-		if err := s.payloads.Close(); err != nil {
-			s.g.Close()
-			return err
-		}
-	}
-	return s.g.Close()
+	return s.cur.Load().close()
 }
 
 // hydrate loads an event's cold fields from the payload store. Callers that return a SINGLE
 // event use it; list queries deliberately do not, because hydrating a page of rows is
 // exactly the cost this store exists to avoid.
 func (s *Store) hydrate(e *Event) error {
-	if e == nil || s.payloads == nil || e.Payload.IsZero() {
+	pl := s.payloadLog()
+	if e == nil || pl == nil || e.Payload.IsZero() {
 		return nil
 	}
-	blob, err := s.payloads.Read(e.Payload)
+	blob, err := pl.Read(e.Payload)
 	var red *payload.RedactedError
 	switch {
 	case errors.As(err, &red) && red.Owner != e.ID && red.Version == consts.PayloadTombstoneVersion:
@@ -393,7 +523,7 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 	// them. A crash between the two leaves payload bytes nothing points at — wasted space,
 	// reclaimed by rebuilding. The opposite order would leave events pointing at payloads
 	// that were never written, which cannot be recovered from.
-	if s.payloads != nil {
+	if pl := s.payloadLog(); pl != nil {
 		blobs := make([][]byte, len(events))
 		for i, e := range events {
 			b, err := e.encodePayload()
@@ -402,11 +532,11 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 			}
 			blobs[i] = b
 		}
-		refs, err := s.payloads.AppendBatch(blobs)
+		refs, err := pl.AppendBatch(blobs)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.payloads.Sync(); err != nil {
+		if err := pl.Sync(); err != nil {
 			return nil, err
 		}
 		for i := range events {
@@ -529,19 +659,16 @@ func (s *Store) InsertRelations(rels []*Relation) ([]uint64, error) {
 // relation's own: callers read the relation, change it and write it back, and a transaction's update
 // writes the endpoints it is given (TestATransactionUpdateKeepsARelationsEndpoints pins it).
 //
-// The record is replaced in one attributed commit, then its index entries are purged and registered
-// again. The plain update leaves the index alone under the default reindex policy, so an edited
-// relation would keep matching its previous indexed values — and graph_id is one of those values, so
-// a relation moved between graphs would still be found under the old graph. Index entries cannot be
-// part of a commit, so between the commit and the re-registration the relation briefly matches
-// nothing by its indexed values; it never matches stale ones once this returns.
+// The record and its whole set of index entries are replaced in one attributed commit. graph_id is
+// one of those entries, so a relation moved between graphs is found under the new graph and never
+// under the old one, and there is no moment at which it matches nothing.
 func (s *Store) UpdateRelation(r *Relation) error {
 	_, err := s.updateRelations([]*Relation{r})
 	return err
 }
 
-// updateRelations replaces every relation in one commit, then re-registers their index entries.
-// Returns how many were re-indexed, which on error is how far the index pass got.
+// updateRelations replaces every relation, record and index entries together, in one commit.
+// Returns how many were replaced: all of them, or none on error.
 func (s *Store) updateRelations(rels []*Relation) (int, error) {
 	defer s.bumpVersion()
 	if len(rels) == 0 {
@@ -559,21 +686,10 @@ func (s *Store) updateRelations(rels []*Relation) (int, error) {
 			return 0, err
 		}
 		edge.ID = store.EdgeID(r.ID)
-		tx.UpdateEdge(edge)
+		tx.UpdateEdgeIndexed(edge, r.indexValues())
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
-	}
-	reindexer, canPurge := g.GraphStore.(store.Reindexer)
-	for i, r := range rels {
-		if canPurge {
-			if err := reindexer.PurgeEdgeIndex(store.EdgeID(r.ID)); err != nil {
-				return i, err
-			}
-		}
-		if err := g.IndexEdgeProperties(store.EdgeID(r.ID), r.indexValues()); err != nil {
-			return i, err
-		}
 	}
 	return len(rels), nil
 }
@@ -614,8 +730,7 @@ func (s *Store) DeleteEvent(id uint64) error {
 // IncrementDedupCounts adds each delta to the deduplication_count of an existing
 // event node. It is a read-modify-write per node, applied over a caller-sized map so
 // no single write becomes a large transaction (the ingestion sink flushes these in
-// bounded batches). Non-positive deltas and missing ids are skipped; the secondary
-// index is untouched because deduplication_count is not indexed.
+// bounded batches). Non-positive deltas and missing ids are skipped.
 func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 	defer s.bumpVersion() // occurrence counts drive the min-occurrences filter
 	g, err := s.graph()
@@ -657,6 +772,7 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 		if err != nil {
 			return err
 		}
+		indexed := e.indexValues()
 		// Attribute each occurrence to the source it came from. AddSourceOccurrence keeps
 		// DeduplicationCount as the sum, so the total and the breakdown cannot drift apart
 		// and no occurrence is counted twice.
@@ -668,12 +784,27 @@ func (s *Store) IncrementDedupCounts(deltas map[uint64]map[string]int) error {
 			return err
 		}
 		updated.ID = n.ID
-		// deduplication_count and source_counts are not indexed keys, so no index entry
-		// needs replacing alongside the record — which is what lets these updates live in a
-		// transaction, since index registration is not part of a commit.
-		tx.UpdateNode(updated)
+		tx.UpdateNodePartialIndex(updated, indexChanges(indexed, e))
 	}
 	return tx.Commit()
+}
+
+// indexChanges returns the index entries of e that differ from before: exactly what an update of
+// the record must re-register. An ordinary update is refused on an indexed entity, and re-registering
+// every key would rewrite entries that did not move; naming only the changed ones keeps an update
+// correct when a field it touches becomes indexed later.
+func indexChanges(before map[string][]byte, e *Event) map[string][]byte {
+	var changed map[string][]byte
+	for k, v := range e.indexValues() {
+		if old, ok := before[k]; ok && bytes.Equal(old, v) {
+			continue
+		}
+		if changed == nil {
+			changed = map[string][]byte{}
+		}
+		changed[k] = v
+	}
+	return changed
 }
 
 // MigrateRelationsToGraph assigns graphID to every relation that has no graph yet

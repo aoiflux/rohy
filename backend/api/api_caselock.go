@@ -117,6 +117,13 @@ func (l *caseLock) exclusive(what string) (func(), error) {
 	if err := l.writable(); err != nil {
 		return nil, err
 	}
+	return l.alone(what)
+}
+
+// alone takes the lock alone without asking whether the case can write. A key unlock takes it to
+// reopen a read-only case writable, which it cannot be beforehand by definition; holding everything
+// else off is the same need either way.
+func (l *caseLock) alone(what string) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.sole != "" {

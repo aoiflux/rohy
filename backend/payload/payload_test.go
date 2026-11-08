@@ -2,8 +2,12 @@ package payload
 
 import (
 	"bytes"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"rohy/backend/consts"
 )
 
 func TestAppendReadRoundTrip(t *testing.T) {
@@ -176,5 +180,58 @@ func TestLogFileIsWhereExpected(t *testing.T) {
 	}
 	if _, err := filepath.Glob(filepath.Join(dir, "*.log")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// 🔒 A read-only open leaves the case as it found it: it creates no log where there is none, reads
+// the one there is, refuses every write, and closes without flushing a handle it never wrote.
+func TestAReadOnlyLogWritesNothing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "payloads")
+	s, err := OpenReadOnly(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append([]byte("x")); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("a write to an absent read-only log: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a read-only open created the log's directory: %v", err)
+	}
+
+	dir := t.TempDir()
+	w, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := w.Append([]byte("<Event/>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(dir, consts.PayloadLogFile))
+
+	r, err := OpenReadOnly(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.Read(ref); err != nil || !bytes.Equal(got, []byte("<Event/>")) {
+		t.Fatalf("read %q, %v", got, err)
+	}
+	if _, err := r.Append([]byte("y")); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("an append: %v", err)
+	}
+	if err := r.Redact(1, ref); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("a redaction: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("closing a read-only log: %v", err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, consts.PayloadLogFile)); !bytes.Equal(before, after) {
+		t.Fatal("a read-only open changed the log")
 	}
 }

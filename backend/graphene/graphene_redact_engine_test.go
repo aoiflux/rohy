@@ -36,12 +36,12 @@ func hashOf(t *testing.T, s *Store, id uint64) string {
 	return e.HashNormalized
 }
 
-// bare overwrites an event node with an empty record, as nothing in rohy does: the shape a
-// redaction leaves, without the ledger record that makes it one.
+// bare overwrites an event node with an empty record and no index entries, as nothing in rohy does:
+// the shape a redaction leaves, without the ledger record that makes it one.
 func bare(t *testing.T, s *Store, id uint64) {
 	t.Helper()
 	g, _ := s.graph()
-	if err := g.UpdateNode(&store.Node{ID: store.NodeID(id), Labels: []store.NodeType{consts.NodeEvent}}); err != nil {
+	if err := g.UpdateNodeIndexed(&store.Node{ID: store.NodeID(id), Labels: []store.NodeType{consts.NodeEvent}}, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -229,11 +229,11 @@ func TestPayloadCopiesFindsOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, err := s.payloads.Read(sub.Payload)
+	own, err := s.payloadLog().Read(sub.Payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	orphan, err := s.payloads.Append(own)
+	orphan, err := s.payloadLog().Append(own)
 	if err != nil {
 		t.Fatal(err)
 	}

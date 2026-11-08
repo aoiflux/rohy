@@ -116,28 +116,18 @@ func (s *Store) ReadyCheckpointChain(now time.Time) (aside string, next uint64, 
 	if _, err := s.forensics(); err != nil {
 		return "", 0, err
 	}
-	path := filepath.Join(s.dir, consts.CheckpointFile)
-	data, err := os.ReadFile(path)
+	chain, err := disk.ReadCheckpoints(s.dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", 1, nil
 	}
 	if err != nil {
 		return "", 0, err
 	}
-	chain, err := disk.ReadCheckpoints(s.dir)
-	if err != nil {
-		return "", 0, err
-	}
 	if err := disk.VerifyCheckpointChain(chain); err != nil {
 		return "", 0, fmt.Errorf("%w: "+consts.MsgCheckpointChainBroken, ErrCheckpointChainBroken, err)
 	}
-	next = uint64(len(chain)) + 1
-	end := len(data) - len(data)%checkpointRecordBytes
-	if end == len(data) {
-		return "", next, nil
-	}
-	aside, err = keepTailAside(path, data, int64(end), now)
-	return aside, next, err
+	aside, _, err = keepCheckpointTailAside(s.dir, now)
+	return aside, uint64(len(chain)) + 1, err
 }
 
 // ErrNoCheckpoint is a checkpoint number the chain does not hold.

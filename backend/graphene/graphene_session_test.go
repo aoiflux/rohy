@@ -2,9 +2,11 @@ package graphene
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 
 	"rohy/backend/consts"
+	"rohy/backend/payload"
 )
 
 const testActor = 4242
@@ -140,7 +143,7 @@ func TestASignedSessionAttestsItsSealsAndSignsItsCommits(t *testing.T) {
 	if err := s.Writable(); !errors.Is(err, ErrReadOnly) {
 		t.Fatalf("a locked signed session is writable: %v", err)
 	}
-	if err := p.Slot.Unlock(key); err != nil {
+	if err := s.Unlock(key); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Writable(); err != nil {
@@ -179,8 +182,8 @@ func TestASignedSessionAttestsItsSealsAndSignsItsCommits(t *testing.T) {
 	}
 }
 
-// 🔒 A locked key: the engine itself refuses a signed batch and a seal, so nothing unsigned is
-// written by a case that signs.
+// 🔒 A locked key opens the case read-only: the engine itself refuses a batch and a seal, so
+// nothing unsigned is written by a case that signs.
 func TestALockedKeyRefusesBatchesAndSeals(t *testing.T) {
 	s := OpenAwaitingSession(t.TempDir())
 	defer s.Close()
@@ -190,11 +193,72 @@ func TestALockedKeyRefusesBatchesAndSeals(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, _ := s.graph()
-	if _, err := g.AddNodes([]*store.Node{{Labels: []store.NodeType{consts.NodeEvent}}}); !errors.Is(err, ErrKeyLocked) {
+	if _, err := g.AddNodes([]*store.Node{{Labels: []store.NodeType{consts.NodeEvent}}}); !errors.Is(err, disk.ErrReadOnly) {
 		t.Fatalf("a batch with the key locked: %v", err)
 	}
-	if err := s.Compact(); !errors.Is(err, ErrKeyLocked) {
+	if err := s.Compact(); !errors.Is(err, disk.ErrReadOnly) {
 		t.Fatalf("a seal with the key locked: %v", err)
+	}
+}
+
+// 🔒 A read-only open stays read-only until the case is reopened: unlocking the session's slot in
+// place does not make it writable, because the engine under it cannot write.
+func TestUnlockingTheSlotInPlaceDoesNotMakeTheOpenWritable(t *testing.T) {
+	s := OpenAwaitingSession(t.TempDir())
+	defer s.Close()
+	p, key := signedPosture(t)
+	p.Enabling = true
+	if err := s.BeginSession(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Slot.Unlock(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Writable(); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("an open made read-only reports itself writable: %v", err)
+	}
+}
+
+// 🔒 A reopen the engine refuses leaves the session as it was: read-only, readable, and its own slot
+// still locked. Another reader holding the case is what refuses it here: a writer needs the case
+// alone.
+func TestARefusedUnlockLeavesTheSessionReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	seed := OpenAwaitingSession(dir)
+	if err := seed.BeginSession(Posture{Mode: consts.CaseModeUnsigned, Actor: testActor}); err != nil {
+		t.Fatal(err)
+	}
+	a := oneEvent(t, seed, "a")
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	p, key := signedPosture(t)
+	p.Enabling = true
+	s := OpenAwaitingSession(dir)
+	defer s.Close()
+	if err := s.BeginSession(p); err != nil {
+		t.Fatal(err)
+	}
+	other := OpenAwaitingSession(dir)
+	defer other.Close()
+	q, _ := signedPosture(t)
+	q.Enabling = true // the seed's commits predate signing
+	if err := other.BeginSession(q); err != nil {
+		t.Fatalf("a second reader: %v", err)
+	}
+
+	if err := s.Unlock(key); !errors.Is(err, disk.ErrStoreLocked) {
+		t.Fatalf("an unlock while another reader holds the case: %v", err)
+	}
+	if err := s.Writable(); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("after a refused unlock the session is writable: %v", err)
+	}
+	if p.Slot.Unlocked() {
+		t.Fatal("a refused unlock left the session's own slot unlocked")
+	}
+	if _, err := s.GetEvent(a); err != nil {
+		t.Fatalf("after a refused unlock the case does not read: %v", err)
 	}
 }
 
@@ -319,7 +383,7 @@ func signedSession(t *testing.T, dir string, p Posture, key *signing.Key) *Store
 	if err := s.BeginSession(p); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Slot.Unlock(key); err != nil {
+	if err := s.Unlock(key); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -383,5 +447,67 @@ func TestASignedSealNamesTheSignedSealBeforeIt(t *testing.T) {
 	third, _ := s.SealSignature(p.Verifier)
 	if third.Prev != "" {
 		t.Fatalf("after an unsigned seal the next names %q: the gap would not show", third.Prev)
+	}
+}
+
+// 🔒 A reopen under readers: every read either answers from a whole open or is refused as closed.
+// None crashes, and none reads a half-swapped store (run under -race in CI).
+func TestReadsDuringAnUnlockAnswerOrAreRefusedAsClosed(t *testing.T) {
+	dir := t.TempDir()
+	seed := OpenAwaitingSession(dir)
+	if err := seed.BeginSession(Posture{Mode: consts.CaseModeUnsigned, Actor: testActor}); err != nil {
+		t.Fatal(err)
+	}
+	id := oneEvent(t, seed, "a")
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	p, key := signedPosture(t)
+	p.Enabling = true
+	s := OpenAwaitingSession(dir)
+	defer s.Close()
+	if err := s.BeginSession(p); err != nil {
+		t.Fatal(err)
+	}
+
+	stop := make(chan struct{})
+	errs := make(chan error, 8)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				e, err := s.GetEvent(id)
+				switch {
+				case errors.Is(err, store.ErrClosed), errors.Is(err, payload.ErrClosed):
+				case err != nil:
+					errs <- err
+					return
+				case e.HashNormalized != "hn-a":
+					errs <- fmt.Errorf("read %q", e.HashNormalized)
+					return
+				}
+				_ = s.Writable()
+			}
+		}()
+	}
+	if err := s.Unlock(key); err != nil {
+		t.Fatal(err)
+	}
+	close(stop)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("a read during the unlock: %v", err)
+	}
+	if err := s.Writable(); err != nil {
+		t.Fatalf("after the unlock: %v", err)
 	}
 }

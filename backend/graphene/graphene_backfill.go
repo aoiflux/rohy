@@ -211,6 +211,7 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 			res.Redacted++
 			continue
 		}
+		indexed := e.indexValues()
 		e.ComputeCorrelationKeys()
 
 		updated, err := e.toNode()
@@ -218,7 +219,7 @@ func (s *Store) backfillBatch(g *graphene.Graph, ids []store.NodeID) (BackfillRe
 			return res, err
 		}
 		updated.ID = n.ID
-		tx.UpdateNode(updated)
+		tx.UpdateNodePartialIndex(updated, indexChanges(indexed, e))
 		pending++
 	}
 

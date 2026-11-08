@@ -131,8 +131,9 @@ func TestAnAuditEntryMovesOnlyTheAuditHead(t *testing.T) {
 	}
 }
 
-// 🔒 A torn tail is kept aside before the next checkpoint, or that checkpoint would be read back out
-// of alignment and its digest never found.
+// 🔒 A torn tail that appears during a session is kept aside before the next checkpoint. The engine
+// would cut it on its own before appending (TestTheEngineCutsATornTailAndKeepsNoneOfIt), and keep
+// nothing of it.
 func TestATornChainIsKeptAsideBeforeTheNextCheckpoint(t *testing.T) {
 	s, dir := sealedWithOne(t)
 	publishOne(t, s)
@@ -166,12 +167,14 @@ func TestATornChainIsKeptAsideBeforeTheNextCheckpoint(t *testing.T) {
 	}
 }
 
-// Pins what the keep-aside guards against: the engine appends after a torn tail, and the checkpoint
-// it just recorded is then lost to every reader.
-func TestTheEngineLosesACheckpointAppendedAfterATornTail(t *testing.T) {
+// Pins what the keep-aside is for. The engine cuts a torn tail before it appends, so the checkpoint
+// after it is found — and the cut bytes are gone, with nothing kept. If the engine ever keeps them
+// itself, rohy's copy may be unnecessary.
+func TestTheEngineCutsATornTailAndKeepsNoneOfIt(t *testing.T) {
 	s, dir := sealedWithOne(t)
 	publishOne(t, s)
-	f, err := os.OpenFile(filepath.Join(dir, consts.CheckpointFile), os.O_WRONLY|os.O_APPEND, 0)
+	path := filepath.Join(dir, consts.CheckpointFile)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,8 +186,14 @@ func TestTheEngineLosesACheckpointAppendedAfterATornTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, state, _ := histories(t, s).Find(c.Digest); state == consts.CheckpointFound {
-		t.Fatal("the engine now reads past a torn tail: the keep-aside may be unnecessary")
+	if _, state, _ := histories(t, s).Find(c.Digest); state != consts.CheckpointFound {
+		t.Fatalf("the checkpoint after a torn tail: %s", state)
+	}
+	if b, _ := os.ReadFile(path); len(b)%checkpointRecordBytes != 0 {
+		t.Fatalf("the engine left the torn tail in place: %d bytes", len(b))
+	}
+	if kept, _ := filepath.Glob(path + ".torn-*"); len(kept) != 0 {
+		t.Fatalf("the engine kept the tail itself: %v", kept)
 	}
 }
 

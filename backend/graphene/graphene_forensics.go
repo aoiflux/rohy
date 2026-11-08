@@ -33,13 +33,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 
 	"rohy/backend/consts"
 	"rohy/backend/eventproof"
 	"rohy/backend/payload"
 
-	"github.com/aoiflux/graphene"
 	"github.com/aoiflux/graphene/disk"
 	"github.com/aoiflux/graphene/merkle"
 	"github.com/aoiflux/graphene/store"
@@ -200,30 +200,6 @@ type forensicOptions struct {
 	posture Posture
 }
 
-// diskOptions renders the posture as engine options.
-//
-// The redaction ledger is always on (item 40). It is not a posture an analyst chooses: without it
-// the engine refuses every attributed removal, and the only removal left is the unattributed
-// DeleteNode. Turning it on creates an empty ledger file and changes nothing else about how a case
-// loads — an absent ledger and an empty one read the same everywhere the engine reads one.
-//
-// The audit log is on too (item 41), for the same reason: it creates an empty file, and every seal,
-// redaction and rohy action after that is recorded. Retention stays off: a retained log segment keeps
-// the records a redaction removed (TestSpikeRetentionKeepsWhatARedactionRemoved).
-func (o forensicOptions) diskOptions() disk.Options {
-	return o.posture.diskOptions(o.verifyOnOpen)
-}
-
-// openGraph opens the disk-backed graph under this store's posture.
-//
-// Until item 40 the default posture took the plain Open, so adopting forensics could not change how
-// an untouched case loaded. The ledger ends that: every case now opens with options. The engine's
-// plain Open is OpenWithOptions with zero options, and TestAnExistingCaseOpensUnchangedWithTheLedger
-// pins that a case written without the ledger loads to the same roots with it.
-func (s *Store) openGraph() (*graphene.Graph, error) {
-	return graphene.OpenWithOptions(s.dir, s.forensic.diskOptions())
-}
-
 // WithVerifyOnOpen asks for the image to be re-derived at every open, and returns the receiver so
 // it can be chained at construction. It must be called BEFORE first use; the posture is read once,
 // when the store opens.
@@ -347,33 +323,28 @@ func (s *Store) Unsealed() (bool, error) {
 // This is the expensive, honest check, and it is proportional to the file. It opens no store and
 // needs no key: both underlying calls read the image directly.
 //
+// 🔒 It must not open the store, because the image it checks is the one an open would load. The
+// image carries the property index, so a damaged image is refused at open, and a check reached
+// through the open could never report the damage it exists to find.
+//
 // 🔒 What a match establishes, and the UI must say no more than this: the file has not changed
 // since it was written. It does NOT establish who wrote it — anyone who can rewrite the body can
 // rewrite the digest. It becomes tamper detection only for someone comparing Computed against a
 // digest they retained independently.
 func (s *Store) VerifyImage() (ImageCheck, error) {
-	if _, err := s.forensics(); err != nil {
-		return ImageCheck{}, err
+	if s.inMemory {
+		return ImageCheck{}, ErrForensicsUnavailable
 	}
 
-	// Probe for an image before reading one. Asking the engine for the roots is the exact
-	// question ("is there a compacted image?"), where inspecting the filesystem would be a guess
-	// at a filename the engine owns — and a missing file would arrive as an IO error, which reads
-	// as damage rather than as a case nobody has compacted yet.
-	roots, err := s.SnapshotRoots()
-	if err != nil {
-		return ImageCheck{}, err
-	}
-	if roots == nil {
-		return ImageCheck{Digest: DigestNoImage}, nil
-	}
-
-	out := ImageCheck{}
 	status, computed, err := disk.VerifyCSRDigest(s.dir)
-	if err != nil {
-		return out, err
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// No image file: nobody has compacted this case yet. Reported as that, not as damage.
+		return ImageCheck{Digest: DigestNoImage}, nil
+	case err != nil:
+		return ImageCheck{}, err
 	}
-	out.Computed = hex.EncodeToString(computed[:])
+	out := ImageCheck{Computed: hex.EncodeToString(computed[:])}
 
 	switch status {
 	case disk.DigestMatch:
@@ -402,7 +373,7 @@ func (s *Store) ForensicStatus() ForensicStatus {
 		return ForensicStatus{Available: false, Reason: err.Error()}
 	}
 
-	p := s.forensic.posture
+	p := s.posture()
 	opts := p.diskOptions(s.forensic.verifyOnOpen)
 	st := ForensicStatus{
 		Available:    true,

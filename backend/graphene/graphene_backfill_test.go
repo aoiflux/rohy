@@ -199,8 +199,8 @@ func TestBackfillLeavesUnreadablePayloadsUnstamped(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	node.ID = store.NodeID(broken.ID)
-	tx := s.g.Begin()
-	tx.UpdateNode(node)
+	tx := s.cur.Load().g.Begin()
+	tx.UpdateNodePartialIndex(node, nil) // the payload reference is not indexed
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestABackfillBatchThatFailsPartWayCountsNothingProjected(t *testing.T) {
 
 	legacyEvent(t, s, "q1", map[string]string{"TargetLogonId": "0x3E7"})
 	// An event record that cannot be decoded, after one that can be projected in the same batch.
-	if _, err := s.g.AddNodes([]*store.Node{{Labels: []store.NodeType{consts.NodeEvent}, Properties: []byte("{")}}); err != nil {
+	if _, err := s.cur.Load().g.AddNodes([]*store.Node{{Labels: []store.NodeType{consts.NodeEvent}, Properties: []byte("{")}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 

@@ -6,7 +6,7 @@ require github.com/wailsapp/wails/v2 v2.13.0
 
 require (
 	github.com/Velocidex/ordereddict v0.0.0-20261028034010-6857b08b4dab
-	github.com/aoiflux/graphene v0.4.0
+	github.com/aoiflux/graphene v0.10.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.62.0
@@ -54,4 +54,3 @@ require (
 	www.velocidex.com/golang/binparsergen v0.1.1-0.20201101234514-bbdb29f9ee31 // indirect
 	www.velocidex.com/golang/go-pe v0.1.1-0.20211006062218-8f6d1ad6b2d5 // indirect
 )
-

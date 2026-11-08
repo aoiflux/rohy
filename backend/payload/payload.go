@@ -54,6 +54,9 @@ import (
 // compare message text.
 var ErrClosed = errors.New(consts.MsgPayloadClosed)
 
+// ErrReadOnly is a write to a log opened by OpenReadOnly.
+var ErrReadOnly = errors.New("the payload log is open read-only")
+
 // OutOfRangeError is a reference that points past the end of the log: the log is shorter than the
 // event that references it says. Typed so a caller can tell this damage from an I/O error that may
 // pass, which is not damage.
@@ -93,10 +96,32 @@ type Store struct {
 	mem    []byte // in-memory backing when f is nil
 	inMem  bool
 	closed bool
+	// readOnly refuses every write, and skips the flush on Close: a handle opened for reading
+	// cannot be flushed on Windows, and has nothing to flush anyway.
+	readOnly bool
 }
 
 // OpenInMemory returns a payload store that keeps its log in memory.
 func OpenInMemory() *Store { return &Store{inMem: true} }
+
+// OpenReadOnly opens the payload log under dir for reading, and creates nothing: a read-only session
+// leaves the case as it found it. A case with no log yet reads as an empty one, and every write is
+// refused by the operating system.
+func OpenReadOnly(dir string) (*Store, error) {
+	f, err := os.Open(filepath.Join(dir, consts.PayloadLogFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return &Store{inMem: true, readOnly: true}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return &Store{f: f, size: uint64(info.Size()), readOnly: true}, nil
+}
 
 // Open opens (creating if needed) the payload log under dir.
 func Open(dir string) (*Store, error) {
@@ -146,6 +171,9 @@ func (s *Store) AppendBatch(blobs [][]byte) ([]Ref, error) {
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil, ErrClosed
+	}
+	if s.readOnly {
+		return nil, ErrReadOnly
 	}
 
 	at := s.size
@@ -225,7 +253,7 @@ func (s *Store) readLocked(r Ref) ([]byte, error) {
 func (s *Store) Sync() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.inMem || s.f == nil || s.closed {
+	if s.inMem || s.f == nil || s.closed || s.readOnly {
 		return nil
 	}
 	return s.f.Sync()
@@ -248,6 +276,9 @@ func (s *Store) Close() error {
 	s.closed = true
 	if s.inMem || s.f == nil {
 		return nil
+	}
+	if s.readOnly {
+		return s.f.Close()
 	}
 	if err := s.f.Sync(); err != nil {
 		s.f.Close()

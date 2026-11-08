@@ -689,6 +689,19 @@ const (
 // (a torn tail would misframe the next record, and every compaction after it would fail).
 const RedactionLedgerFile = "graphene.redactions"
 
+// The engine's other append-only files, by its own unexported names. rohy reads them only to keep a
+// torn tail aside before a writable open cuts it (graphene_torntail.go).
+const (
+	GrantLedgerFile = "graphene.grants"
+	WALFile         = "graphene.wal"
+
+	// MsgTornTailKept is the audit entry for a tail kept aside: file, bytes, the copy's name.
+	MsgTornTailKept = "%s tail of %d bytes kept aside as %s"
+	// MsgTornTailUnsaved is a tail the open cut and rohy could not keep beside its file. The bytes
+	// are still in the saved copies it names.
+	MsgTornTailUnsaved = "the open cut a torn tail from %s and it could not be kept aside; the file as it was before the open is in %s: %w"
+)
+
 // The redaction journal (plan §14.5, item 40): rohy-data/redactions/journal.json.
 //
 // One entry per redaction, written durably BEFORE anything is destroyed: it is the only place the
@@ -911,7 +924,7 @@ const (
 	AuditActionIdentityRenamed  = 7
 	AuditActionIngest           = 8
 	AuditActionProofExported    = 9
-	AuditActionAuditTailKept    = 10
+	AuditActionTailKept         = 10
 	AuditActionKeyUnlocked      = 11
 	// Item 42. The engine writes its own entry for each publication (MsgCheckpointAnnounced).
 	AuditActionCheckpointNotRecorded = 12
@@ -1243,6 +1256,7 @@ const (
 	CaseActivityRedaction  = "a redaction"
 	CaseActivityReceipt    = "a checkpoint receipt"
 	CaseActivityCheckpoint = "a checkpoint check"
+	CaseActivityUnlock     = "a key unlock"
 
 	// MsgCaseBusyExclusive: what was refused, then what holds the case alone.
 	MsgCaseBusyExclusive = "%s cannot start while %s is in progress; try again when it finishes"

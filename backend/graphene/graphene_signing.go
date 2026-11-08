@@ -127,12 +127,28 @@ func (p Posture) validate() error {
 }
 
 // diskOptions renders the posture as engine options.
+//
+// The redaction ledger is always on (item 40). It is not a posture an analyst chooses: without it
+// the engine refuses every attributed removal, and the only removal left is the unattributed
+// DeleteNode. Turning it on creates an empty ledger file and changes nothing else about how a case
+// loads — an absent ledger and an empty one read the same everywhere the engine reads one.
+// TestAnExistingCaseOpensUnchangedWithTheLedger pins that a case written without the ledger loads to
+// the same roots with it.
+//
+// The audit log is on too (item 41), for the same reason: it creates an empty file, and every seal,
+// redaction and rohy action after that is recorded. Retention stays off: a retained log segment keeps
+// the records a redaction removed (TestSpikeRetentionKeepsWhatARedactionRemoved).
+//
+// 🔒 A posture that cannot write opens the engine read-only. A writable open repairs the case as it
+// opens it, cutting crash-torn tails and recording the cuts, and a session that cannot write must
+// leave the case exactly as it found it.
 func (p Posture) diskOptions(verifyOnOpen bool) disk.Options {
 	o := disk.Options{
 		VerifyOnOpen:  verifyOnOpen,
 		Redaction:     true,
 		Audit:         !p.AuditOff,
 		AttestActorID: p.Actor,
+		ReadOnly:      p.writable() != nil,
 	}
 	if p.Mode == consts.CaseModeSigned {
 		o.Signer = p.Slot
@@ -226,7 +242,7 @@ func KeepAuditTailAside(dir string, now time.Time) (string, int64, error) {
 // keepTailAside copies data[end:], the tail of the file at path, to a new file beside it, then cuts
 // the file back to end. Both are synced before it returns. An existing copy is never replaced.
 func keepTailAside(path string, data []byte, end int64, now time.Time) (string, error) {
-	aside := path + ".torn-" + now.UTC().Format("20060102T150405.000000000Z")
+	aside := tornTailName(path, now)
 	af, err := os.OpenFile(aside, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
@@ -266,7 +282,10 @@ func (s *Store) Writable() error {
 	if s.poisoned.Load() {
 		return fmt.Errorf("%w: "+consts.MsgCaseReadOnly, ErrReadOnly, consts.MsgReadOnlyPoisoned)
 	}
-	return s.forensic.posture.writable()
+	if o := s.cur.Load(); o != nil {
+		return o.readOnly
+	}
+	return s.posture().writable()
 }
 
 // Session returns the posture this session opened under. ok is false before a session began.
@@ -274,7 +293,7 @@ func (s *Store) Session() (p Posture, ok bool) {
 	if s.awaiting && !s.ready.Load() {
 		return Posture{}, false
 	}
-	return s.forensic.posture, true
+	return s.posture(), true
 }
 
 // Poison stops this session writing: a seal replaced the case image on disk, but the engine's copy
@@ -286,7 +305,7 @@ func (s *Store) Poison() { s.poisoned.Store(true) }
 // signed too. Index entries and redaction mutations cannot be part of a commit (upstream), and stay
 // unattributed records outside one.
 func (s *Store) tx(g *gr.Graph) *gr.Tx {
-	return g.Begin().As(store.TxContext{ActorID: s.forensic.posture.Actor})
+	return g.Begin().As(store.TxContext{ActorID: s.posture().Actor})
 }
 
 // SealSignature is the signature the case's current image carries.
@@ -376,7 +395,7 @@ func (s *Store) RecordAction(kind uint16, detail string) error {
 	if err != nil {
 		return err
 	}
-	return fs.RecordAudit(disk.AuditCustom+disk.AuditKind(kind), s.forensic.posture.Actor, detail)
+	return fs.RecordAudit(disk.AuditCustom+disk.AuditKind(kind), s.posture().Actor, detail)
 }
 
 // HistoryHeads returns the last sequence numbers of the redaction ledger and the audit log: where

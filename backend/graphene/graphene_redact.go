@@ -181,7 +181,7 @@ func (s *Store) PayloadCopies(hashRaw string, own payload.Ref) ([]payload.Ref, e
 	}
 	var ownBytes []byte
 	if !own.IsZero() {
-		b, err := s.payloads.Read(own)
+		b, err := s.payloadLog().Read(own)
 		var red *payload.RedactedError
 		switch {
 		case errors.As(err, &red):
@@ -193,7 +193,7 @@ func (s *Store) PayloadCopies(hashRaw string, own payload.Ref) ([]payload.Ref, e
 		}
 	}
 	var out []payload.Ref
-	_, err := s.payloads.Walk(func(r payload.Ref, b []byte) error {
+	_, err := s.payloadLog().Walk(func(r payload.Ref, b []byte) error {
 		if ownBytes != nil && bytes.Equal(b, ownBytes) {
 			out = append(out, r)
 			return nil
@@ -223,7 +223,7 @@ func (s *Store) TombstonePayload(owner uint64, refs ...payload.Ref) error {
 	if err := s.ensure(); err != nil {
 		return err
 	}
-	return s.payloads.Redact(owner, refs...)
+	return s.payloadLog().Redact(owner, refs...)
 }
 
 // RedactRelation removes one relation, recorded in the ledger. A relation already removed by a
@@ -234,7 +234,7 @@ func (s *Store) RedactRelation(id uint64, reason string) error {
 		return err
 	}
 	defer s.bumpVersion()
-	_, err = fs.RedactEdge(store.EdgeID(id), disk.RedactionRequest{ActorID: s.forensic.posture.Actor, Reason: reason})
+	_, err = fs.RedactEdge(store.EdgeID(id), disk.RedactionRequest{ActorID: s.posture().Actor, Reason: reason})
 	var missing *store.ErrNotFound
 	if errors.As(err, &missing) {
 		recs, rerr := s.redactionRecords()
@@ -286,7 +286,7 @@ func (s *Store) RedactEventRecord(id uint64, hashNormalized, reason string) erro
 		if err := fs.PurgeNodeIndex(store.NodeID(id)); err != nil {
 			return err
 		}
-	} else if _, err := fs.RedactNodeProperties(store.NodeID(id), disk.RedactionRequest{ActorID: s.forensic.posture.Actor, Reason: reason}); err != nil {
+	} else if _, err := fs.RedactNodeProperties(store.NodeID(id), disk.RedactionRequest{ActorID: s.posture().Actor, Reason: reason}); err != nil {
 		return err
 	}
 

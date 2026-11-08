@@ -221,6 +221,10 @@ func TestALockedSignedCaseIsReadOnlyUntilUnlocked(t *testing.T) {
 		t.Fatalf("still read-only after unlocking: %v", err)
 	}
 	release()
+	// The engine under the session can write too: the unlock reopened it, and recorded itself.
+	if !auditHas(t, c, "unlocked") {
+		t.Fatal("the unlock was not recorded: the case did not reopen writable")
+	}
 }
 
 // 🔒 Something written to the log while rohy was closed — with the files and without the key — is
