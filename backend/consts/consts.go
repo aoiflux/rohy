@@ -40,8 +40,18 @@ const (
 // for a mapped relationship. The semantic kind of a relationship is carried by the
 // RelationType edge property, not by distinct edge labels.
 const (
-	NodeEvent    store.NodeType = store.NodeTypeCustomBase // "NODE_EVENT"
-	EdgeRelation store.EdgeType = store.EdgeTypeCustomBase // "EDGE_RELATION"
+	NodeEvent    store.NodeType = store.NodeTypeCustomBase
+	EdgeRelation store.EdgeType = store.EdgeTypeCustomBase
+)
+
+// The names graphene renders NodeEvent and EdgeRelation by, in its errors, its tools and the
+// labels file beside the image (TypeNamesFile), in place of Custom(0). They are fixed: a case's
+// labels file holds them, and a different name for the same number fails the open.
+const (
+	NodeEventName    = "Event"
+	EdgeRelationName = "Relation"
+	// TypeNamesFile is the engine's labels file, by its own unexported name.
+	TypeNamesFile = "graphene.labels"
 )
 
 // --- Node (event) property keys ---
@@ -1046,7 +1056,10 @@ const (
 	// read cannot answer with a commit its caller was told had failed.
 	MsgCaseStopped = "the case stopped answering after a write to its log failed; restart rohy to reopen it (%s)"
 	MsgCaseHeld    = "the case is open in another program, most likely another rohy; close it there and begin the session again"
-	MsgLogRefused  = "the case's log is damaged before its end, so rohy opens nothing and cuts nothing. Restore the case folder " +
+	// MsgLabelsDisagree: the process keeps a type name once registered, so the restart is needed.
+	MsgLabelsDisagree = "the case's graphene.labels names rohy's event or relation type otherwise; it holds no evidence, " +
+		"so remove it and restart rohy, which writes it again"
+	MsgLogRefused = "the case's log is damaged before its end, so rohy opens nothing and cuts nothing. Restore the case folder " +
 		"from a backup, or keep what replays by cutting the log at the byte named after this with " +
 		"`graphene wal cut -at <byte> -save <a file outside the case>`, which keeps the bytes it cuts"
 	MsgNoSession      = "the case is not open: no session was started"

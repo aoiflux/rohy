@@ -304,7 +304,7 @@ func graphIDValue(id uint64) []byte {
 // This IS the order-preserving encoding for the timestamp key — the text equivalent of
 // index/encoding's String encoder, not a hand-padded number. Fixed width and a forced UTC
 // offset are what make byte order and chronological order the same thing, which is the
-// precondition for declaring the key ordered (see declareOrdered in graphene_store.go).
+// precondition for declaring the key ordered (declareOrdered in graphene_declare.go).
 //
 // A zero timestamp renders as year one and therefore sorts before every real record, which
 // is the intended position for an undated event: it is excluded by any lower time bound

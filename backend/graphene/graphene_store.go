@@ -159,8 +159,13 @@ var ErrLogRefused = errors.New(consts.MsgLogRefused)
 // so the session step does not offer recovery as a way in: a recovery open meets the same lock and
 // replays the same log.
 func NoPostureOpens(err error) bool {
-	return errors.Is(err, ErrCaseHeld) || errors.Is(err, ErrLogRefused)
+	return errors.Is(err, ErrCaseHeld) || errors.Is(err, ErrLogRefused) || errors.Is(err, ErrLabelsDisagree)
 }
+
+// ErrLabelsDisagree is an open refused because the engine's labels file names rohy's event or
+// relation type otherwise (nameTypes). The file is not evidence and not part of the image; rohy
+// writes it again once it is gone.
+var ErrLabelsDisagree = errors.New(consts.MsgLabelsDisagree)
 
 // explainOpen says in the analyst's terms why the engine refused an open, keeping the engine's
 // error, which names the holder's process or the damaged byte, inside it.
@@ -170,6 +175,8 @@ func explainOpen(err error) error {
 		return fmt.Errorf("%w: %w", ErrCaseHeld, err)
 	case errors.Is(err, disk.ErrLogMalformed):
 		return fmt.Errorf("%w: %w", ErrLogRefused, err)
+	case errors.Is(err, store.ErrTypeNameConflict):
+		return fmt.Errorf("%w: %w", ErrLabelsDisagree, err)
 	}
 	return err
 }
@@ -306,7 +313,11 @@ func (s *Store) ensure() error {
 // that can keeps every torn tail the engine is about to cut beside its file first.
 func (s *Store) openLocked(p Posture) error {
 	if s.inMemory {
-		s.cur.Store(&caseOpen{g: graphene.NewInMemory(), payloads: payload.OpenInMemory(), posture: p})
+		g := graphene.NewInMemory()
+		if err := declare(g, "", false); err != nil {
+			return err
+		}
+		s.cur.Store(&caseOpen{g: g, payloads: payload.OpenInMemory(), posture: p})
 		s.ready.Store(true)
 		return nil
 	}
@@ -332,6 +343,10 @@ func (s *Store) openLocked(p Posture) error {
 			g.Close()
 			return err
 		}
+	}
+	if err := declare(g, s.dir, readOnly); err != nil {
+		g.Close()
+		return explainOpen(err)
 	}
 	openPayloads := payload.Open
 	if readOnly {
@@ -363,32 +378,6 @@ func (s *Store) payloadLog() *payload.Store {
 	}
 	return nil
 }
-
-// NOTE — why no ordered property is declared here.
-//
-// Declaring the timestamp key ordered is the textbook move: rohy runs range filters on it,
-// and a declared key answers those by binary search instead of by scanning every entry
-// registered under it. It was implemented, measured, and removed again, because on this
-// workload it is a large net loss:
-//
-//	timestamp declared     100k events: open ~8.0 s
-//	timestamp undeclared   100k events: open ~0.8 s
-//
-// A declaration is runtime state that does not survive a reopen, so it has to absorb every
-// already-registered entry on EVERY open — and for a near-unique key like a timestamp that
-// absorption dominates startup and grows faster than linearly. The open cost is paid by
-// every user on every launch; the query it accelerates is not.
-//
-// And it accelerates almost nothing here. Measured on a 20k-event store, declared versus
-// not: narrow range 1.63–1.85 ms vs 1.71–1.91 ms, wide range 10.6–12.4 ms vs 10.1–12.4 ms,
-// count over a range ~0.55 µs either way. Range queries in rohy are dominated by decoding
-// the matched event records — RawXML is kilobytes each — not by locating candidate ids, so
-// making the lookup asymptotically better moves a cost that was never the bottleneck.
-//
-// The upstream guidance is explicit that this is a measurement, not a rule ("measure before
-// indexing... intuition about selectivity usually is not [exact]"). This is that
-// measurement. If event records are ever hydrated more cheaply, or ranges are run over a
-// far larger store, re-measure before re-declaring — and measure OPEN, not just the query.
 
 // Warm opens the store now, so the app can pay that cost deliberately (on a background
 // goroutine, with progress reported) rather than on whichever user action happens to touch

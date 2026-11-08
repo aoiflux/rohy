@@ -18,7 +18,8 @@ the numbers in here won.
 Every rule below exists because a measurement produced a surprise. The most
 expensive mistake made so far — a change that made cold start **10× slower** —
 came from adopting a documented optimisation on the strength of the
-documentation's numbers rather than rohy's. See §9.
+documentation's numbers rather than rohy's. See §9, which also records the same optimisation
+measured again on a later engine and adopted.
 
 Two corollaries, both learned the hard way:
 
@@ -136,7 +137,8 @@ Node keys: `event_id`, `timestamp`, `provider`, `channel`, `user`, `computer`,
 
 All are matched with `Equal` (O(1) postings lookup) except:
 
-- **`timestamp`** — range filters. See §9 for why it is _not_ declared ordered.
+- **`timestamp`** — range filters, on the key declared ordered. See §9 for why it was not, under
+  graphene v0.4, and why it is now.
 - **`search_blob`** — `Contains` only.
 
 ### Recorded deviation: `search_blob`
@@ -200,9 +202,11 @@ not on substrings.**
 | `candidates` ≫ `results`           | Weak driver                | A different key would drive better                                     |
 | `candidates` ≈ `results`           | Driver is working          | Look at record materialisation or call volume instead                  |
 
-rohy's time-range plan today is `driver=labels ... residual=timestamp:set~N`,
-which the table above would tell you to fix by declaring the key. **That is the
-one case where we deliberately do not follow it** — §9.
+rohy's time-range plan today is `driver=ordered(timestamp)`. Under graphene v0.4
+it was `driver=labels ... residual=timestamp:set~N`, which the table reads as "declare the
+key", and rohy deliberately did not, because the declaration cost every open more than it
+bought (§9). A read-only session of a case no v0.3.0 build has opened writable still plans
+that way: it writes nothing, so it cannot declare.
 
 `VerifyIndexes()` checks index _structure_, not cost and not value correctness
 (indexed values are caller-encoded and opaque). It is a correctness tool, not a
@@ -299,11 +303,43 @@ the bottleneck, and charged every launch for it.
    yours. Here, upstream's range queries were index-bound; rohy's are
    hydration-bound. Same call, opposite conclusion.
 
-**Current state:** no ordered properties are declared.
-`TestNoOrderedPropertiesDeclared` asserts it, so re-adding one is a conscious
-act rather than a plausible-looking optimisation. If record hydration ever gets
-much cheaper, or ranges run over a far larger store, re-measure — **and measure
-open, not just the query.**
+### Re-measured under graphene v0.10: the trade reversed
+
+graphene v0.10 keeps a declaration in `graphene.schema` and the image's ordering in a section of
+its own (GORD), so an open no longer absorbs every entry again. That removed lesson 2's cost, so
+the decision was measured again: on disk this time, which is where rohy runs, against the same
+tree with and without the declaration, medians of five.
+
+| Path                                      | Undeclared | Declared |                  |
+| ----------------------------------------- | ---------- | -------- | ---------------- |
+| Open, compacted, 100k                     | 42.7 ms    | 44.2 ms  | 1.04×            |
+| Open, uncompacted, 10k                    | 80.5 ms    | 85.0 ms  | 1.06×            |
+| Open, uncompacted, 50k                    | 603 ms     | 754 ms   | 1.25×            |
+| Ingest, 10k                               | 459 ms     | 392 ms   | no worse         |
+| Compact, 20k                              | 269 ms     | 307 ms   | 1.14×            |
+| Narrow range, 20k compacted               | 10.5 ms    | 0.62 ms  | **17× faster**   |
+| Count over a narrow range                 | 8.8 ms     | 0.29 ms  | **30× faster**   |
+| Wide range                                | 39.0 ms    | 29.2 ms  | 1.34× faster     |
+| Declaring on a compacted 100k case, once  | —          | 2.3 ms   |                  |
+
+The v0.4 query table above was measured on the in-memory store, where finding candidates was
+never the cost. On disk under v0.10 it is: the undeclared plan builds a set of every timestamp
+entry (141k allocations for a 100-event window) before it can apply the range. A case written
+before v0.3.0 is declared on its first writable open, and the seal that closes the session writes
+the ordering into the image. An uncompacted open, which only follows a crash because every
+session seals, is the one path that pays visibly.
+
+The suite's own benchmarks, interleaved against the tree before the change (which also adds the
+type names, §5.3 of the LLD), five runs: open 1.04–1.07× compacted (10k, 50k) and 1.07–1.11×
+uncompacted, compaction 1.01–1.08×, and the in-memory range benchmarks 0.92–0.97×: in memory,
+where v0.4's table was measured, a range is still bound by decoding, and the ordering neither
+helps nor hurts it.
+
+**Current state:** `timestamp` is declared ordered, at every writable open (`declareOrdered`),
+and nothing else is. `TestOnlyTheTimestampIsDeclaredOrdered` pins both halves, and
+`TestTheOrderedTimestampAnswersEveryRangeAsThePlainPlanDoes` holds every window, on every path to
+the declaration, to an oracle that does not use the plan. A further key needs its own measurement
+— **of open and compaction, not just the query.**
 
 ---
 
@@ -590,8 +626,9 @@ the decision is being changed — check that it is on purpose.
 
 | Test                                                    | Pins                                                                |
 | ------------------------------------------------------- | ------------------------------------------------------------------- |
-| `TestNoOrderedPropertiesDeclared`                       | No ordered declaration (§9)                                         |
-| `TestTimeRangeQueryPlanShape`                           | The accepted plan shape; never a full scan                          |
+| `TestOnlyTheTimestampIsDeclaredOrdered`                 | The timestamp alone is declared ordered (§9)                        |
+| `TestTimeRangeQueryPlanShape`                           | A time range is driven by the ordered timestamp                     |
+| `TestTheOrderedTimestampAnswersEveryRangeAsThePlainPlanDoes` | Declaring changes how a range is found, never what it finds     |
 | `TestTimeRangeResultsUnchangedUnderByteWiseComparison`  | Timestamp encoding orders correctly at year/month/digit boundaries  |
 | `TestUndatedEventsExcludedFromTimeRange`                | A zero timestamp sorts before every real record                     |
 | `TestUpdateRelationLeavesNoStaleIndexEntry`             | Atomic indexed update; no stale `graph_id`                          |

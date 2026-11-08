@@ -423,7 +423,7 @@ Several things are **not** indexed on purpose:
   index bounded. Search covers the scalar fields, not the whole record.
 - **`match_id`, and every correlation slot** — near-unique keys, which is exactly the
   shape that made store open 8.0 s instead of 0.8 s when the timestamp key was declared
-  ordered (§5.3). Nothing queries by them: the inspector already holds the edges it needs,
+  ordered under graphene v0.4 (§5.3). Nothing queries by them: the inspector already holds the edges it needs,
   and correlation reads the whole matching set once per build and hashes it in memory.
 
 ### 5.3 The timestamp encoding, and a measurement that overrode the textbook
@@ -460,6 +460,16 @@ rohy are dominated by decoding matched records, not by locating candidate ids**.
 
 The lesson is written into [PERFORMANCE.md](PERFORMANCE.md) as the project's
 first rule: measure rohy's paths, and measure **open**, not just the query.
+
+**Under graphene v0.10 the measurement came out the other way, and the key is declared.** The
+engine now keeps a declaration in `graphene.schema` and the ordering in the image, so an open
+pays 1.04× for it at 100k events, and on disk a narrow range is 17× faster, a count over it 30×
+(PERFORMANCE.md §9). `declareOrdered` declares it at every writable open where it is not yet in
+force; a read-only open writes nothing, so a case no v0.3.0 build has opened writable answers
+ranges by the old plan, with the same results. The same writable open records the engine's names
+for rohy's two custom types, `Event` and `Relation`, in `graphene.labels` (`nameTypes`). A labels
+file that names either otherwise refuses the open, with no posture offered past it
+(`ErrLabelsDisagree`).
 
 ### 5.4 Event identity — the hashing rules
 
@@ -2574,6 +2584,9 @@ The invariants, each a test:
     acknowledged. The message names the byte and both repairs: restore a backup, or keep what
     replays with `graphene wal cut`, which saves what it cuts. The log is left byte for byte as it
     was.
+  - **A labels file that names rohy's types otherwise** (`ErrLabelsDisagree`, wrapping
+    `store.ErrTypeNameConflict`; §5.3). It holds no evidence; the message says to remove it and
+    restart, since the process keeps a type name once registered.
 - **A log that stops stops the session writing.** After a failed write or fsync to the log, graphene
   refuses every call until a reopen, reads included, so a read cannot answer with a commit its
   caller was told had failed. Every commit, compaction and redaction goes through

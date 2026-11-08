@@ -1,6 +1,7 @@
 package graphene
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -14,44 +15,40 @@ import (
 // so each asserts the mechanism: that the ordered key is declared and drives the range
 // query, that a batch write lands as a batch, and that an update leaves no stale index.
 
-// TestNoOrderedPropertiesDeclared pins a decision that is easy to undo by accident,
-// because undoing it looks like an optimisation.
+// TestOnlyTheTimestampIsDeclaredOrdered pins the declaration PERFORMANCE.md §9 measured, and that
+// it is the only one: each ordered key is paid for on every compaction and every replay, so a new
+// one needs its own measurement of OPEN and COMPACT, not just of the query it speeds up.
 //
-// Declaring the timestamp key ordered speeds up range lookups in principle, and costs
-// roughly 7 seconds of EVERY store open at 100k events — a declaration does not survive a
-// reopen, so it re-absorbs every registered entry each time, and for a near-unique key
-// that dominates startup. Measured on this workload it bought nothing back: range queries
-// are dominated by decoding matched records, not by finding them. See the note in
-// graphene_store.go for the numbers.
-//
-// If this test fails, someone declared a key. That may well be right — but it needs a
-// fresh measurement of OPEN, not just of the query it accelerates.
-func TestNoOrderedPropertiesDeclared(t *testing.T) {
-	s := OpenInMemory()
-	defer s.Close()
-
-	g, err := s.graph()
-	if err != nil {
+// Under graphene v0.4 a declaration was runtime state, absorbed again at every open: ~8 s at 100k
+// events, and rohy declared nothing. v0.10 keeps it in graphene.schema and the image, and the
+// trade reversed: open 1.04×, narrow range 17× faster (§9).
+func TestOnlyTheTimestampIsDeclaredOrdered(t *testing.T) {
+	s, dir := attributedStore(t)
+	oneEvent(t, s, "a")
+	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	nodeKeys, edgeKeys := g.OrderedProperties()
-	if len(nodeKeys) != 0 || len(edgeKeys) != 0 {
-		t.Errorf("ordered declarations present (nodes=%v edges=%v); each one is re-absorbed on every open — re-measure open before keeping this",
-			nodeKeys, edgeKeys)
+	for _, p := range []Posture{unsigned(), recovery()} {
+		r := OpenAwaitingSession(dir)
+		if err := r.BeginSession(p); err != nil {
+			t.Fatal(err)
+		}
+		g, err := r.graph()
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodeKeys, edgeKeys := g.OrderedProperties()
+		r.Close()
+		if !slices.Equal(nodeKeys, []string{consts.PropTimestamp}) || len(edgeKeys) != 0 {
+			t.Errorf("%s open: ordered nodes=%v edges=%v, want the timestamp alone", p.Mode, nodeKeys, edgeKeys)
+		}
 	}
 }
 
-// TestTimeRangeQueryPlanShape records what a time-range query actually costs, so the
-// trade-off behind the no-declaration decision stays visible instead of being folded into
-// a comment nobody re-checks.
-//
-// The plan is: driver=labels, with the range applied as a residual set over those
-// candidates. The upstream diagnostic table reads that shape as "a range on an undeclared
-// key — declare it". rohy deliberately does not, because declaring costs ~7 s of every
-// open at 100k events and measured no query improvement here (see graphene_store.go).
-//
-// What this test guards is the floor: the query must not degenerate into a full scan, and
-// it must return exactly the window. If the plan shape changes, that is worth knowing.
+// TestTimeRangeQueryPlanShape pins the mechanism the declaration exists for: a time range is
+// driven by the ordered timestamp key, not by every event's label with the range as a residual
+// set, which is what it measured 17× slower as (PERFORMANCE.md §9). It must return exactly the
+// window.
 func TestTimeRangeQueryPlanShape(t *testing.T) {
 	s := OpenInMemory()
 	defer s.Close()
@@ -83,22 +80,8 @@ func TestTimeRangeQueryPlanShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A scan driver means nothing bounded the query at all — worse than the label-driven
-	// plan this accepts, and the one shape that is never acceptable.
-	if plan.Driver == store.DriverScan {
-		t.Errorf("time-range query fell back to a full scan; plan: %s", plan)
-	}
-	// The range must still be evaluated against the timestamp key's index entries. If it
-	// stops appearing as a residual on that key, the key is no longer indexed and the
-	// filter is being answered some other way.
-	var sawTimestampResidual bool
-	for _, r := range plan.Residuals {
-		if r.Key == consts.PropTimestamp {
-			sawTimestampResidual = true
-		}
-	}
-	if plan.DriverKey != consts.PropTimestamp && !sawTimestampResidual {
-		t.Errorf("timestamp filter is neither driver nor residual; plan: %s", plan)
+	if plan.Driver != store.DriverOrdered || plan.DriverKey != consts.PropTimestamp {
+		t.Errorf("time-range query is not driven by the ordered timestamp; plan: %s", plan)
 	}
 	if plan.Results != 11 {
 		t.Errorf("plan reports %d results for an 11-minute inclusive window, want 11; plan: %s",
