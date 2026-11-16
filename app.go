@@ -36,13 +36,12 @@ type App struct {
 	ctx context.Context
 	// desktop is the window the bindings use; main sets it before the app runs.
 	desktop api.Desktop
-	// Retained for the deferred initialize() pass, which runs the graph migrations once
-	// the window is up rather than before it appears.
-	store       *graphene.Store
-	layoutStore *layout.Store
-	registry    *graphreg.Store
-	// roots is the fingerprint history, kept so the seal on close is recorded like every other.
-	roots *custody.Store
+	// handoffPID is the unelevated rohy that relaunched this one elevated, or 0 (api.HandoffPID).
+	handoffPID int
+	// Retained for the deferred initialize() pass, which opens the case and gives a new one its
+	// Default graph once the window is up rather than before it appears.
+	store    *graphene.Store
+	registry *graphreg.Store
 	// session is who is working and how the case opened (item 41).
 	session *api.Session
 
@@ -69,7 +68,7 @@ type App struct {
 //
 // Everything here is cheap: the case store is opened lazily (graphene.OpenLazy), and the
 // sidecar stores only create their directories. The expensive part — replaying the store's
-// WAL and running the graph migrations — is deferred to initialize(), which runs in the
+// WAL — is deferred to initialize(), which runs in the
 // background once the window is up. That is what lets the UI appear immediately instead of
 // the user watching nothing while a large case loads.
 func NewApp() (*App, error) {
@@ -142,11 +141,9 @@ func NewApp() (*App, error) {
 	})
 
 	app := &App{
-		store:       store,
-		layoutStore: layoutStore,
-		registry:    registry,
-		roots:       rootStore,
-		session:     session,
+		store:    store,
+		registry: registry,
+		session:  session,
 		Events: api.AttachRedactionJournal(
 			api.AttachSealHistory(api.NewEventsAPI(store, positions, findingStore), rootStore), journal),
 		Graph:    api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
@@ -188,6 +185,14 @@ func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) 
 // A failure here is reported and left visible instead of killing the process: the user
 // gets a readable reason in the window, which is far more useful than the app vanishing.
 func (a *App) initialize() {
+	// A rohy relaunched elevated starts while the one it replaces still holds the case, sealing and
+	// closing it as it quits. Waiting here, before anything reads the case, means this one opens
+	// the case as the old one left it rather than meeting its lock.
+	if a.handoffPID != 0 {
+		api.InitStage(a.System, consts.MsgInitHandoff)
+		api.AwaitExit(a.handoffPID, consts.HandoffWait)
+	}
+
 	// The session step (item 41). A case with nothing to ask — a known analyst, never signed —
 	// starts as it always did; otherwise the splash shows the step and this waits for the answer.
 	if v := a.session.Status(); v.Need == consts.SessionNeedNone {

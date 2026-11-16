@@ -20,6 +20,7 @@ func main() {
 		println("Error: failed to start rohy:", err.Error())
 		os.Exit(1)
 	}
+	app.handoffPID = api.HandoffPID(os.Args[1:])
 	desk := &desktop{}
 	app.desktop = desk
 

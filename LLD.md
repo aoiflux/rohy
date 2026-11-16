@@ -291,6 +291,10 @@ sequenceDiagram
     par UI is already interactive
         UI->>UI: user can see the splash and the title bar
     and Warm-up runs behind it
+        opt relaunched elevated (--after-pid=N)
+            A->>UI: emit init:state {stage:"Waiting for the previous window to close the case…"}
+            A->>A: AwaitExit(N, 30 s) — the old rohy seals and closes the case as it quits
+        end
         A->>A: session step — begins at once, or waits for the analyst's answer
         A->>UI: emit init:state {stage:"Opening case database…"}
         A->>S: Warm()  « replays WAL, loads property index »

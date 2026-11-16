@@ -356,7 +356,8 @@ redaction and checkpoint reads back, and every event can still be proven.
 - **One rohy per case.** A case another program holds open, most likely another rohy, is refused at
   the session step, and the message says so. A case whose `graphene.labels` names rohy's two types
   otherwise is refused the same way. Neither refusal changes anything on disk, and no recovery is
-  offered for either.
+  offered for either. **Restart as administrator** on Windows waits, for up to 30 seconds, for the
+  window it replaces to close the case, so the elevated rohy is not refused by the one it replaced.
 - **A log damaged before its end is refused, not cut.** The case opens nothing and cuts nothing.
   The message names the byte and both repairs: restore the case folder from a backup, or keep what
   replays with `graphene wal cut`, which saves what it cuts. Only a torn tail at the very end, which

@@ -1207,6 +1207,7 @@ const (
 // Initialization stage labels, shown on the splash while the app warms up.
 const (
 	MsgInitStarting = "Starting…"
+	MsgInitHandoff  = "Waiting for the previous window to close the case…"
 	MsgInitSession  = "Waiting for you to start the session…"
 	MsgInitStore    = "Opening case database…"
 	MsgInitGraphs   = "Preparing graphs…"
@@ -2820,6 +2821,14 @@ const (
 	MsgDBSchemaMessage = "messages+providers message catalogue"
 
 	MsgRelaunchUnsupported = "relaunch as administrator is only supported on Windows"
+)
+
+// The elevated relaunch hands the case over through these. The unelevated rohy passes its process
+// id as HandoffFlag<pid>; the elevated one waits up to HandoffWait for that process to exit before
+// it opens the case, because the case's lock is released only once the old one has closed it.
+const (
+	HandoffFlag = "--after-pid="
+	HandoffWait = 30 * time.Second
 )
 
 // --- Live (wevtapi) reader tuning ---

@@ -4285,8 +4285,12 @@ compatibility layer. One commit per phase:
 
 - The runtime walk-through in the plan's validation list (dialogs, title bar, seal to v9 on a real
   case, elevation on Windows, a Debug-level log scan for the passphrase), and a green CI run.
-- Elevation: the relaunched elevated rohy may meet `MsgCaseHeld` if the first one still holds the
-  case when it opens. Not yet checked.
+- Elevation, checked and fixed: `ShellExecute` returns once the elevated rohy has started, and
+  the first one releases the case's lock only when its quit has closed the store. An unsigned case
+  with a known analyst skips the session step, so the elevated rohy could reach `Warm()` first
+  and fail with `MsgCaseHeld`. The relaunch now passes `--after-pid=<pid>`, and the elevated
+  rohy waits up to 30 s for that process to exit (`api.AwaitExit`) before anything reads the
+  case. The wait still needs the walk-through on a real UAC prompt.
 - `disk.InspectWAL` is unbuffered (about 1.6 s per 10k-event log), and the session step pays it
   after a crash. The fix belongs upstream.
 - `TestBoundedMemoryStreaming` in `evtx` is flaky under the full parallel gate (GC noise). It passes
