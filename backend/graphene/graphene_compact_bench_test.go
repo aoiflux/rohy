@@ -56,7 +56,7 @@ func addEvents(tb testing.TB, s *Store, n, offset int) {
 // benchmarkCompactFull measures folding an entirely uncompacted store of n events.
 func benchmarkCompactFull(b *testing.B, n int) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		dir := seedDiskStore(b, n, false)
 		s, err := Open(dir)
@@ -83,7 +83,7 @@ func benchmarkCompactFull(b *testing.B, n int) {
 // ingest boundary as nearly free — the exact wrong answer.
 func benchmarkCompactIncrement(b *testing.B, n, increment int) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		b.StopTimer()
 		dir := seedDiskStore(b, n, true) // already compacted: the case the analyst arrives with
 		s, err := Open(dir)

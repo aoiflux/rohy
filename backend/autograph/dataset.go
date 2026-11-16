@@ -1,7 +1,8 @@
 package autograph
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 
 	"rohy/backend/consts"
@@ -68,7 +69,7 @@ func RequirementsFor(specs []*rules.Spec) Requirements {
 			req.Scopes = append(req.Scopes, scope)
 		}
 	}
-	sort.Strings(req.Scopes) // deterministic, so a dataset's shape does not depend on rule order
+	slices.Sort(req.Scopes) // deterministic, so a dataset's shape does not depend on rule order
 	return req
 }
 
@@ -172,7 +173,7 @@ func partitionBy(events []*graphene.Event, scope string) []Group {
 	for v := range byValue {
 		values = append(values, v)
 	}
-	sort.Strings(values)
+	slices.Sort(values)
 
 	out := make([]Group, 0, len(values))
 	for _, v := range values {
@@ -198,10 +199,7 @@ func scopeValue(e *graphene.Event, scope string) string {
 // sortChronological orders events by timestamp, tie-breaking on node ID so the scan (and
 // therefore the emitted edges) is deterministic even when timestamps collide.
 func sortChronological(events []*graphene.Event) {
-	sort.SliceStable(events, func(i, j int) bool {
-		if events[i].Timestamp.Equal(events[j].Timestamp) {
-			return events[i].ID < events[j].ID
-		}
-		return events[i].Timestamp.Before(events[j].Timestamp)
+	slices.SortStableFunc(events, func(a, b *graphene.Event) int {
+		return cmp.Or(a.Timestamp.Compare(b.Timestamp), cmp.Compare(a.ID, b.ID))
 	})
 }

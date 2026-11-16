@@ -38,9 +38,8 @@ func benchmarkHistories(b *testing.B, n, audits int) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		h, err := s.Histories()
 		if err != nil {
 			b.Fatal(err)
@@ -55,9 +54,8 @@ func benchmarkHistories(b *testing.B, n, audits int) {
 
 func benchmarkPublishCheckpoint(b *testing.B, n, audits int) {
 	s := anchorBenchStore(b, n, audits)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, _, err := s.ReadyCheckpointChain(time.Now()); err != nil {
 			b.Fatal(err)
 		}

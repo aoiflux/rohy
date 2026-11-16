@@ -65,24 +65,6 @@ type App struct {
 	Query *api.QueryAPI
 }
 
-// migrateGraphs guarantees a Default graph exists and folds any pre-P15 single-graph
-// data into it: relations that carry no graph id are assigned to the Default graph, and
-// a legacy canvas.json layout is moved to the Default graph's per-graph file. All steps
-// are idempotent, so this is safe to run on every startup.
-func migrateGraphs(store *graphene.Store, layoutStore *layout.Store, registry *graphreg.Store) error {
-	def, err := registry.EnsureDefault(consts.DefaultGraphName, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if _, err := store.MigrateRelationsToGraph(def.ID); err != nil {
-		return err
-	}
-	if _, err := layoutStore.MigrateLegacy(def.ID); err != nil {
-		return err
-	}
-	return nil
-}
-
 // NewApp wires the binding layer WITHOUT doing any slow work.
 //
 // Everything here is cheap: the case store is opened lazily (graphene.OpenLazy), and the
@@ -228,10 +210,11 @@ func (a *App) initialize() {
 		return
 	}
 
-	// The migrations write; a session that cannot write leaves the case as it is.
+	// A new case gets its Default graph here. That is a write, and a session that cannot write
+	// leaves the case as it is. EnsureDefault is idempotent, so it is safe on every startup.
 	if a.store.Writable() == nil {
 		api.InitStage(a.System, consts.MsgInitGraphs)
-		if err := migrateGraphs(a.store, a.layoutStore, a.registry); err != nil {
+		if _, err := a.registry.EnsureDefault(consts.DefaultGraphName, time.Now().UTC()); err != nil {
 			api.InitFailed(a.System, err)
 			return
 		}

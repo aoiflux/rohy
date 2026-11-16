@@ -562,13 +562,11 @@ func TestUnpreparedScopeDoesNotWriteTheSharedDataset(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if groups := ds.Groups(consts.ScopeGlobal); len(groups) != 1 || len(groups[0].Events) != 2 {
 				t.Errorf("on-demand global partition = %d groups, want 1 holding both events", len(groups))
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if _, stored := ds.partitions[consts.ScopeGlobal]; stored {

@@ -529,8 +529,8 @@ const (
 // --- Multiple graphs (P15) ---
 //
 // A case may hold several named graphs. Relations carry a graph_id; event nodes are
-// shared. DefaultGraphID is the graph that pre-existing (single-graph) relations are
-// migrated into on first open, and the graph seeded for a fresh case.
+// shared. DefaultGraphID is the graph seeded for a fresh case, and the graph a request that
+// names none is scoped to when no graph is active.
 const (
 	DefaultGraphID   uint64 = 1
 	DefaultGraphName        = "Default"

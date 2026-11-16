@@ -1,8 +1,9 @@
 package graphene
 
 import (
+	"cmp"
 	"encoding/json"
-	"sort"
+	"slices"
 
 	"rohy/backend/consts"
 
@@ -160,7 +161,7 @@ var relationIndexKeys = func() []string {
 	for k := range (&Relation{}).indexValues() {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	return keys
 }()
 
@@ -227,7 +228,7 @@ func relationIndexGaps(g *graphene.Graph) ([]indexGap, error) {
 	for id, m := range missing {
 		gaps = append(gaps, indexGap{id: id, missing: m})
 	}
-	sort.Slice(gaps, func(i, j int) bool { return gaps[i].id < gaps[j].id })
+	slices.SortFunc(gaps, func(a, b indexGap) int { return cmp.Compare(a.id, b.id) })
 	return gaps, nil
 }
 

@@ -206,7 +206,7 @@ func TestPutRefusesAnUnknownLayer(t *testing.T) {
 
 func TestItemLimit(t *testing.T) {
 	s := openStore(t)
-	for i := 0; i < consts.MaxAnnotationItems; i++ {
+	for i := range consts.MaxAnnotationItems {
 		if _, err := s.Put(7, region(float64(i), 0, 10, 10, ""), annBase); err != nil {
 			t.Fatalf("put %d: %v", i, err)
 		}
@@ -259,7 +259,7 @@ func TestLayerLifecycle(t *testing.T) {
 
 func TestLayerLimit(t *testing.T) {
 	s := openStore(t)
-	for i := 0; i < consts.MaxAnnotationLayers; i++ {
+	for i := range consts.MaxAnnotationLayers {
 		if _, err := s.AddLayer(7, "layer", "", annBase); err != nil {
 			t.Fatalf("add %d: %v", i, err)
 		}
@@ -529,7 +529,7 @@ func TestAFailedWriteLeavesTheCacheAsTheFileIs(t *testing.T) {
 func TestARefusedPutLeavesNoLayerBehind(t *testing.T) {
 	dir := t.TempDir()
 	doc := Document{AnnotationsVersion: consts.AnnotationsVersion, GraphID: 7, Layers: []Layer{}}
-	for i := 0; i < consts.MaxAnnotationItems; i++ {
+	for i := range consts.MaxAnnotationItems {
 		it := region(float64(i), 0, 10, 10, "")
 		it.ID = fmt.Sprintf("a-hand-%d", i)
 		it.Layer = "gone"

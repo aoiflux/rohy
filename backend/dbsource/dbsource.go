@@ -16,7 +16,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -381,7 +381,7 @@ func matchColumns(actual []string) (map[string]string, []string) {
 			cols[canonical] = c
 		}
 	}
-	sort.Strings(missing)
+	slices.Sort(missing)
 	return cols, missing
 }
 

@@ -120,9 +120,9 @@ func (d Document) Key(k uint64) (Key, bool) {
 // LastKey is the key the case signed with most recently: the current signed interval's, else the
 // last key registered, else 0.
 func (d Document) LastKey() uint64 {
-	for i := len(d.Intervals) - 1; i >= 0; i-- {
-		if d.Intervals[i].State == consts.SigningSigned {
-			return d.Intervals[i].KeyID
+	for _, v := range slices.Backward(d.Intervals) {
+		if v.State == consts.SigningSigned {
+			return v.KeyID
 		}
 	}
 	if n := len(d.Keys); n > 0 {

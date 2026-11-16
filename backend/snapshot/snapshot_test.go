@@ -154,7 +154,7 @@ func TestSaveRefusesPastTheCapRatherThanEvictingTheOldest(t *testing.T) {
 	// 🔒 A snapshot is something an analyst deliberately took. Quietly deleting one to make room
 	// destroys work without asking — the opposite of what a snapshot feature is for.
 	s := openStore(t)
-	for i := 0; i < consts.MaxSnapshotsPerGraph; i++ {
+	for i := range consts.MaxSnapshotsPerGraph {
 		if err := s.Save(doc(7, snapBase.Add(time.Duration(i)*time.Second))); err != nil {
 			t.Fatalf("save %d: %v", i, err)
 		}

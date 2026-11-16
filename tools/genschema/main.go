@@ -33,7 +33,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strings"
 
 	"rohy/backend/consts"
 	"rohy/backend/rules"
@@ -200,7 +201,7 @@ func withAliases(f rules.Field) []string {
 	for alias := range f.Aliases {
 		aliases = append(aliases, alias)
 	}
-	sort.Strings(aliases)
+	slices.Sort(aliases)
 	return append(out, aliases...)
 }
 
@@ -227,7 +228,7 @@ func describe(f rules.Field) string {
 		for alias := range f.Aliases {
 			names = append(names, alias)
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 		for i, alias := range names {
 			names[i] = alias + " = " + f.Aliases[alias]
 		}
@@ -240,16 +241,16 @@ func describe(f rules.Field) string {
 }
 
 func join(xs []string) string {
-	out := ""
+	var out strings.Builder
 	for i, x := range xs {
 		switch {
 		case i == 0:
 		case i == len(xs)-1:
-			out += " and "
+			out.WriteString(" and ")
 		default:
-			out += ", "
+			out.WriteString(", ")
 		}
-		out += x
+		out.WriteString(x)
 	}
-	return out
+	return out.String()
 }

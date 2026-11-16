@@ -56,7 +56,7 @@ func BenchmarkComputeLayout(b *testing.B) {
 		for _, profile := range consts.LayoutProfiles {
 			b.Run(fmt.Sprintf("%s/%d", profile, n), func(b *testing.B) {
 				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					res, err := Compute(profile, nodes, rels, Options{})
 					if err != nil {
 						b.Fatal(err)

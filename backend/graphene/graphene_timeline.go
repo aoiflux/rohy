@@ -1,7 +1,8 @@
 package graphene
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -97,7 +98,7 @@ func (s *Store) TimelineGrouped(f EventFilter, buckets int, groupBy string) (Tim
 		return out, nil
 	}
 
-	sort.Slice(dated, func(i, j int) bool { return dated[i].ts.Before(dated[j].ts) })
+	slices.SortFunc(dated, func(a, b eventRow) int { return a.ts.Compare(b.ts) })
 	from, to := dated[0].ts, dated[len(dated)-1].ts
 	if f.TimeFrom != nil && f.TimeFrom.After(from) {
 		from = *f.TimeFrom
@@ -107,10 +108,10 @@ func (s *Store) TimelineGrouped(f EventFilter, buckets int, groupBy string) (Tim
 	}
 	out.From, out.To = from, to
 
-	slices := newBucketing(from, to, buckets)
-	buckets = slices.count
-	out.Buckets = slices.buckets
-	bucketOf := slices.indexOf
+	grid := newBucketing(from, to, buckets)
+	buckets = grid.count
+	out.Buckets = grid.buckets
+	bucketOf := grid.indexOf
 
 	// Grouping by graph is resolved from the edge index once, not per event: an event's
 	// graph membership lives on its relations, so it cannot be read off the node.
@@ -236,11 +237,8 @@ func buildLanes(laneCounts map[string][]int, buckets int) []TimelineLane {
 		lanes = append(lanes, TimelineLane{Key: key, Total: total, Counts: counts})
 	}
 	// Busiest first; ties broken by key so the order is stable between calls.
-	sort.Slice(lanes, func(i, j int) bool {
-		if lanes[i].Total == lanes[j].Total {
-			return lanes[i].Key < lanes[j].Key
-		}
-		return lanes[i].Total > lanes[j].Total
+	slices.SortFunc(lanes, func(a, b TimelineLane) int {
+		return cmp.Or(cmp.Compare(b.Total, a.Total), cmp.Compare(a.Key, b.Key))
 	})
 	if len(lanes) <= maxTimelineLanes {
 		return lanes

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 const registryFile = "registry.json"
@@ -94,17 +95,13 @@ func (s *Store) commit(next state) error {
 	return nil
 }
 
-// persist atomically writes a registry document (temp file + rename).
+// persist durably writes a registry document.
 func (s *Store) persist(st state) error {
 	data, err := json.MarshalIndent(&st, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(s.dir, registryFile+".tmp")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(s.dir, registryFile))
+	return durable.WriteFile(filepath.Join(s.dir, registryFile), data)
 }
 
 // clone returns a defensive copy so callers cannot mutate internal state.

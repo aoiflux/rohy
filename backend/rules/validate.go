@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -228,10 +229,8 @@ func (s *Spec) scopeProblems() []ValidationError {
 	if scope == "" {
 		return nil
 	}
-	for _, valid := range consts.CorrelationScopes {
-		if scope == valid {
-			return nil
-		}
+	if slices.Contains(consts.CorrelationScopes, scope) {
+		return nil
 	}
 	return []ValidationError{{
 		Code: consts.RuleErrUnknownScope, Field: consts.FieldMatchScope, Index: -1,
@@ -389,12 +388,7 @@ func (s *Spec) channelProblems() []ValidationError {
 
 // algorithmReads reports whether an algorithm reads a given rule field.
 func algorithmReads(algo consts.AlgorithmDescriptor, field string) bool {
-	for _, f := range algo.Fields {
-		if f == field {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(algo.Fields, field)
 }
 
 // advisories returns the problems that do not stop a rule loading but are worth saying to

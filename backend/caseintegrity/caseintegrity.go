@@ -16,10 +16,11 @@
 package caseintegrity
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -483,7 +484,7 @@ func checkGraphs(rep *Report, deps Deps) {
 	for id := range counts {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	for _, id := range ids {
 		if _, ok := registered[id]; !ok && counts[id] > 0 {
 			rep.add(Finding{
@@ -501,7 +502,7 @@ func checkGraphs(rep *Report, deps Deps) {
 	for id := range registered {
 		names = append(names, id)
 	}
-	sort.Slice(names, func(i, j int) bool { return names[i] < names[j] })
+	slices.Sort(names)
 	for _, id := range names {
 		if counts[id] == 0 {
 			rep.add(Finding{
@@ -718,7 +719,7 @@ func missingSteps(r *rules.Rule, countOf func(string) int) []string {
 			out = append(out, id)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -1027,7 +1028,7 @@ func checkCheckpoints(rep *Report, deps Deps) {
 	for layer := range a.Unread {
 		layers = append(layers, layer)
 	}
-	sort.Strings(layers)
+	slices.Sort(layers)
 	for _, layer := range layers {
 		rep.note(fmt.Sprintf(consts.MsgIntegrityAnchorUnread, layer, a.Unread[layer]))
 	}
@@ -1128,10 +1129,8 @@ func checkWindow(rep *Report, a *Anchoring) {
 	}
 	// 🔒 "Still describes the image and its removal records" is a claim: made only when every history
 	// it rests on was read. Otherwise the notes above say what was not covered, and nothing more.
-	for _, layer := range []string{consts.AnchorLayerImage, consts.AnchorLayerLedger, consts.AnchorLayerGrants, consts.AnchorLayerSegments} {
-		if unread(layer) {
-			return
-		}
+	if slices.ContainsFunc([]string{consts.AnchorLayerImage, consts.AnchorLayerLedger, consts.AnchorLayerGrants, consts.AnchorLayerSegments}, unread) {
+		return
 	}
 	audit := ""
 	if !unread(consts.AnchorLayerAudit) && now.AuditCount > k.AuditCount {
@@ -1341,13 +1340,11 @@ func sortFindings(fs []Finding) {
 	for i, s := range consts.IntegritySeverities {
 		rank[s] = i
 	}
-	sort.SliceStable(fs, func(i, j int) bool {
-		if rank[fs[i].Severity] != rank[fs[j].Severity] {
-			return rank[fs[i].Severity] < rank[fs[j].Severity]
-		}
-		if fs[i].Code != fs[j].Code {
-			return fs[i].Code < fs[j].Code
-		}
-		return fs[i].Subject < fs[j].Subject
+	slices.SortStableFunc(fs, func(a, b Finding) int {
+		return cmp.Or(
+			cmp.Compare(rank[a.Severity], rank[b.Severity]),
+			cmp.Compare(a.Code, b.Code),
+			cmp.Compare(a.Subject, b.Subject),
+		)
 	})
 }

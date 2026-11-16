@@ -81,7 +81,7 @@ func BenchmarkRelationHeatmap100k(b *testing.B) {
 	// The baseline: the timeline histogram over the same case.
 	b.Run("timeline", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			sum, err := s.Timeline(all, 0)
 			if err != nil {
 				b.Fatal(err)
@@ -105,7 +105,7 @@ func BenchmarkRelationHeatmap100k(b *testing.B) {
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
 			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				sum, err := s.RelationHeatmap(HeatmapQuery{GraphID: c.graph, GroupBy: c.groupBy})
 				if err != nil {
 					b.Fatal(err)

@@ -17,8 +17,8 @@ import (
 func TestTheQueryBindingExposesOnlyDescribeAndRun(t *testing.T) {
 	rt := reflect.TypeFor[*QueryAPI]()
 	var names []string
-	for i := range rt.NumMethod() {
-		names = append(names, rt.Method(i).Name)
+	for method := range rt.Methods() {
+		names = append(names, method.Name)
 	}
 	if !slices.Equal(names, []string{"Describe", "Run"}) {
 		t.Fatalf("QueryAPI exposes %v, want exactly [Describe Run]", names)

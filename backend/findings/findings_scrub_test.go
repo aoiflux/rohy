@@ -27,10 +27,16 @@ func TestScrubReplacesTheDescriptorAndKeepsTheAnalystsWords(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A temporary copy left by an interrupted write holds the same text.
-	stale := filepath.Join(dir, findingsFile+".tmp")
-	if err := os.WriteFile(stale, []byte(`{"descriptor":"4624 HOST-A 2026-07-14 alice"}`), 0o644); err != nil {
-		t.Fatal(err)
+	// A temporary copy left by an interrupted write holds the same text: under a random name from
+	// this build, under the bare suffix from a build before it.
+	stales := []string{
+		filepath.Join(dir, findingsFile+".tmp2718281828"),
+		filepath.Join(dir, findingsFile+".tmp"),
+	}
+	for _, stale := range stales {
+		if err := os.WriteFile(stale, []byte(`{"descriptor":"4624 HOST-A 2026-07-14 alice"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	changed, err := s.ScrubDescriptors([]string{"gone", "absent"}, redactedMark)
@@ -47,8 +53,10 @@ func TestScrubReplacesTheDescriptorAndKeepsTheAnalystsWords(t *testing.T) {
 	if s.Get("kept").Descriptor != "4625 HOST-B 2026-07-14" {
 		t.Error("another finding's descriptor changed")
 	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Errorf("the stale temporary copy is still there: %v", err)
+	for _, stale := range stales {
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Errorf("the stale temporary copy %s is still there: %v", filepath.Base(stale), err)
+		}
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, findingsFile))
 	if strings.Contains(string(data), "alice") {

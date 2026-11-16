@@ -95,11 +95,10 @@ func TestNilGateNeverPauses(t *testing.T) {
 
 func TestGateSurvivesConcurrentPauseResume(t *testing.T) {
 	g := NewGate()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -110,12 +109,10 @@ func TestGateSurvivesConcurrentPauseResume(t *testing.T) {
 			}
 		}(i)
 	}
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			g.Paused()
-		}()
+		})
 	}
 	wg.Wait()
 	g.Resume()

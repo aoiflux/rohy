@@ -3,6 +3,7 @@ package graphene
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -170,25 +171,25 @@ func (s *Store) RelationHeatmap(q HeatmapQuery) (HeatmapSummary, error) {
 	}
 	out.From, out.To = from, to
 
-	slices := newBucketing(from, to, buckets)
-	out.Buckets = slices.buckets
+	grid := newBucketing(from, to, buckets)
+	out.Buckets = grid.buckets
 
 	laneCounts := map[string][]int{}
 	for _, p := range placeable {
-		idx := slices.indexOf(p.at)
+		idx := grid.indexOf(p.at)
 		if idx < 0 {
 			continue
 		}
 		out.Buckets[idx].Count++
 		counts, ok := laneCounts[p.key]
 		if !ok {
-			counts = make([]int, slices.count)
+			counts = make([]int, grid.count)
 			laneCounts[p.key] = counts
 		}
 		counts[idx]++
 	}
 
-	out.Lanes = buildLanes(laneCounts, slices.count)
+	out.Lanes = buildLanes(laneCounts, grid.count)
 	for _, l := range out.Lanes {
 		for _, c := range l.Counts {
 			if c > out.Max {
@@ -251,10 +252,5 @@ func heatmapKey(groupBy string, r *Relation, anchor uint64, views map[uint64]eve
 }
 
 func validHeatmapGroup(g string) bool {
-	for _, v := range consts.HeatmapGroups {
-		if v == g {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(consts.HeatmapGroups, g)
 }

@@ -16,18 +16,20 @@
 package snapshot
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 // ErrNotFound is returned for a snapshot id that does not exist.
@@ -179,11 +181,7 @@ func (s *Store) Save(doc *Document) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return durable.WriteFile(path, data)
 }
 
 // freeIDLocked settles on an id no file already uses, updating doc.ID to match, and returns the
@@ -243,11 +241,8 @@ func (s *Store) listLocked(graphID uint64) ([]Summary, error) {
 			AppVersion: doc.AppVersion,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].TakenAt.Equal(out[j].TakenAt) {
-			return out[i].TakenAt.After(out[j].TakenAt)
-		}
-		return out[i].ID > out[j].ID
+	slices.SortFunc(out, func(a, b Summary) int {
+		return cmp.Or(b.TakenAt.Compare(a.TakenAt), cmp.Compare(b.ID, a.ID))
 	})
 	return out, nil
 }

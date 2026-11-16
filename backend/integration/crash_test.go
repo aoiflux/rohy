@@ -3,10 +3,12 @@
 package integration
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"testing"
 
 	"rohy/backend/consts"
+	"rohy/backend/graphene"
 )
 
 const crashRule = "failed-logons-then-successful-logon"
@@ -28,7 +30,7 @@ func crashedCase(t *testing.T, keys ...string) (*testCase, uint64, []string) {
 	if len(rels) != 9 {
 		t.Fatalf("%s wrote %d relations, the golden file says 9", crashRule, len(rels))
 	}
-	sort.Slice(rels, func(i, j int) bool { return rels[i].ID < rels[j].ID })
+	slices.SortFunc(rels, func(a, b *graphene.Relation) int { return cmp.Compare(a.ID, b.ID) })
 	graph, want := rels[0].GraphID, c.contentKeys(rels)
 
 	if _, err := c.store.DeleteGraphRelations(graph); err != nil {

@@ -16,11 +16,8 @@ import (
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
-
-// legacyLayoutFile is the pre-P15 single-graph layout filename. It is migrated into the
-// default graph's per-graph file on first open (see MigrateLegacy).
-const legacyLayoutFile = "canvas.json"
 
 // layoutFileFor returns the per-graph layout filename (multiple-graphs, P15). Each graph
 // owns its own node positions + viewport; the node id set doubles as canvas membership.
@@ -53,8 +50,8 @@ type Store struct {
 	dir string
 	// mu serialises every read and write, and holds RemoveNode's read-modify-write of each file.
 	// Without it, a Save landing between RemoveNode's read and its write would be undone by that
-	// write, a Delete could be undone the same way, and two writers of one graph would share its
-	// .tmp. Reads take it too: on Windows a file that another handle holds open cannot be renamed
+	// write, and a Delete could be undone the same way. Reads take it too: on Windows a file that
+	// another handle holds open cannot be renamed
 	// over, and a file in the middle of that rename cannot be opened, so a Load overlapping a
 	// Save would fail one of the two.
 	mu sync.Mutex
@@ -99,12 +96,7 @@ func (s *Store) save(graphID uint64, l *Layout) error {
 	if err != nil {
 		return err
 	}
-	name := layoutFileFor(graphID)
-	tmp := filepath.Join(s.dir, name+".tmp")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(s.dir, name))
+	return durable.WriteFile(filepath.Join(s.dir, layoutFileFor(graphID)), data)
 }
 
 // Load returns the saved layout for a graph, or an empty (non-nil) layout when none
@@ -178,8 +170,7 @@ func (s *Store) RemoveNode(id uint64) (setAside []string, err error) {
 			continue
 		}
 		l, err := s.load(graphID)
-		var damaged damagedError
-		if errors.As(err, &damaged) {
+		if _, ok := errors.AsType[damagedError](err); ok {
 			kept, moveErr := s.keepAside(e.Name())
 			if moveErr != nil {
 				errs = append(errs, fmt.Errorf("set aside %s, which is not a canvas (%v): %w", e.Name(), err, moveErr))
@@ -304,8 +295,8 @@ func isKeptCanvas(e os.DirEntry) bool {
 }
 
 // graphIDFromFile reads the graph id out of a per-graph layout file's name, and reports false
-// for anything else in the directory: the legacy canvas.json, a .tmp left by an interrupted
-// Save, a directory, or a name layoutFileFor would not have written.
+// for anything else in the directory: a canvas.json from a build before per-graph canvases, a
+// .tmp left by an interrupted Save, a directory, or a name layoutFileFor would not have written.
 func graphIDFromFile(e os.DirEntry) (uint64, bool) {
 	if e.IsDir() {
 		return 0, false
@@ -320,29 +311,4 @@ func graphIDFromFile(e os.DirEntry) (uint64, bool) {
 	}
 	id, err := strconv.ParseUint(rest, 10, 64)
 	return id, err == nil && layoutFileFor(id) == e.Name()
-}
-
-// MigrateLegacy folds a pre-P15 single-graph layout (canvas.json) into the given graph's
-// per-graph file, once. It is a no-op if there is no legacy file or the target already
-// exists. Returns true if a migration was performed.
-func (s *Store) MigrateLegacy(graphID uint64) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	legacy := filepath.Join(s.dir, legacyLayoutFile)
-	if _, err := os.Stat(legacy); err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	target := filepath.Join(s.dir, layoutFileFor(graphID))
-	if _, err := os.Stat(target); err == nil {
-		return false, nil // per-graph layout already exists; leave legacy untouched
-	} else if !os.IsNotExist(err) {
-		return false, err
-	}
-	if err := os.Rename(legacy, target); err != nil {
-		return false, err
-	}
-	return true, nil
 }

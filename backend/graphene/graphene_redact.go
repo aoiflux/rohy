@@ -234,8 +234,7 @@ func (s *Store) RedactRelation(id uint64, reason string) error {
 	defer s.bumpVersion()
 	_, err = fs.RedactEdge(store.EdgeID(id), disk.RedactionRequest{ActorID: s.posture().Actor, Reason: reason})
 	err = s.noteStopped(err)
-	var missing *store.ErrNotFound
-	if errors.As(err, &missing) {
+	if _, ok := errors.AsType[*store.ErrNotFound](err); ok {
 		recs, rerr := s.redactionRecords()
 		if rerr != nil {
 			return rerr
@@ -267,8 +266,7 @@ func (s *Store) RedactEventRecord(id uint64, hashNormalized, reason string) erro
 		return err
 	}
 	n, err := s.eventNode(id)
-	var missing *store.ErrNotFound
-	if errors.As(err, &missing) {
+	if _, ok := errors.AsType[*store.ErrNotFound](err); ok {
 		return &GoneError{fmt.Sprintf(consts.MsgRedactEventGone, id)}
 	}
 	if err != nil {
@@ -311,9 +309,9 @@ func (s *Store) RedactionFor(id uint64) (RedactionRecord, bool, error) {
 	if err != nil {
 		return RedactionRecord{}, false, err
 	}
-	for i := len(recs) - 1; i >= 0; i-- {
-		if recs[i].NodeID == id && recs[i].EdgeID == 0 {
-			return recs[i], true, nil
+	for _, rec := range slices.Backward(recs) {
+		if rec.NodeID == id && rec.EdgeID == 0 {
+			return rec, true, nil
 		}
 	}
 	return RedactionRecord{}, false, nil

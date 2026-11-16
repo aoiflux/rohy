@@ -170,7 +170,7 @@ func TestSequenceMatchCapTruncates(t *testing.T) {
 	s := spec(t, `{"name":"pair","sequence":["A","B"]}`)
 	var events []*graphene.Event
 	var id uint64
-	for i := 0; i < 5; i++ { // 5 non-overlapping occurrences
+	for i := range 5 { // 5 non-overlapping occurrences
 		id++
 		events = append(events, ev(id, "A", "H", i*2))
 		id++

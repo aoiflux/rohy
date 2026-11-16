@@ -41,7 +41,7 @@ func scrubFixture(t *testing.T) (*Store, string) {
 
 func TestScrubRemovesDescriptorsAndBasisCopiesInEverySnapshot(t *testing.T) {
 	s, dir := scrubFixture(t)
-	stale := filepath.Join(dir, "1", "snap-x.json.tmp")
+	stale := filepath.Join(dir, "1", "snap-x.json.tmp1618033988")
 	if err := os.WriteFile(stale, []byte(`{"descriptor":"alice"`), 0o644); err != nil {
 		t.Fatal(err)
 	}

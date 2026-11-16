@@ -1,8 +1,9 @@
 package graphlayout
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 
 	"rohy/backend/consts"
 )
@@ -48,21 +49,26 @@ func resourceLayout(nodes []NodeInfo, opts Options) Result {
 	for v := range columns {
 		values = append(values, v)
 	}
-	sort.Slice(values, func(i, j int) bool {
-		a, aok := earliest(columns[values[i]])
-		b, bok := earliest(columns[values[j]])
+	slices.SortFunc(values, func(x, y string) int {
+		a, aok := earliest(columns[x])
+		b, bok := earliest(columns[y])
 		if aok != bok {
-			return aok
+			if aok {
+				return -1
+			}
+			return 1
 		}
-		if aok && !a.Equal(b) {
-			return a.Before(b)
+		if aok {
+			if c := a.Compare(b); c != 0 {
+				return c
+			}
 		}
-		return values[i] < values[j]
+		return cmp.Compare(x, y)
 	})
 
 	x := 0.0
 	appendColumn := func(label string, members []NodeInfo, undated bool) {
-		sort.SliceStable(members, byTimeThenID(members))
+		slices.SortStableFunc(members, compareTimeThenID)
 		ids := make([]uint64, 0, len(members))
 		for i, n := range members {
 			out.Positions[n.ID] = Point{X: x, Y: float64(i) * opts.gapY()}

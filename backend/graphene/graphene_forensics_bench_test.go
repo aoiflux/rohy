@@ -32,9 +32,8 @@ import (
 // benchmarkOpenVerified opens a prepared directory with image verification on.
 func benchmarkOpenVerified(b *testing.B, n int) {
 	dir := seedDiskStore(b, n, true) // compacted: there must BE an image to verify
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s := OpenLazy(dir).WithVerifyOnOpen(true)
 		if err := s.Warm(); err != nil {
 			b.Fatal(err)
@@ -52,9 +51,8 @@ func benchmarkOpenVerified(b *testing.B, n int) {
 // because it measures a differently-seeded store.
 func benchmarkOpenPlain(b *testing.B, n int) {
 	dir := seedDiskStore(b, n, true)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s, err := Open(dir)
 		if err != nil {
 			b.Fatal(err)
@@ -76,10 +74,8 @@ func benchmarkVerifyImage(b *testing.B, n int) {
 		b.Fatal(err)
 	}
 	defer s.Close()
-
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		check, err := s.VerifyImage()
 		if err != nil {
 			b.Fatal(err)

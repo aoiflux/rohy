@@ -2,7 +2,7 @@ package api
 
 import (
 	"errors"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -254,7 +254,7 @@ func (a *GraphAPI) canvasNodeIDs(graphID uint64, rels []*graphene.Relation) ([]u
 	// The ids come out of a map, so without this the request order would differ on every call;
 	// sorting is for the layout's determinism. GetEventRecords keeps the order it is asked in
 	// and leaves out any id the case no longer holds.
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids, nil
 }
 

@@ -809,25 +809,6 @@ func indexChanges(before map[string][]byte, e *Event) map[string][]byte {
 	return changed
 }
 
-// MigrateRelationsToGraph assigns graphID to every relation that has no graph yet
-// (GraphID == 0), i.e. relations created before multiple-graphs existed. It is
-// idempotent: a second call finds nothing to migrate. Returns the number migrated.
-func (s *Store) MigrateRelationsToGraph(graphID uint64) (int, error) {
-	rels, err := s.GetRelations()
-	if err != nil {
-		return 0, err
-	}
-	var legacy []*Relation
-	for _, r := range rels {
-		if r.GraphID == 0 {
-			r.GraphID = graphID
-			legacy = append(legacy, r)
-		}
-	}
-	// One commit for the lot: a commit per relation would be a durable write each.
-	return s.updateRelations(legacy)
-}
-
 // DeleteGraphRelations removes every relation belonging to a graph (used when a graph
 // is deleted). Event nodes are never touched — only the graph's edges. Returns the
 // number of relations deleted.
@@ -857,8 +838,7 @@ func (s *Store) DeleteGraphRelations(graphID uint64) (int, error) {
 	if err := s.commit(tx); err != nil {
 		// A relation that is already gone is not a failure: the caller's intent is that
 		// the graph ends up empty. Fall back to a per-edge pass that tolerates it.
-		var nf *store.ErrNotFound
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*store.ErrNotFound](err); !ok {
 			return 0, err
 		}
 		return s.deleteRelationsIndividually(rels)
@@ -881,8 +861,7 @@ func (s *Store) deleteRelationsIndividually(rels []*Relation) (int, error) {
 	deleted := 0
 	for _, r := range rels {
 		if _, err := g.GetEdge(store.EdgeID(r.ID)); err != nil {
-			var nf *store.ErrNotFound
-			if errors.As(err, &nf) {
+			if _, ok := errors.AsType[*store.ErrNotFound](err); ok {
 				continue
 			}
 			_ = tx.Rollback()

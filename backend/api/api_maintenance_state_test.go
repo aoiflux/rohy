@@ -14,10 +14,10 @@ import (
 type stateLog struct {
 	mu     sync.Mutex
 	states []MaintenanceState
-	hook   func(channel string, data interface{})
+	hook   func(channel string, data any)
 }
 
-func (l *stateLog) Emit(channel string, data interface{}) {
+func (l *stateLog) Emit(channel string, data any) {
 	if channel == consts.EventMaintenanceState {
 		l.mu.Lock()
 		l.states = append(l.states, data.(MaintenanceState))
@@ -42,7 +42,7 @@ func TestMaintenanceStateNamesTheBackfillAndWhenStopReachesIt(t *testing.T) {
 	_, _, maint := keylessDiskCase(t, consts.EventBatchSize+88)
 	log := &stateLog{}
 	var duringPass, atComplete MaintenanceState
-	log.hook = func(channel string, _ interface{}) {
+	log.hook = func(channel string, _ any) {
 		switch channel {
 		case consts.EventMaintenanceProgress:
 			if duringPass.Pass == "" {

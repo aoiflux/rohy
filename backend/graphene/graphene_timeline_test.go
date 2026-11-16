@@ -15,7 +15,7 @@ func seedTimeline(t *testing.T) *Store {
 	base := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
 	events := []*Event{}
 	// 10 events one hour apart, plus two undated ones.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		events = append(events, mkEvent("4624", "p", "Security", "u", base.Add(time.Duration(i)*time.Hour), string(rune('a'+i))))
 	}
 	events = append(events,
@@ -126,7 +126,7 @@ func TestTimelineLanesSumToTheTotal(t *testing.T) {
 
 	base := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
 	events := []*Event{}
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		e := mkEvent("4624", "prov-A", "Security", "alice", base.Add(time.Duration(i)*time.Hour), string(rune('a'+i)))
 		if i%2 == 1 {
 			e.Provider = "prov-B"

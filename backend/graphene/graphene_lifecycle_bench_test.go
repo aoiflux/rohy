@@ -75,9 +75,8 @@ func seedDiskStore(tb testing.TB, n int, compact bool) string {
 // timed region so the measurement is the open alone.
 func benchmarkOpen(b *testing.B, n int, compact bool) {
 	dir := seedDiskStore(b, n, compact)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s, err := Open(dir)
 		if err != nil {
 			b.Fatal(err)
@@ -114,9 +113,8 @@ func BenchmarkOpenUncompacted100k(b *testing.B) { benchmarkOpen(b, 100000, false
 // that will not go away until it returns.
 func BenchmarkClose(b *testing.B) {
 	dir := seedDiskStore(b, 10000, false)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, err := Open(dir)
 		if err != nil {
@@ -133,7 +131,7 @@ func BenchmarkClose(b *testing.B) {
 // its cost is the other half of that trade.
 func BenchmarkCompact(b *testing.B) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		dir := seedDiskStore(b, 10000, false)
 		s, err := Open(dir)
@@ -157,9 +155,8 @@ func BenchmarkCompact(b *testing.B) {
 // It should land on top of the plain open — laziness moves the cost, it does not remove it.
 func BenchmarkWarmLazyOpen(b *testing.B) {
 	dir := seedDiskStore(b, 10000, false)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s := OpenLazy(dir)
 		if err := s.Warm(); err != nil {
 			b.Fatal(err)
@@ -177,9 +174,8 @@ func BenchmarkWarmLazyOpen(b *testing.B) {
 // should be indistinguishable from doing nothing.
 func BenchmarkOpenLazyOnly(b *testing.B) {
 	dir := seedDiskStore(b, 10000, false)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s := OpenLazy(dir)
 		b.StopTimer()
 		if err := s.Close(); err != nil {
@@ -253,9 +249,8 @@ func seedDiskStoreNoIndex(tb testing.TB, n int) string {
 
 func benchmarkOpenNoIndex(b *testing.B, n int) {
 	dir := seedDiskStoreNoIndex(b, n)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s, err := Open(dir)
 		if err != nil {
 			b.Fatal(err)
@@ -352,9 +347,8 @@ func seedDiskStoreKeys(tb testing.TB, n int, keys []string) string {
 
 func benchmarkOpenKeys(b *testing.B, n int, keys []string) {
 	dir := seedDiskStoreKeys(b, n, keys)
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s, err := Open(dir)
 		if err != nil {
 			b.Fatal(err)

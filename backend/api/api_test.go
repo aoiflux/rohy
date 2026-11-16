@@ -46,15 +46,15 @@ func newTestGraphAPI(t *testing.T, store *graphene.Store) *GraphAPI {
 // goroutine while the test observes from another.
 type captureEmitter struct {
 	mu     sync.Mutex
-	events map[string][]interface{}
+	events map[string][]any
 	signal chan string
 }
 
 func newCaptureEmitter() *captureEmitter {
-	return &captureEmitter{events: map[string][]interface{}{}, signal: make(chan string, 256)}
+	return &captureEmitter{events: map[string][]any{}, signal: make(chan string, 256)}
 }
 
-func (c *captureEmitter) Emit(channel string, data interface{}) {
+func (c *captureEmitter) Emit(channel string, data any) {
 	c.mu.Lock()
 	c.events[channel] = append(c.events[channel], data)
 	c.mu.Unlock()
@@ -73,17 +73,17 @@ func (c *captureEmitter) count(channel string) int {
 // snapshot copies everything emitted so far, under the lock. A test must read through this (or
 // count/last) and never range over events directly: the ingest goroutine can still be emitting
 // after the state a test waited for — its deferred cleanup reports idle after IsIngesting is false.
-func (c *captureEmitter) snapshot() map[string][]interface{} {
+func (c *captureEmitter) snapshot() map[string][]any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make(map[string][]interface{}, len(c.events))
+	out := make(map[string][]any, len(c.events))
 	for ch, v := range c.events {
-		out[ch] = append([]interface{}(nil), v...)
+		out[ch] = append([]any(nil), v...)
 	}
 	return out
 }
 
-func (c *captureEmitter) last(channel string) (interface{}, bool) {
+func (c *captureEmitter) last(channel string) (any, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	v := c.events[channel]
@@ -744,7 +744,7 @@ func TestMultiFileIngestReportsFilePosition(t *testing.T) {
 	}
 
 	em.mu.Lock()
-	started := append([]interface{}(nil), em.events[consts.EventIngestStarted]...)
+	started := append([]any(nil), em.events[consts.EventIngestStarted]...)
 	em.mu.Unlock()
 
 	for i, raw := range started {

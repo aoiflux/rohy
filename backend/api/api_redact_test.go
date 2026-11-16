@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -160,12 +161,7 @@ func (c *redactCase) seed(t *testing.T) {
 }
 
 func contains64(xs []uint64, x uint64) bool {
-	for _, y := range xs {
-		if y == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(xs, x)
 }
 
 // filesHolding lists the files under the case folder that contain any of needles.

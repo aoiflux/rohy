@@ -1,9 +1,10 @@
 package graphene
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -157,7 +158,7 @@ func hashSetKey(set map[string]bool) string {
 			keys = append(keys, k)
 		}
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	return fmt.Sprintf("%d:%s", len(keys), strings.Join(keys, ","))
 }
 
@@ -264,21 +265,24 @@ func (s *Store) computeOrder(f EventFilter) ([]uint64, error) {
 	// chronological position at all, so letting the zero time order them would park them at
 	// "1970" — ahead of every real record when ascending — which reads as a date rather than
 	// as the absence of one.
-	sort.Slice(rows, func(i, j int) bool {
-		zi, zj := rows[i].ts.IsZero(), rows[j].ts.IsZero()
-		if zi != zj {
-			return zj // a dated event always precedes an undated one
+	slices.SortFunc(rows, func(a, b eventRow) int {
+		za, zb := a.ts.IsZero(), b.ts.IsZero()
+		if za != zb { // a dated event always precedes an undated one
+			if za {
+				return 1
+			}
+			return -1
 		}
-		if zi { // both undated: no time to compare, so order stably by id
-			return rows[i].id < rows[j].id
+		if !za { // both dated
+			if c := a.ts.Compare(b.ts); c != 0 {
+				if f.Descending {
+					return -c
+				}
+				return c
+			}
 		}
-		if rows[i].ts.Equal(rows[j].ts) {
-			return rows[i].id < rows[j].id
-		}
-		if f.Descending {
-			return rows[i].ts.After(rows[j].ts)
-		}
-		return rows[i].ts.Before(rows[j].ts)
+		// The same instant, or both undated and so no time to compare: order stably by id.
+		return cmp.Compare(a.id, b.id)
 	})
 
 	ids := make([]uint64, len(rows))
@@ -309,10 +313,7 @@ func (f EventFilter) matchesSortView(v *eventSortView) bool {
 		return false
 	}
 	if f.MinDuplicateCount > 0 {
-		count := v.DeduplicationCount
-		if count < 1 {
-			count = 1 // legacy nodes predate the field; treat as a single occurrence
-		}
+		count := max(v.DeduplicationCount, 1) // legacy nodes predate the field; treat as a single occurrence
 		if count < f.MinDuplicateCount {
 			return false
 		}

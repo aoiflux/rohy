@@ -50,21 +50,17 @@ func TestWarmIsIdempotentAndConcurrencySafe(t *testing.T) {
 	// initializer warms the store while the UI may already be querying.
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			if err := s.Warm(); err != nil {
 				errs <- err
 			}
-		}()
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			if _, err := s.CountEvents(EventFilter{}); err != nil {
 				errs <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 // The write path.
@@ -115,7 +116,7 @@ func (r *Registry) Save(req SaveRequest) (SaveResult, error) {
 	}
 
 	dst := filepath.Join(r.dir, newID+consts.RuleFileExt)
-	if err := writeFileAtomic(dst, data); err != nil {
+	if err := durable.WriteFile(dst, data); err != nil {
 		return SaveResult{}, err
 	}
 

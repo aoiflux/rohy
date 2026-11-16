@@ -6,10 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 // ErrRuleProtected is returned when a delete targets a built-in rule.
@@ -56,7 +57,7 @@ func (r *Registry) Import(paths []string) (ImportResult, error) {
 			res.Errors = append(res.Errors, LoadError{Path: src, Message: err.Error()})
 			continue
 		}
-		if err := writeFileAtomic(dst, data); err != nil {
+		if err := durable.WriteFile(dst, data); err != nil {
 			res.Errors = append(res.Errors, LoadError{Path: src, Message: err.Error()})
 			continue
 		}
@@ -135,16 +136,6 @@ func readRuleFile(path string) (*Spec, error) {
 	return Parse(data)
 }
 
-// writeFileAtomic writes via a temp file + rename so an interrupted import can never leave
-// a half-written rule in the rules directory.
-func writeFileAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
 // collectRuleFiles walks root recursively and returns every *.json file, sorted, excluding
 // the registry's own state sidecar.
 func collectRuleFiles(root string) ([]string, error) {
@@ -164,6 +155,6 @@ func collectRuleFiles(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }

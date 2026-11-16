@@ -102,7 +102,7 @@ func writesBefore(journal []string, entry string) (writes int, found bool) {
 // liveChunk builds a live-tagged batch of n distinct events ending at record id maxRec.
 func liveChunk(channel string, n int, maxRec uint64) chunkResult {
 	events := make([]*graphene.Event, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		events = append(events, &graphene.Event{
 			EventID:        "4624",
 			Channel:        channel,

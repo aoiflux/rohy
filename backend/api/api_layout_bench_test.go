@@ -86,7 +86,7 @@ func BenchmarkComputeLayoutBinding5k(b *testing.B) {
 	for _, profile := range consts.LayoutProfiles {
 		b.Run(profile, func(b *testing.B) {
 			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				res, err := api.ComputeLayout(LayoutRequest{GraphID: graphID, Profile: profile})
 				if err != nil {
 					b.Fatal(err)

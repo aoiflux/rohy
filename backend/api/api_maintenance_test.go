@@ -134,9 +134,9 @@ func TestMaintenanceCancelIsANoOpWhenIdle(t *testing.T) {
 // --- The seal after a backfill ---
 
 // emitFunc is an Emitter made of one function, for a test that acts at a given point of a pass.
-type emitFunc func(channel string, data interface{})
+type emitFunc func(channel string, data any)
 
-func (f emitFunc) Emit(channel string, data interface{}) { f(channel, data) }
+func (f emitFunc) Emit(channel string, data any) { f(channel, data) }
 
 // keylessDiskCase is a disk case holding n events without correlation fields, and a fingerprint
 // history, not yet sealed.
@@ -213,7 +213,7 @@ func TestABackfillSealsBeforeItGivesBackTheMaintenanceLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	var imageRefused, sealedAtComplete, heldAtComplete bool
-	maint.setEmitter(emitFunc(func(channel string, _ interface{}) {
+	maint.setEmitter(emitFunc(func(channel string, _ any) {
 		switch channel {
 		case consts.EventMaintenanceProgress:
 			rep, err := maint.CheckIntegrity(true)
@@ -250,7 +250,7 @@ func TestABackfillSealsBeforeItGivesBackTheMaintenanceLock(t *testing.T) {
 // A stopped pass is sealed too: what it completed is durable, and it is just as uncovered.
 func TestAStoppedBackfillStillSealsWhatItCompleted(t *testing.T) {
 	store, hist, maint := keylessDiskCase(t, consts.EventBatchSize+88)
-	maint.setEmitter(emitFunc(func(channel string, _ interface{}) {
+	maint.setEmitter(emitFunc(func(channel string, _ any) {
 		if channel == consts.EventMaintenanceProgress {
 			maint.CancelMaintenance()
 		}
@@ -281,7 +281,7 @@ func TestAStoppedBackfillStillSealsWhatItCompleted(t *testing.T) {
 func TestAFailedBackfillStillSealsWhatItCommitted(t *testing.T) {
 	store, _, maint := keylessDiskCase(t, consts.EventBatchSize+88)
 	closed := false
-	maint.setEmitter(emitFunc(func(channel string, _ interface{}) {
+	maint.setEmitter(emitFunc(func(channel string, _ any) {
 		if channel == consts.EventMaintenanceProgress && !closed {
 			closed = true
 			store.Close()
@@ -397,7 +397,7 @@ func failingStore(t *testing.T) *graphene.Store {
 // failed into one that was stopped, and so into one reported as fine.
 func TestALateStopDoesNotHideAFailedBackfill(t *testing.T) {
 	maint := NewMaintenanceAPI(failingStore(t))
-	maint.setEmitter(emitFunc(func(channel string, _ interface{}) {
+	maint.setEmitter(emitFunc(func(channel string, _ any) {
 		if channel == consts.EventMaintenanceComplete {
 			maint.CancelMaintenance()
 		}
@@ -417,7 +417,7 @@ func TestABackfillDoesNotSealAPoisonedCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	maint.setEmitter(emitFunc(func(channel string, _ interface{}) {
+	maint.setEmitter(emitFunc(func(channel string, _ any) {
 		if channel == consts.EventMaintenanceProgress {
 			store.Poison()
 		}
@@ -451,7 +451,7 @@ func waitForBackfillWaitingOnAMutex(t *testing.T) {
 	buf := make([]byte, 1<<20)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, g := range strings.Split(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
+		for g := range strings.SplitSeq(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
 			if strings.Contains(g, "[sync.Mutex.Lock") && strings.Contains(g, "(*MaintenanceAPI).BackfillCorrelationKeys") {
 				return
 			}
@@ -477,11 +477,9 @@ func TestABackfillDoesNotSealACasePoisonedWhileItWaitedToSeal(t *testing.T) {
 	var wg sync.WaitGroup
 	var out BackfillOutcome
 	var berr error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		out, berr = maint.BackfillCorrelationKeys()
-	}()
+	})
 	t.Cleanup(func() {
 		if held {
 			sealMu.Unlock()

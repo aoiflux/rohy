@@ -126,8 +126,7 @@ func (a *GraphAPI) endpoint(relID, eventID uint64) (*graphene.Event, error) {
 	if err == nil {
 		return e, nil
 	}
-	var nf *store.ErrNotFound
-	if errors.As(err, &nf) {
+	if _, ok := errors.AsType[*store.ErrNotFound](err); ok {
 		return nil, nil
 	}
 	return nil, AsError(consts.ErrCodePersistence, fmt.Errorf(consts.MsgInspectEndpointUnreadable, relID, eventID, err))
@@ -373,8 +372,7 @@ func (a *GraphAPI) DeleteRelation(id uint64) error {
 	}
 	defer release()
 	if err := a.store.DeleteRelation(id); err != nil {
-		var nf *store.ErrNotFound
-		if errors.As(err, &nf) {
+		if _, ok := errors.AsType[*store.ErrNotFound](err); ok {
 			return nil
 		}
 		return AsError(consts.ErrCodePersistence, err)
@@ -403,8 +401,7 @@ func (a *GraphAPI) DeleteEvent(id uint64) (DeleteEventResult, error) {
 	}
 	defer release()
 	if err := a.store.DeleteEvent(id); err != nil {
-		var nf *store.ErrNotFound
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*store.ErrNotFound](err); !ok {
 			return out, AsError(consts.ErrCodePersistence, err)
 		}
 		// Already gone. The prune still runs: deleting again is how a delete whose prune

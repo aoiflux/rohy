@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -11,7 +12,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -152,7 +152,7 @@ func eventKey(e *graphene.Event) string { return e.HashRaw[:16] }
 // idsToHashes lists the case's node ids with the record each one holds, in id order.
 func (c *testCase) idsToHashes() []string {
 	evs := c.events()
-	sort.Slice(evs, func(i, j int) bool { return evs[i].ID < evs[j].ID })
+	slices.SortFunc(evs, func(a, b *graphene.Event) int { return cmp.Compare(a.ID, b.ID) })
 	out := make([]string, len(evs))
 	for i, e := range evs {
 		out[i] = fmt.Sprintf("%d=%s", e.ID, eventKey(e))
@@ -189,7 +189,7 @@ func (c *testCase) contentKeys(rels []*graphene.Relation) []string {
 	for _, r := range rels {
 		out = append(out, relationKey(r, node(r.From), node(r.To), contentMatchID(c.t, r.MatchID, node)))
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -200,7 +200,7 @@ func rawKeys(rels []*graphene.Relation) []string {
 	for _, r := range rels {
 		out = append(out, fmt.Sprintf("g%d|", r.GraphID)+relationKey(r, strconv.FormatUint(r.From, 10), strconv.FormatUint(r.To, 10), r.MatchID))
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

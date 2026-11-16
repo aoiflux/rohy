@@ -37,7 +37,6 @@ func BenchmarkRepairRelationIndexHealthy(b *testing.B) {
 			s := seedBench(b, 2000)
 			seedRelations(b, s, n)
 			b.ReportAllocs()
-			b.ResetTimer()
 			for b.Loop() {
 				if got, err := s.RepairRelationIndex(); err != nil || got != 0 {
 					b.Fatalf("repaired %d, %v", got, err)

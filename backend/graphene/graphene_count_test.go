@@ -15,7 +15,7 @@ func TestCountEventsAndStablePagination(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	// 25 events; several share a timestamp to exercise the id tie-break in the sort.
 	events := make([]*Event, 0, 25)
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		ts := base.Add(time.Duration(i/3) * time.Minute) // groups of 3 share a timestamp
 		events = append(events, mkEvent("4624", "P", "Security", "u", ts, "h"+time.Duration(i).String()))
 	}

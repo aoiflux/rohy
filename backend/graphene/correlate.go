@@ -3,6 +3,7 @@ package graphene
 import (
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -86,7 +87,7 @@ func ExtractCorrelationKeys(fields map[string]string) []string {
 
 	out := make([]string, consts.CorrelationSlotCount)
 	last := -1
-	for slot := 0; slot < consts.CorrelationSlotCount; slot++ {
+	for slot := range consts.CorrelationSlotCount {
 		class := consts.CorrelationSlotClasses[slot]
 		maxLen := consts.CorrelationSlotMaxLen[slot]
 		for _, source := range consts.CorrelationSlotSources[slot] {
@@ -118,10 +119,8 @@ func canonicalizeSlot(raw, class string, maxLen int) string {
 	if v == "" {
 		return ""
 	}
-	for _, absent := range consts.CorrelationAbsentValues {
-		if v == absent {
-			return ""
-		}
+	if slices.Contains(consts.CorrelationAbsentValues, v) {
+		return ""
 	}
 
 	switch class {

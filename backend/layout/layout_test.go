@@ -95,35 +95,6 @@ func TestPerGraphIsolation(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacy folds a pre-P15 canvas.json into the default graph's file, once.
-func TestMigrateLegacy(t *testing.T) {
-	dir := t.TempDir()
-	store, _ := Open(dir)
-
-	// Simulate a legacy single-graph layout on disk.
-	legacy := filepath.Join(dir, legacyLayoutFile)
-	if err := os.WriteFile(legacy, []byte(`{"nodes":{"7":{"x":3,"y":4}},"viewport":{"x":0,"y":0,"zoom":1}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	migrated, err := store.MigrateLegacy(1)
-	if err != nil || !migrated {
-		t.Fatalf("migrate = %v, err %v; want true", migrated, err)
-	}
-	got, _ := store.Load(1)
-	if got.Nodes[7].X != 3 {
-		t.Fatalf("legacy layout not migrated: %+v", got.Nodes)
-	}
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Errorf("legacy file should be gone after migration")
-	}
-
-	// Idempotent: nothing left to migrate.
-	if again, _ := store.MigrateLegacy(1); again {
-		t.Errorf("second migration should be a no-op")
-	}
-}
-
 // TestRemoveNodeDropsTheIDFromEveryGraphAndNothingElse pins that a deleted event leaves every
 // graph's canvas, that whatever else a canvas holds (other nodes, the viewport) survives, and
 // that the other files a layout directory can hold are never read as canvases.
@@ -146,15 +117,14 @@ func TestRemoveNodeDropsTheIDFromEveryGraphAndNothingElse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A .tmp left by an interrupted Save, a legacy canvas.json that the migration left behind,
+	// A .tmp left by an interrupted Save, a canvas.json from a build before per-graph canvases,
 	// and a directory that merely has a canvas's name. None of them is a canvas, and reading any
-	// of them as one would fail the prune or rewrite a file nobody reads. The .tmp belongs to
-	// graph 3, which does not hold the event, so no Save of the prune's own reuses it.
-	stray := filepath.Join(dir, "canvas-3.json.tmp")
+	// of them as one would fail the prune or rewrite a file nobody reads.
+	stray := filepath.Join(dir, "canvas-3.json.tmp1414213562")
 	if err := os.WriteFile(stray, []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	legacy := filepath.Join(dir, legacyLayoutFile)
+	legacy := filepath.Join(dir, "canvas.json")
 	legacyBody := []byte(`{"nodes":{"5":{"x":9,"y":9}},"viewport":{"x":0,"y":0,"zoom":1}}`)
 	if err := os.WriteFile(legacy, legacyBody, 0o644); err != nil {
 		t.Fatal(err)
@@ -187,7 +157,7 @@ func TestRemoveNodeDropsTheIDFromEveryGraphAndNothingElse(t *testing.T) {
 		t.Errorf("the stray .tmp was touched: %q (err %v)", got, err)
 	}
 	if got, err := os.ReadFile(legacy); err != nil || string(got) != string(legacyBody) {
-		t.Errorf("the legacy canvas.json was rewritten: %q (err %v)", got, err)
+		t.Errorf("the old canvas.json was rewritten: %q (err %v)", got, err)
 	}
 }
 
@@ -320,7 +290,7 @@ func TestRemoveNodeReportsACanvasItCouldNotSetAsideAndStillPrunesTheRest(t *test
 
 // TestSurveyFindsDamagedAndKeptCanvases pins what the integrity check is told: each per-graph
 // canvas that cannot be read as one, and each damaged canvas already set aside. Everything else in
-// the folder is not a canvas and is not reported: a readable canvas, a .tmp, the legacy file and a
+// the folder is not a canvas and is not reported: a readable canvas, a .tmp, an old canvas.json and a
 // directory with a canvas's name.
 func TestSurveyFindsDamagedAndKeptCanvases(t *testing.T) {
 	dir := t.TempDir()
@@ -330,8 +300,8 @@ func TestSurveyFindsDamagedAndKeptCanvases(t *testing.T) {
 		"canvas-3.json": "",
 		"canvas-4.json.unreadable-20261108T101500Z":   "kept",
 		"canvas-4.json.unreadable-20261108T101500Z-1": "kept again",
-		"canvas-3.json.tmp":                           "not json",
-		legacyLayoutFile:                              "not json",
+		"canvas-3.json.tmp1414213562":                 "not json",
+		"canvas.json":                                 "not json",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
@@ -378,7 +348,7 @@ func TestConcurrentSaveAndRemoveNodeLeaveAReadableCanvas(t *testing.T) {
 	const rounds = 50
 	errs := make(chan error, 3*rounds)
 	var wg sync.WaitGroup
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		wg.Add(3)
 		go func(i int) {
 			defer wg.Done()

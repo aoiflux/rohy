@@ -1,15 +1,18 @@
 package rules
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 // ErrRuleNotFound is returned when enabling/disabling an unknown rule id.
@@ -66,9 +69,7 @@ func (r *Registry) loadState() {
 // commitEnabled writes it.
 func (r *Registry) enabledDraft() map[string]bool {
 	next := make(map[string]bool, len(r.enabled))
-	for id, on := range r.enabled {
-		next[id] = on
-	}
+	maps.Copy(next, r.enabled)
 	return next
 }
 
@@ -83,17 +84,13 @@ func (r *Registry) commitEnabled(next map[string]bool) error {
 	return nil
 }
 
-// persistState atomically writes a set of enabled overrides.
+// persistState durably writes a set of enabled overrides.
 func (r *Registry) persistState(overrides map[string]bool) error {
 	data, err := json.MarshalIndent(overrides, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := r.stateFile() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, r.stateFile())
+	return durable.WriteFile(r.stateFile(), data)
 }
 
 // enabledFor reports whether a rule id is enabled (default true when no override).
@@ -124,7 +121,7 @@ func (r *Registry) Reload() error {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names) // deterministic order → deterministic duplicate resolution
+	slices.Sort(names) // deterministic order → deterministic duplicate resolution
 
 	// The embedded defaults form the base layer; user files are merged over them.
 	byID := map[string]*Rule{}
@@ -163,7 +160,7 @@ func (r *Registry) Reload() error {
 	for _, rule := range byID {
 		valid = append(valid, rule)
 	}
-	sort.Slice(valid, func(i, j int) bool { return valid[i].Name < valid[j].Name })
+	slices.SortFunc(valid, func(a, b *Rule) int { return cmp.Compare(a.Name, b.Name) })
 
 	r.mu.Lock()
 	r.valid = valid

@@ -22,7 +22,7 @@ func seedBench(tb testing.TB, n int) *Store {
 
 	const chunk = 1000
 	batch := make([]*Event, 0, chunk)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		batch = append(batch, &Event{
 			EventID:            fmt.Sprintf("4%03d", i%50),
 			Timestamp:          base.Add(time.Duration(i) * time.Second),
@@ -55,8 +55,7 @@ func seedBench(tb testing.TB, n int) *Store {
 func BenchmarkQueryEventsFirstPage(b *testing.B) {
 	s := seedBench(b, 20000)
 	f := EventFilter{Limit: consts.EventBatchSize}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := s.QueryEvents(f); err != nil {
 			b.Fatal(err)
 		}
@@ -68,8 +67,7 @@ func BenchmarkQueryEventsFirstPage(b *testing.B) {
 func BenchmarkQueryEventsScroll(b *testing.B) {
 	s := seedBench(b, 20000)
 	const page = 500
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		offset := (i % 20) * page
 		if _, err := s.QueryEvents(EventFilter{Offset: offset, Limit: page}); err != nil {
 			b.Fatal(err)
@@ -81,8 +79,7 @@ func BenchmarkQueryEventsScroll(b *testing.B) {
 func BenchmarkCountEvents(b *testing.B) {
 	s := seedBench(b, 20000)
 	f := EventFilter{Search: "host-3"}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := s.CountEvents(f); err != nil {
 			b.Fatal(err)
 		}

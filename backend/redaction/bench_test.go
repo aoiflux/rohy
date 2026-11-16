@@ -95,8 +95,7 @@ func benchmarkRedact(b *testing.B, n int) {
 	}
 	next := n / 2
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		// Each iteration redacts an event not redacted before.
 		p, err := Prepare(s, ids[next+i], "benchmark", time.Now().UTC())
 		if err != nil {

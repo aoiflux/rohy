@@ -25,8 +25,7 @@ func BenchmarkQueryEventsTimeRangeNarrow(b *testing.B) {
 	from := benchBase.Add(5000 * time.Second)
 	to := from.Add(100 * time.Second)
 	f := EventFilter{TimeFrom: &from, TimeTo: &to, Limit: consts.EventBatchSize}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := s.QueryEvents(f); err != nil {
 			b.Fatal(err)
 		}
@@ -40,8 +39,7 @@ func BenchmarkQueryEventsTimeRangeWide(b *testing.B) {
 	from := benchBase
 	to := from.Add(10000 * time.Second)
 	f := EventFilter{TimeFrom: &from, TimeTo: &to, Limit: consts.EventBatchSize}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := s.QueryEvents(f); err != nil {
 			b.Fatal(err)
 		}
@@ -55,8 +53,7 @@ func BenchmarkCountEventsTimeRange(b *testing.B) {
 	from := benchBase.Add(5000 * time.Second)
 	to := from.Add(100 * time.Second)
 	f := EventFilter{TimeFrom: &from, TimeTo: &to}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := s.CountEvents(f); err != nil {
 			b.Fatal(err)
 		}
@@ -108,7 +105,7 @@ func mkRelations(ids []uint64, n int, graphID uint64) []*Relation {
 // is: one commit per chunk of relations.
 func BenchmarkInsertRelationsBatched(b *testing.B) {
 	const n = 1000
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, ids := seedRelationTargets(b, 200)
 		rels := mkRelations(ids, n, 1)
@@ -124,7 +121,7 @@ func BenchmarkInsertRelationsBatched(b *testing.B) {
 // claim inherited from the upstream benchmark table.
 func BenchmarkInsertRelationsIndividually(b *testing.B) {
 	const n = 1000
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, ids := seedRelationTargets(b, 200)
 		rels := mkRelations(ids, n, 1)
@@ -175,7 +172,7 @@ func seedRelationTargetsDisk(tb testing.TB, n int) (*Store, []uint64) {
 // backend where the commit count actually costs something.
 func BenchmarkInsertRelationsBatchedDisk(b *testing.B) {
 	const n = 1000
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, ids := seedRelationTargetsDisk(b, 200)
 		rels := mkRelations(ids, n, 1)
@@ -190,7 +187,7 @@ func BenchmarkInsertRelationsBatchedDisk(b *testing.B) {
 // disk: one durable write per edge.
 func BenchmarkInsertRelationsIndividuallyDisk(b *testing.B) {
 	const n = 1000
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, ids := seedRelationTargetsDisk(b, 200)
 		rels := mkRelations(ids, n, 1)
@@ -207,7 +204,7 @@ func BenchmarkInsertRelationsIndividuallyDisk(b *testing.B) {
 // commits once for the whole graph.
 func BenchmarkDeleteGraphRelations(b *testing.B) {
 	const n = 1000
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, ids := seedRelationTargets(b, 200)
 		if _, err := s.InsertRelations(mkRelations(ids, n, 1)); err != nil {
@@ -228,8 +225,7 @@ func BenchmarkRelationsAdjacency(b *testing.B) {
 		b.Fatal(err)
 	}
 	window := ids[:100]
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := s.RelationsAdjacency(window); err != nil {
 			b.Fatal(err)
 		}

@@ -75,7 +75,7 @@ func TestPrettyKeepsShortArraysInlineAndExpandsLongOnes(t *testing.T) {
 	if strings.Contains(string(long), `"sequence": ["4624", "4624"`) {
 		t.Errorf("a 40-step sequence should expand:\n%s", long)
 	}
-	for _, line := range strings.Split(string(long), "\n") {
+	for line := range strings.SplitSeq(string(long), "\n") {
 		if len(line) > consts.RuleFormatWidth {
 			t.Errorf("line exceeds the width budget (%d): %q", consts.RuleFormatWidth, line)
 		}

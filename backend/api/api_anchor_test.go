@@ -59,8 +59,7 @@ func unsignedCase(t *testing.T) *sessionCase {
 }
 
 func codeOf(err error) string {
-	var ae ErrorEvent
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[ErrorEvent](err); ok {
 		return ae.Code
 	}
 	return ""

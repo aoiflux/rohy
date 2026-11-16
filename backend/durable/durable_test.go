@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -38,6 +39,37 @@ func TestAFailedWriteLeavesTheFileAndNoTemporary(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, "*"+TempSuffix+"*")); len(left) != 0 {
 		t.Errorf("left behind: %v", left)
+	}
+}
+
+// A crash leaves a temporary under a random name, and a build before durable.WriteFile left one
+// under the bare suffix. RemoveTemps removes both, and nothing else, not even a file whose name
+// only starts like the target's.
+func TestRemoveTempsRemovesOnlyThatFilesTemporaries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.json")
+	temps := []string{"doc.json" + TempSuffix, "doc.json" + TempSuffix + "123456789"}
+	kept := []string{"doc.json", "doc.json.bak", "other.json" + TempSuffix + "42", "doc.jsonl" + TempSuffix}
+	for _, name := range append(slices.Clone(temps), kept...) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "doc.json"+TempSuffix+"dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveTemps(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range temps {
+		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s survived: %v", name, err)
+		}
+	}
+	for _, name := range append(kept, "doc.json"+TempSuffix+"dir") {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was removed: %v", name, err)
+		}
 	}
 }
 

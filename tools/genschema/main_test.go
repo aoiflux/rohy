@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -234,12 +235,7 @@ func TestNoShippedRuleWouldBeFlaggedByTheSchema(t *testing.T) {
 func checkEnum(t *testing.T, file, key string, spec map[string]any, value any) {
 	t.Helper()
 	allowed := func(enum []any, v any) bool {
-		for _, e := range enum {
-			if e == v {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(enum, v)
 	}
 	if enum, ok := spec["enum"].([]any); ok {
 		if !allowed(enum, value) {

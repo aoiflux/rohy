@@ -189,17 +189,33 @@ func TestEnsureForRuleAdoptsSameNamedUnboundGraph(t *testing.T) {
 	}
 }
 
-// blockWrites makes the next persist fail: a directory where the temporary file goes cannot be
-// written as a file, on every platform. The returned func removes it.
+// blockWrites makes the next persist fail: a file cannot be renamed over a directory, on every
+// platform. The registry, if there is one, is held aside meanwhile. The returned func puts it back.
 func blockWrites(t *testing.T, dir string) func() {
 	t.Helper()
-	tmp := filepath.Join(dir, registryFile+".tmp")
-	if err := os.Mkdir(tmp, 0o755); err != nil {
+	path := filepath.Join(dir, registryFile)
+	held := path + ".held"
+	_, err := os.Stat(path)
+	existed := err == nil
+	if existed {
+		if err := os.Rename(path, held); err != nil {
+			t.Fatal(err)
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return func() {
-		if err := os.Remove(tmp); err != nil {
+		t.Helper()
+		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
+		}
+		if existed {
+			if err := os.Rename(held, path); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

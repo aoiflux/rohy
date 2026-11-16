@@ -147,8 +147,7 @@ func TestEveryRefusalSaysWhyAndIsTheInputsFault(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Run(s, tc.spec)
-			var refused *RefusedError
-			if !errors.As(err, &refused) {
+			if _, ok := errors.AsType[*RefusedError](err); !ok {
 				t.Fatalf("got %v, want a refusal", err)
 			}
 			if !strings.Contains(err.Error(), tc.says) {
@@ -313,8 +312,8 @@ func TestARedactedEventSaysSo(t *testing.T) {
 func TestTheReaderOnlyReads(t *testing.T) {
 	reads := []string{"CountEvents", "CountEventsBy", "QueryEvents", "ScanRelations", "Version"}
 	rt := reflect.TypeFor[Reader]()
-	for i := range rt.NumMethod() {
-		if name := rt.Method(i).Name; !slices.Contains(reads, name) {
+	for method := range rt.Methods() {
+		if name := method.Name; !slices.Contains(reads, name) {
 			t.Errorf("Reader.%s is not a known read", name)
 		}
 	}

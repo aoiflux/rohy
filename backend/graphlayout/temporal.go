@@ -1,8 +1,9 @@
 package graphlayout
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"rohy/backend/consts"
@@ -30,8 +31,8 @@ func temporalLayout(nodes []NodeInfo, opts Options) Result {
 			undated = append(undated, n)
 		}
 	}
-	sort.SliceStable(dated, byTimeThenID(dated))
-	sort.Slice(undated, func(i, j int) bool { return undated[i].ID < undated[j].ID })
+	slices.SortStableFunc(dated, compareTimeThenID)
+	slices.SortFunc(undated, func(a, b NodeInfo) int { return cmp.Compare(a.ID, b.ID) })
 
 	var (
 		lanes    [][]uint64 // lane index -> node ids, in time order

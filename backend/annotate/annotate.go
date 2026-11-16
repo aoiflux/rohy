@@ -22,13 +22,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 	"rohy/backend/utils"
 )
 
@@ -151,19 +152,14 @@ func (s *Store) load(graphID uint64) (*Document, error) {
 	return doc, nil
 }
 
-// persist atomically writes one graph's sidecar. Caller holds the lock.
+// persist durably writes one graph's sidecar. Caller holds the lock.
 func (s *Store) persist(doc *Document) error {
 	doc.AnnotationsVersion = consts.AnnotationsVersion
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := s.path(doc.GraphID)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return durable.WriteFile(s.path(doc.GraphID), data)
 }
 
 // commit writes next and, only once it is on disk, makes it the graph's cached document. Caller
@@ -425,7 +421,7 @@ func (s *Store) Hashes(graphID uint64) ([]string, error) {
 			}
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }
 
@@ -522,12 +518,7 @@ func nextZ(layers []Layer) int {
 }
 
 func known(set []string, v string) bool {
-	for _, s := range set {
-		if s == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(set, v)
 }
 
 // newID derives a stable, sortable id: the prefix, the creation time to the millisecond, and a

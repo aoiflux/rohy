@@ -14,11 +14,13 @@
 package findings
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -131,18 +133,13 @@ func (s *Store) Stale() bool {
 	return s.stale
 }
 
-// persist atomically writes the sidecar (temp file + rename), indented so the file stays
-// readable by hand.
+// persist durably writes the sidecar, indented so the file stays readable by hand.
 func (s *Store) persist() error {
 	data, err := json.MarshalIndent(&s.s, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(s.dir, findingsFile+".tmp")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(s.dir, findingsFile))
+	return durable.WriteFile(filepath.Join(s.dir, findingsFile), data)
 }
 
 // ScrubDescriptors replaces the descriptor of each finding keyed by one of keys with replacement,
@@ -158,9 +155,7 @@ func (s *Store) ScrubDescriptors(keys []string, replacement string) ([]string, e
 	defer s.mu.Unlock()
 	var changed []string
 	next := make(map[string]*Finding, len(s.s.Findings))
-	for k, f := range s.s.Findings {
-		next[k] = f
-	}
+	maps.Copy(next, s.s.Findings)
 	for _, k := range keys {
 		f, ok := next[k]
 		if !ok || f.Descriptor == replacement {
@@ -183,11 +178,10 @@ func (s *Store) ScrubDescriptors(keys []string, replacement string) ([]string, e
 		}
 		s.s = doc
 	}
-	stale := filepath.Join(s.dir, findingsFile+".tmp")
-	if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
+	if err := durable.RemoveTemps(filepath.Join(s.dir, findingsFile)); err != nil {
 		return changed, err
 	}
-	sort.Strings(changed)
+	slices.Sort(changed)
 	return changed, nil
 }
 
@@ -221,7 +215,7 @@ func normalizeTags(in []string) []string {
 			break
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -342,11 +336,8 @@ func (s *Store) List() []*Finding {
 	for _, f := range s.s.Findings {
 		out = append(out, clone(f))
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].Key < out[j].Key
-		}
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	slices.SortFunc(out, func(a, b *Finding) int {
+		return cmp.Or(b.UpdatedAt.Compare(a.UpdatedAt), cmp.Compare(a.Key, b.Key))
 	})
 	return out
 }
@@ -376,7 +367,7 @@ func (s *Store) Keys(filter string) ([]string, bool) {
 		}
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, true
 }
 
@@ -403,11 +394,8 @@ func (s *Store) Tags() []TagCount {
 	for t, n := range counts {
 		out = append(out, TagCount{Tag: t, Count: n})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Count == out[j].Count {
-			return out[i].Tag < out[j].Tag
-		}
-		return out[i].Count > out[j].Count
+	slices.SortFunc(out, func(a, b TagCount) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Tag, b.Tag))
 	})
 	return out
 }
@@ -429,14 +417,11 @@ func (s *Store) KeysWithTag(tag string) []string {
 		return out
 	}
 	for k, f := range s.s.Findings {
-		for _, t := range f.Tags {
-			if t == tag {
-				out = append(out, k)
-				break
-			}
+		if slices.Contains(f.Tags, tag) {
+			out = append(out, k)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

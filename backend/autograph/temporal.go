@@ -1,6 +1,7 @@
 package autograph
 
 import (
+	"slices"
 	"time"
 
 	"rohy/backend/consts"
@@ -122,8 +123,8 @@ func matchWindowed(spec *rules.Spec, events []*graphene.Event, within, total tim
 		// advance two steps of the same match in a single visit — it would complete step s,
 		// and then immediately be read as the "most recent completion of s" that satisfies
 		// step s+1, matching itself against itself.
-		for k := len(steps) - 1; k >= 0; k-- {
-			s := steps[k]
+		for _, s := range slices.Backward(steps) {
+
 			if s == 0 {
 				last[0], chain[0][0] = i, i
 				continue

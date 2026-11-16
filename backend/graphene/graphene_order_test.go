@@ -122,7 +122,7 @@ func TestPagingIsStableAndComplete(t *testing.T) {
 
 	const total = 25
 	events := make([]*Event, 0, total)
-	for i := 0; i < total; i++ {
+	for i := range total {
 		// Deliberately duplicate timestamps so the id tie-break is exercised.
 		events = append(events, mkEvent("1", "p", "c", "u", base.Add(time.Duration(i/5)*time.Minute), string(rune('a'+i))))
 	}

@@ -2,7 +2,7 @@ package graphlayout
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
@@ -38,7 +38,7 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 			ready = append(ready, n.ID)
 		}
 	}
-	sort.Slice(ready, func(i, j int) bool { return ready[i] < ready[j] })
+	slices.Sort(ready)
 
 	placed := make(map[uint64]bool, len(nodes))
 	remaining := make([]uint64, len(nodes))
@@ -106,7 +106,7 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 		if len(members) == 0 {
 			continue
 		}
-		sort.SliceStable(members, byTimeThenID(members))
+		slices.SortStableFunc(members, compareTimeThenID)
 		ids := make([]uint64, 0, len(members))
 		for i, n := range members {
 			out.Positions[n.ID] = Point{X: float64(r) * opts.gapX(), Y: float64(i) * opts.gapY()}
@@ -127,9 +127,6 @@ func sequenceLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) R
 // insertSorted keeps the ready queue ordered without pulling in a heap for a queue that is
 // usually a handful of ids deep.
 func insertSorted(xs []uint64, v uint64) []uint64 {
-	i := sort.Search(len(xs), func(i int) bool { return xs[i] >= v })
-	xs = append(xs, 0)
-	copy(xs[i+1:], xs[i:])
-	xs[i] = v
-	return xs
+	i, _ := slices.BinarySearch(xs, v)
+	return slices.Insert(xs, i, v)
 }

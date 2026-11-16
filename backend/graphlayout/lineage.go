@@ -2,7 +2,7 @@ package graphlayout
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"rohy/backend/consts"
 	"rohy/backend/graphene"
@@ -39,7 +39,7 @@ func lineageLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) Re
 			roots = append(roots, n)
 		}
 	}
-	sort.SliceStable(roots, byTimeThenID(roots))
+	slices.SortStableFunc(roots, compareTimeThenID)
 
 	var (
 		depth   = make(map[uint64]int, len(nodes))
@@ -64,7 +64,7 @@ func lineageLayout(nodes []NodeInfo, rels []*graphene.Relation, opts Options) Re
 				children = append(children, meta[c])
 			}
 		}
-		sort.SliceStable(children, byTimeThenID(children))
+		slices.SortStableFunc(children, compareTimeThenID)
 
 		if len(children) == 0 {
 			out.Positions[id] = Point{X: cursor, Y: float64(d) * opts.gapY()}

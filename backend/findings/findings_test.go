@@ -415,7 +415,7 @@ func TestUnversionedSidecarIsAdoptedNotFlagged(t *testing.T) {
 func TestConcurrentUseIsSafe(t *testing.T) {
 	s := newStore(t)
 	done := make(chan struct{})
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		go func(i int) {
 			defer func() { done <- struct{}{} }()
 			key := string(rune('a' + i))
@@ -427,7 +427,7 @@ func TestConcurrentUseIsSafe(t *testing.T) {
 			_, _ = s.Keys(consts.FindingFilterFlagged)
 		}(i)
 	}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		<-done
 	}
 	if s.Stats().Total != 8 {

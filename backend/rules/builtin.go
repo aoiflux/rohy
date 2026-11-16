@@ -4,7 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"path"
-	"sort"
+	"slices"
 
 	"rohy/backend/consts"
 )
@@ -31,7 +31,7 @@ func Builtins() ([]*Rule, []LoadError) {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names) // deterministic order → deterministic duplicate resolution
+	slices.Sort(names) // deterministic order → deterministic duplicate resolution
 
 	out := make([]*Rule, 0, len(names))
 	var errs []LoadError

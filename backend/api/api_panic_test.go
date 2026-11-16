@@ -20,7 +20,7 @@ type panickingEmitter struct {
 	once sync.Once
 }
 
-func (p *panickingEmitter) Emit(channel string, data interface{}) {
+func (p *panickingEmitter) Emit(channel string, data any) {
 	if channel == consts.EventIngestProgress || channel == consts.EventIngestChunk {
 		fault := false
 		p.once.Do(func() { fault = true })
@@ -75,7 +75,7 @@ func TestIngestFaultIsReportedSealedAndReleasesTheFile(t *testing.T) {
 	// shows. (Elsewhere the rename succeeds regardless, and this check passes without proving it.)
 	moved := path + ".moved"
 	var renameErr error
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if renameErr = os.Rename(path, moved); renameErr == nil {
 			break
 		}
@@ -102,7 +102,7 @@ func repeatChunks(t *testing.T, src, dst string, n int) {
 		t.Fatalf("fixture has header %d and %d whole chunks", header, chunks)
 	}
 	out := append([]byte{}, data[:header]...)
-	for i := 0; i < n; i++ {
+	for range n {
 		out = append(out, data[header:header+chunks*chunkSize]...)
 	}
 	if err := os.WriteFile(dst, out, 0o644); err != nil {
@@ -123,4 +123,4 @@ func TestIngestPanicReportSurvivesAFaultingEmitter(t *testing.T) {
 
 type alwaysPanics struct{}
 
-func (alwaysPanics) Emit(string, interface{}) { panic("emitter fault") }
+func (alwaysPanics) Emit(string, any) { panic("emitter fault") }

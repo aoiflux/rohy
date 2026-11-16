@@ -475,9 +475,7 @@ func TestReadsDuringAnUnlockAnswerOrAreRefusedAsClosed(t *testing.T) {
 	errs := make(chan error, 8)
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -496,7 +494,7 @@ func TestReadsDuringAnUnlockAnswerOrAreRefusedAsClosed(t *testing.T) {
 				}
 				_ = s.Writable()
 			}
-		}()
+		})
 	}
 	if err := s.Unlock(key); err != nil {
 		t.Fatal(err)

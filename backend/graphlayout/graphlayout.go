@@ -18,8 +18,9 @@
 package graphlayout
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,7 +145,7 @@ func Compute(profile string, nodes []NodeInfo, rels []*graphene.Relation, opts O
 	// A deterministic starting order, so every profile below can rely on it. Sorting once here
 	// rather than inside each profile is the same "prepare once" shape autograph uses.
 	ordered := append([]NodeInfo(nil), nodes...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	slices.SortFunc(ordered, func(a, b NodeInfo) int { return cmp.Compare(a.ID, b.ID) })
 
 	switch profile {
 	case consts.LayoutSequence:
@@ -194,28 +195,30 @@ func buildEdges(nodes []NodeInfo, rels []*graphene.Relation) edgeSet {
 	}
 	// Adjacency is walked in id order everywhere below, so sort it once here.
 	for k := range es.out {
-		sort.Slice(es.out[k], func(i, j int) bool { return es.out[k][i] < es.out[k][j] })
+		slices.Sort(es.out[k])
 	}
 	for k := range es.in {
-		sort.Slice(es.in[k], func(i, j int) bool { return es.in[k][i] < es.in[k][j] })
+		slices.Sort(es.in[k])
 	}
 	return es
 }
 
-// byTimeThenID is the total order every profile falls back to. Undated nodes sort AFTER dated
-// ones rather than at the epoch: an event with no timestamp is not an event from 1601, and
+// compareTimeThenID is the total order every profile falls back to. Undated nodes sort AFTER
+// dated ones rather than at the epoch: an event with no timestamp is not an event from 1601, and
 // sorting it first would put it at the head of a chain it has no claim to.
-func byTimeThenID(nodes []NodeInfo) func(i, j int) bool {
-	return func(i, j int) bool {
-		a, b := nodes[i], nodes[j]
-		if a.Dated != b.Dated {
-			return a.Dated
+func compareTimeThenID(a, b NodeInfo) int {
+	if a.Dated != b.Dated {
+		if a.Dated {
+			return -1
 		}
-		if a.Dated && !a.Timestamp.Equal(b.Timestamp) {
-			return a.Timestamp.Before(b.Timestamp)
-		}
-		return a.ID < b.ID
+		return 1
 	}
+	if a.Dated {
+		if c := a.Timestamp.Compare(b.Timestamp); c != 0 {
+			return c
+		}
+	}
+	return cmp.Compare(a.ID, b.ID)
 }
 
 // indexByID maps ids back to their metadata. Every profile needs it and none of them should

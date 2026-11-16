@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"rohy/backend/consts"
@@ -89,7 +89,7 @@ func onlyIngestible(paths []string) []string {
 			}
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -109,6 +109,6 @@ func collectIngestibleFiles(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }

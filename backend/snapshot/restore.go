@@ -1,9 +1,9 @@
 package snapshot
 
 import (
-	"sort"
-
+	"cmp"
 	"rohy/backend/consts"
+	"slices"
 )
 
 // Restore planning.
@@ -96,7 +96,7 @@ func BuildPlan(doc *Document, live []LiveEvent, rels []LiveRelation) Plan {
 	// two node ids should not happen — deduplication is what prevents it — but a partial ingest
 	// can produce one, and resolving it by map order would make a restore differ between runs.
 	sorted := append([]LiveEvent(nil), live...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+	slices.SortFunc(sorted, func(a, b LiveEvent) int { return cmp.Compare(a.ID, b.ID) })
 	byHash := make(map[string]uint64, len(sorted))
 	for _, e := range sorted {
 		if e.Hash == "" {
@@ -238,6 +238,6 @@ func (p Plan) Recreatable() []RelationPlan {
 			out = append(out, r)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].SnapshotID < out[j].SnapshotID })
+	slices.SortFunc(out, func(a, b RelationPlan) int { return cmp.Compare(a.SnapshotID, b.SnapshotID) })
 	return out
 }

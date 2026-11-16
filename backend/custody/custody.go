@@ -38,11 +38,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 // ErrNoRoot is returned when an export is asked for and the case has no fingerprint — it has never
@@ -334,7 +334,7 @@ func (s *Store) History() []Record {
 	defer s.mu.Unlock()
 	out := make([]Record, len(s.doc.Records))
 	copy(out, s.doc.Records)
-	sort.SliceStable(out, func(i, j int) bool { return out[i].SealedAt.Before(out[j].SealedAt) })
+	slices.SortStableFunc(out, func(a, b Record) int { return a.SealedAt.Compare(b.SealedAt) })
 	return out
 }
 
@@ -362,8 +362,8 @@ func (s *Store) indexOf(snapshot string) int {
 	return -1
 }
 
-// persist atomically writes the document (temp file + rename), so an interrupted write cannot leave
-// a truncated history behind. Callers hold s.mu.
+// persist durably writes the document, so an interrupted write cannot leave a truncated history
+// behind. Callers hold s.mu.
 func (s *Store) persist() error {
 	if s.damage != nil && s.damage.KeptAt == "" {
 		return fmt.Errorf(consts.MsgCustodyHistoryHeld, s.damage.Reason)
@@ -373,9 +373,5 @@ func (s *Store) persist() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.file() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.file())
+	return durable.WriteFile(s.file(), data)
 }

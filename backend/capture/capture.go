@@ -11,11 +11,13 @@ package capture
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"rohy/backend/consts"
+	"rohy/backend/durable"
 )
 
 // Store persists per-channel capture positions as a JSON sidecar. It is safe for
@@ -77,9 +79,7 @@ func (s *Store) Positions() map[string]uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make(map[string]uint64, len(s.pos))
-	for k, v := range s.pos {
-		out[k] = v
-	}
+	maps.Copy(out, s.pos)
 	return out
 }
 
@@ -96,16 +96,12 @@ func (s *Store) Reset(channel string) error {
 	return s.persist()
 }
 
-// persist atomically writes the bookmark document (temp file + rename), so an interrupted
-// write can never leave a truncated position file behind. Callers hold s.mu.
+// persist durably writes the bookmark document, so an interrupted write can never leave a
+// truncated position file behind. Callers hold s.mu.
 func (s *Store) persist() error {
 	data, err := json.MarshalIndent(s.pos, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := s.file() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.file())
+	return durable.WriteFile(s.file(), data)
 }

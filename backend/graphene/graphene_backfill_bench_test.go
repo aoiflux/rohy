@@ -189,9 +189,8 @@ func benchmarkBackfill(b *testing.B, n int) {
 	template := seedLegacyDiskStore(b, n)
 	var growth, held, afterCompact uint64
 	var elapsed time.Duration
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		s, err := Open(copyStoreDir(b, template))
 		if err != nil {

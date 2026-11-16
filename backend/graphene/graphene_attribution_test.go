@@ -31,16 +31,12 @@ func TestEveryCommitNamesTheSessionsAnalyst(t *testing.T) {
 	}
 	if _, err := s.InsertRelations([]*Relation{
 		{From: b, To: a, GraphID: 1, RelationType: "rel", CreatedAt: time.Now()},
-		{From: a, To: b, RelationType: "legacy", CreatedAt: time.Now()},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	r.Label = "edited"
 	if err := s.UpdateRelation(r); err != nil {
 		t.Fatal(err)
-	}
-	if n, err := s.MigrateRelationsToGraph(2); err != nil || n != 1 {
-		t.Fatalf("migrated %d: %v", n, err)
 	}
 	if err := s.IncrementDedupCounts(map[uint64]map[string]int{a: {"file": 1}}); err != nil {
 		t.Fatal(err)
@@ -69,10 +65,10 @@ func TestEveryCommitNamesTheSessionsAnalyst(t *testing.T) {
 			t.Errorf("commit %d records actor %d (detail %v), want %d", c.CommitSeq, c.ActorID, c.HasDetail, testActor)
 		}
 	}
-	// Two event inserts, two relation inserts, an update, the migration, the dedup count, two
-	// deletes, the cleared graph and the deleted event: one commit each.
-	if commits != 10 {
-		t.Fatalf("%d commits, want 10", commits)
+	// Two event inserts, two relation inserts, an update, the dedup count, two deletes, the cleared
+	// graph and the deleted event: one commit each.
+	if commits != 9 {
+		t.Fatalf("%d commits, want 9", commits)
 	}
 }
 

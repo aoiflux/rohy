@@ -66,13 +66,6 @@ func TestACaseNeedsSealingUntilCompactedAndAgainAfterAWrite(t *testing.T) {
 	}
 	wantUnsealed(t, s, false, "reopened with nothing written")
 
-	// Startup runs this migration on every launch. On a case with nothing to migrate it must write
-	// nothing, or the close seal could never skip.
-	if _, err := s.MigrateRelationsToGraph(1); err != nil {
-		t.Fatal(err)
-	}
-	wantUnsealed(t, s, false, "after the startup migration on a clean case")
-
 	// Each kind of write counts: an update, a delete, an insert.
 	if err := s.IncrementDedupCounts(map[uint64]map[string]int{ids[0]: {`D:\copy\Security.evtx`: 1}}); err != nil {
 		t.Fatal(err)

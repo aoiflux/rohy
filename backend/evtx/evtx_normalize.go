@@ -122,14 +122,14 @@ func flatten(d *ordereddict.Dict) map[string]string {
 
 // stringifyLeaf renders a scalar leaf value. Non-scalars are JSON-encoded rather
 // than rendered with %v so structured values remain machine-readable.
-func stringifyLeaf(v interface{}) string {
+func stringifyLeaf(v any) string {
 	if v == nil {
 		return ""
 	}
 	switch t := v.(type) {
 	case string:
 		return t
-	case *ordereddict.Dict, []interface{}:
+	case *ordereddict.Dict, []any:
 		if b, err := json.Marshal(t); err == nil {
 			return string(b)
 		}

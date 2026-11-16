@@ -13,12 +13,12 @@ import (
 // specFieldNames returns the JSON name of every field in Spec, by reflection.
 func specFieldNames(t *testing.T) []string {
 	t.Helper()
-	typ := reflect.TypeOf(Spec{})
+	typ := reflect.TypeFor[Spec]()
 	var out []string
-	for i := 0; i < typ.NumField(); i++ {
-		tag := typ.Field(i).Tag.Get("json")
+	for field := range typ.Fields() {
+		tag := field.Tag.Get("json")
 		if tag == "" || tag == "-" {
-			t.Fatalf("Spec.%s has no json tag; the rule format is a wire contract", typ.Field(i).Name)
+			t.Fatalf("Spec.%s has no json tag; the rule format is a wire contract", field.Name)
 		}
 		out = append(out, strings.Split(tag, ",")[0])
 	}

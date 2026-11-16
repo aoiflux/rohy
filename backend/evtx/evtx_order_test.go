@@ -1,13 +1,13 @@
 package evtx
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"runtime"
 	"slices"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -336,7 +336,7 @@ func eventsByID(t *testing.T, s *graphene.Store) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sort.Slice(evs, func(i, j int) bool { return evs[i].ID < evs[j].ID })
+	slices.SortFunc(evs, func(a, b *graphene.Event) int { return cmp.Compare(a.ID, b.ID) })
 	out := make([]string, len(evs))
 	for i, e := range evs {
 		out[i] = e.HashNormalized

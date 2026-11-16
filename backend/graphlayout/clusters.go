@@ -1,8 +1,9 @@
 package graphlayout
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"rohy/backend/consts"
@@ -96,7 +97,7 @@ func componentClusters(nodes []NodeInfo, rels []*graphene.Relation) []Cluster {
 
 	out := make([]Cluster, 0, len(members))
 	for _, ids := range members {
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		slices.Sort(ids)
 		// Named after its LOWEST MEMBER, not after the union-find root. The root depends on the
 		// order the unions happened in, so a root-derived id would rename a component whose
 		// membership had not changed at all — and the canvas remembers which clusters are
@@ -161,7 +162,7 @@ func ruleClusters(nodes []NodeInfo, rels []*graphene.Relation) []Cluster {
 		}
 	}
 	if len(loose) > 0 {
-		sort.Slice(loose, func(i, j int) bool { return loose[i] < loose[j] })
+		slices.Sort(loose)
 		out = append(out, Cluster{
 			ID:          "rule-none",
 			Label:       consts.ClusterNoRuleLabel,
@@ -208,7 +209,7 @@ func slotClusters(nodes []NodeInfo, opts Options) []Cluster {
 		})
 	}
 	if len(absent) > 0 {
-		sort.Slice(absent, func(i, j int) bool { return absent[i] < absent[j] })
+		slices.Sort(absent)
 		out = append(out, Cluster{
 			ID:      "slot-absent",
 			Label:   consts.LayoutAbsentLabel,
@@ -222,14 +223,8 @@ func slotClusters(nodes []NodeInfo, opts Options) []Cluster {
 // ordered imposes the one ordering every mode shares: largest first, then label, then lowest
 // member id. Nothing here may depend on map iteration order.
 func ordered(cs []Cluster) []Cluster {
-	sort.Slice(cs, func(i, j int) bool {
-		if cs[i].Size != cs[j].Size {
-			return cs[i].Size > cs[j].Size
-		}
-		if cs[i].Label != cs[j].Label {
-			return cs[i].Label < cs[j].Label
-		}
-		return cs[i].ID < cs[j].ID
+	slices.SortFunc(cs, func(a, b Cluster) int {
+		return cmp.Or(cmp.Compare(b.Size, a.Size), cmp.Compare(a.Label, b.Label), cmp.Compare(a.ID, b.ID))
 	})
 	return cs
 }
@@ -239,6 +234,6 @@ func sortedKeys(set map[uint64]bool) []uint64 {
 	for id := range set {
 		out = append(out, id)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }

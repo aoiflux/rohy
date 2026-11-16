@@ -39,7 +39,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"rohy/backend/consts"
@@ -514,7 +514,7 @@ func gather(paths []string, stdin io.Reader, stderr io.Writer) ([]source, int) {
 		}
 		// Sorted, so a run over a directory reports in the same order every time — which is what
 		// makes a CI log diffable between runs.
-		sort.Strings(found)
+		slices.Sort(found)
 		for _, path := range found {
 			data, err := os.ReadFile(path)
 			if err != nil {

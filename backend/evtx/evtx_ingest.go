@@ -271,9 +271,7 @@ func runFileChunks(ctx context.Context, opts Options, handles []io.ReadSeekClose
 	resultCh := make(chan chunkResult)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { // producer
-		defer wg.Done()
+	wg.Go(func() { // producer
 		defer close(order)
 		defer close(jobs)
 		for _, off := range offsets {
@@ -289,7 +287,7 @@ func runFileChunks(ctx context.Context, opts Options, handles []io.ReadSeekClose
 				return
 			}
 		}
-	}()
+	})
 
 	var workers sync.WaitGroup
 	for _, h := range handles {
@@ -306,9 +304,7 @@ func runFileChunks(ctx context.Context, opts Options, handles []io.ReadSeekClose
 		}(h)
 	}
 
-	wg.Add(1)
-	go func() { // adapter
-		defer wg.Done()
+	wg.Go(func() { // adapter
 		defer close(resultCh)
 		defer workers.Wait()
 		for out := range order {
@@ -323,7 +319,7 @@ func runFileChunks(ctx context.Context, opts Options, handles []io.ReadSeekClose
 				return
 			}
 		}
-	}()
+	})
 
 	sum, err := runSink(ctx, opts, sink, reporter, resultCh, len(offsets))
 	cancel()
