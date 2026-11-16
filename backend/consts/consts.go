@@ -2724,7 +2724,10 @@ const DefaultDeduplicationCount = 1
 // large transaction. ParseWorkerCount bounds parse/normalize concurrency; each
 // worker uses its own file handle (concurrent seeks on one handle are unsafe).
 const (
-	EventBatchSize   = 512
+	EventBatchSize = 512
+	// ReadBatchBytes bounds the stored records a whole-case scan holds at once. It counts their
+	// bytes rather than their number, because that is what graphene's batch readers bound.
+	ReadBatchBytes   = 8 << 20
 	ChunkQueueDepth  = 8
 	ParseWorkerCount = 4
 	// ProgressInterval is the record count between progress reports so the UI is

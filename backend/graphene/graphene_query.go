@@ -153,52 +153,41 @@ func windowIDs(ids []uint64, offset, limit int) []uint64 {
 // relatedEventIDs returns the set of event ids participating in relations of the requested
 // provenance, or nil when no relation filter is active (nil means "no filtering", which is
 // distinct from an empty set meaning "nothing matches").
+//
+// It reads each relation's endpoints from its edge record and never decodes the relation, because
+// the endpoints are all a filter by relation needs.
 func (s *Store) relatedEventIDs(state string) (map[uint64]bool, error) {
-	var rels []*Relation
-	var err error
-
+	g, err := s.graph()
+	if err != nil {
+		return nil, err
+	}
+	var edges []*store.Edge
 	switch state {
 	case "":
 		return nil, nil
 	case consts.RelationFilterAny:
-		rels, err = s.GetRelations()
+		ids, err := g.EdgesByType(consts.EdgeRelation)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[uint64]bool, len(ids)*2)
+		return out, eachEdge(g, ids, consts.ReadBatchBytes, func(e *store.Edge) error {
+			out[uint64(e.Src)], out[uint64(e.Dst)] = true, true
+			return nil
+		})
 	case consts.RelationFilterSystem:
-		rels, err = s.relationsByCreator(consts.CreatedBySystem)
+		edges, err = g.EdgesWithProperties(map[string][]byte{consts.PropCreatedBy: []byte(consts.CreatedBySystem)})
 	case consts.RelationFilterUser:
-		rels, err = s.relationsByCreator(consts.CreatedByUser)
+		edges, err = g.EdgesWithProperties(map[string][]byte{consts.PropCreatedBy: []byte(consts.CreatedByUser)})
 	default:
 		return nil, nil // unknown value: filter nothing rather than hide everything
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	ids := make(map[uint64]bool, len(rels)*2)
-	for _, r := range rels {
-		ids[r.From] = true
-		ids[r.To] = true
-	}
-	return ids, nil
-}
-
-// relationsByCreator reads relations by provenance through the created_by edge index, so
-// filtering to rule-correlated events does not scan every edge.
-func (s *Store) relationsByCreator(createdBy string) ([]*Relation, error) {
-	g, err := s.graph()
-	if err != nil {
-		return nil, err
-	}
-	edges, err := g.EdgesWithProperties(map[string][]byte{consts.PropCreatedBy: []byte(createdBy)})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*Relation, 0, len(edges))
-	for _, ed := range edges {
-		r, err := relationFromEdge(ed)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
+	out := make(map[uint64]bool, len(edges)*2)
+	for _, e := range edges {
+		out[uint64(e.Src)], out[uint64(e.Dst)] = true, true
 	}
 	return out, nil
 }
@@ -304,18 +293,15 @@ func (s *Store) GetRelations() ([]*Relation, error) {
 		return nil, err
 	}
 	out := make([]*Relation, 0, len(ids))
-	for _, id := range ids {
-		ed, err := g.GetEdge(id)
-		if err != nil {
-			return nil, err
-		}
+	err = eachEdge(g, ids, consts.ReadBatchBytes, func(ed *store.Edge) error {
 		r, err := relationFromEdge(ed)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		out = append(out, r)
-	}
-	return out, nil
+		return nil
+	})
+	return out, err
 }
 
 // EventAdjacency summarizes an event's incident relations for relation-aware

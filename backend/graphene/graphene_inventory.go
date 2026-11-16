@@ -83,44 +83,38 @@ func (s *Store) Inventory() (Inventory, error) {
 		return out, nil
 	}
 
-	for start := 0; start < len(ids); start += consts.EventBatchSize {
-		end := min(start+consts.EventBatchSize, len(ids))
-		nodes, _, err := g.GetNodes(ids[start:end])
-		if err != nil {
-			return out, err
+	err = eachNode(g, ids, consts.ReadBatchBytes, func(n *store.Node) error {
+		if isStrippedEvent(n) {
+			out.Redacted++
+			return nil
 		}
-		for _, n := range nodes {
-			if isStrippedEvent(n) {
-				out.Redacted++
-				continue
-			}
-			var v inventoryView
-			if len(n.Properties) > 0 {
-				if err := json.Unmarshal(n.Properties, &v); err != nil {
-					return out, err
-				}
-			}
-			if v.Channel != "" {
-				out.Channels[v.Channel]++
-			}
-			// A timestamp is stored as a string; empty or the zero instant both mean undated.
-			if v.Timestamp == "" || v.Timestamp == zeroTimestamp {
-				out.Undated++
-			}
-			if v.CorrKeyVersion != consts.CorrelationKeyVersion {
-				out.StaleProjection++
-			}
-			for i, key := range v.CorrKeys {
-				if i < len(out.SlotCoverage) && key != "" {
-					out.SlotCoverage[i]++
-				}
-			}
-			if end := v.Payload.Offset + uint64(v.Payload.Length); end > out.PayloadUsed {
-				out.PayloadUsed = end
+		var v inventoryView
+		if len(n.Properties) > 0 {
+			if err := json.Unmarshal(n.Properties, &v); err != nil {
+				return err
 			}
 		}
-	}
-	return out, nil
+		if v.Channel != "" {
+			out.Channels[v.Channel]++
+		}
+		// A timestamp is stored as a string; empty or the zero instant both mean undated.
+		if v.Timestamp == "" || v.Timestamp == zeroTimestamp {
+			out.Undated++
+		}
+		if v.CorrKeyVersion != consts.CorrelationKeyVersion {
+			out.StaleProjection++
+		}
+		for i, key := range v.CorrKeys {
+			if i < len(out.SlotCoverage) && key != "" {
+				out.SlotCoverage[i]++
+			}
+		}
+		if end := v.Payload.Offset + uint64(v.Payload.Length); end > out.PayloadUsed {
+			out.PayloadUsed = end
+		}
+		return nil
+	})
+	return out, err
 }
 
 // PayloadSize is how many bytes the payload cold store holds. Compared against
@@ -270,16 +264,31 @@ func (s *Store) DanglingRelations() ([]*Relation, error) {
 // GraphRelationCounts maps each graph id present in the relation set to how many relations it
 // holds. It answers both "which graphs exist in the store" and "which registered graph is empty"
 // from one read.
+//
+// It reads every relation record, not graphene's count of the graph_id index
+// (CountEdgesByProperty), because the integrity check that calls it also audits that index: a
+// relation the index lost must still be counted, and in its graph.
 func (s *Store) GraphRelationCounts() (map[uint64]int, error) {
-	rels, err := s.GetRelations()
+	g, err := s.graph()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := g.EdgesByType(consts.EdgeRelation)
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[uint64]int, 8)
-	for _, r := range rels {
-		if r != nil {
-			out[r.GraphID]++
+	err = eachEdge(g, ids, consts.ReadBatchBytes, func(e *store.Edge) error {
+		var v struct {
+			GraphID uint64 `json:"graph_id"`
 		}
-	}
-	return out, nil
+		if len(e.Properties) > 0 {
+			if err := json.Unmarshal(e.Properties, &v); err != nil {
+				return err
+			}
+		}
+		out[v.GraphID]++
+		return nil
+	})
+	return out, err
 }

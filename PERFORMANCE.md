@@ -446,6 +446,44 @@ paths neither build touches, so only interleaved numbers are quoted.
    decision.
 5. Re-run the **full** benchmark set — including lifecycle — before and after.
 
+### Record: adopting v0.10's readers
+
+Each replacement rohy could make with v0.10's own readers was held to two gates: the integration
+golden unchanged, and an interleaved A/B no slower. `BenchmarkScan` is the A/B: one 50k-event case
+on disk with 20k relations, against the committed tree, alternating, run once in each order, medians.
+
+| Path | Before | After | |
+| --- | ---: | ---: | --- |
+| Relation filter "any" (`relatedEventIDs`) | 50.4 ms | 3.6 ms | **14× faster**: endpoints from the edge record, no decode |
+| Relation filter "user" | 23.7 ms | 1.4 ms | **17× faster**, same reason |
+| `GraphRelationCounts` | 52.1 ms / 6.1 MB | 43.5 ms / 2.1 MB | 1.2× faster: decodes `graph_id` alone |
+| `Inventory` | 228 ms | 228 ms | equal |
+| `CorrelationKeyStatus` | 204 ms | 199 ms | equal |
+| `EventsSharing` by raw hash | 206 ms | 200 ms | equal |
+
+The three event scans and `GetRelations` now read through `ForEachNodeBatch` / `ForEachEdgeBatch`
+(`graphene_scan.go`), whose batches are bounded by bytes (`consts.ReadBatchBytes`, 8 MiB). They are
+equal in time and smaller in code. Batching `GetRelations` alone saved nothing; its cost is decoding
+each relation, which is why the two relation paths above stopped decoding.
+
+**Kept, and why:**
+
+- **The order cache, `computeOrder`, `windowIDs`, `propertyFilters`.** The query builder's `Order`
+  sorts by node id, as `NodeQuery` does; it has no order by a property's value. The events list is
+  chronological, tie-broken by id, with undated events last in either direction, so the builder
+  cannot page it. Its `Where` reaches indexed keys only, and the list also filters by source,
+  duplicate count, hash set and relation state. `propertyFilters` already feeds the same planner the
+  builder does, and since §9's reversal a time range is driven by the ordered timestamp.
+- **`CountEventsBy`.** `GroupBy` counts index entries. The console's counts must agree with the list,
+  which applies the filters above and the undated policy, and counts redacted events apart.
+- **`GraphRelationCounts` over `CountEdgesByProperty`.** The integrity check that calls it also audits
+  the relation index, so a relation the index lost must still be counted, in its graph
+  (`TestTheWholeCaseScansAgreeWithEveryRecord`).
+- **`RelationsOf`, `RelationsAdjacency`.** Already adjacency reads (`EdgesOf`), about 1 ms for a
+  200-row window. Every caller needs the relation's type and provenance, which live in the record, so
+  `IncidentEdges` or a `Both().Hops(1, 1)` chain would add a read rather than remove one.
+- **The backfill's chunk loop.** Its chunk is the commit unit, not a read batch.
+
 ---
 
 ## 11. Checklist for a persistence-touching change
@@ -640,6 +678,7 @@ the decision is being changed — check that it is on purpose.
 | `TestInsertsCommitTheirIndexEntriesWithTheirRecords`    | Every insert's index entries commit with its records (§12a)         |
 | `TestCommitIndexGapLeavesEdgesInvisibleToGraphQueries`  | The exact shape of the gap (§12a) — not merely "relation missing"   |
 | `TestRepairOrphanedRelationsRecoversFromCommitIndexGap` | Repair works and is idempotent                                      |
+| `TestTheWholeCaseScansAgreeWithEveryRecord`             | Batched, slim relation reads match a plain read of every record (§10) |
 | `TestRunRecoversFromAnInterruptedPreviousBuild`         | A crashed build reruns without duplicating relations                |
 | `TestStoreMemoryPerEvent`                               | Per-event resident cost, with a regression ceiling                  |
 | `TestStoreMemoryGrowsWithRecordSize`                    | Memory grows far slower than the record; the fixed floor stays flat |

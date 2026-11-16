@@ -89,31 +89,25 @@ func (s *Store) CorrelationKeyStatus() (CorrelationKeyStatus, error) {
 		return st, nil
 	}
 
-	for start := 0; start < len(ids); start += consts.EventBatchSize {
-		end := min(start+consts.EventBatchSize, len(ids))
-		nodes, _, err := g.GetNodes(ids[start:end])
-		if err != nil {
-			return st, err
+	err = eachNode(g, ids, consts.ReadBatchBytes, func(n *store.Node) error {
+		if isStrippedEvent(n) {
+			st.Redacted++
+			return nil
 		}
-		for _, n := range nodes {
-			if isStrippedEvent(n) {
-				st.Redacted++
-				continue
-			}
-			var v correlationStatusView
-			if len(n.Properties) > 0 {
-				if err := json.Unmarshal(n.Properties, &v); err != nil {
-					return st, err
-				}
-			}
-			if v.CorrKeyVersion == consts.CorrelationKeyVersion {
-				st.Current++
-			} else {
-				st.Stale++
+		var v correlationStatusView
+		if len(n.Properties) > 0 {
+			if err := json.Unmarshal(n.Properties, &v); err != nil {
+				return err
 			}
 		}
-	}
-	return st, nil
+		if v.CorrKeyVersion == consts.CorrelationKeyVersion {
+			st.Current++
+		} else {
+			st.Stale++
+		}
+		return nil
+	})
+	return st, err
 }
 
 // BackfillCorrelationKeys projects events that do not yet carry a current correlation

@@ -144,22 +144,20 @@ func (s *Store) EventsSharing(hashNormalized, hashRaw string) ([]uint64, error) 
 		if err != nil {
 			return nil, err
 		}
-		for start := 0; start < len(all); start += consts.EventBatchSize {
-			nodes, _, err := g.GetNodes(all[start:min(start+consts.EventBatchSize, len(all))])
-			if err != nil {
-				return nil, err
+		err = eachNode(g, all, consts.ReadBatchBytes, func(n *store.Node) error {
+			var h struct {
+				HashRaw string `json:"hash_raw"`
 			}
-			for _, n := range nodes {
-				var h struct {
-					HashRaw string `json:"hash_raw"`
-				}
-				if len(n.Properties) == 0 || json.Unmarshal(n.Properties, &h) != nil {
-					continue
-				}
-				if h.HashRaw == hashRaw {
-					seen[uint64(n.ID)] = true
-				}
+			if len(n.Properties) == 0 || json.Unmarshal(n.Properties, &h) != nil {
+				return nil
 			}
+			if h.HashRaw == hashRaw {
+				seen[uint64(n.ID)] = true
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 	out := make([]uint64, 0, len(seen))
