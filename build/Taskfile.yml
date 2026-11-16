@@ -1,0 +1,58 @@
+version: '3'
+
+# Tasks every platform shares. Two scaffold defaults are left out on purpose:
+#   - No `go mod tidy` inside a build: a build must not rewrite go.mod, or a tagged release
+#     is not reproducible from its tag.
+#   - No generated bindings: frontend/src/lib/api/index.js calls bound methods by name, and
+#     backend/api's TestEveryMethodTheFrontendCallsIsBound holds every name to a real method.
+#   - No icon generation: the icons are committed. build/appicon.png and build/windows/icon.ico
+#     come from tools/gen_icons.py; build/darwin/icons.icns from appicon.png, run in build/:
+#       wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename <scratch>.ico
+#     (the -windowsfilename keeps it from overwriting icon.ico).
+
+tasks:
+  install:frontend:deps:
+    summary: Install frontend dependencies
+    run: once
+    dir: frontend
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules
+    preconditions:
+      - sh: npm version
+        msg: "npm is not installed. It comes with Node: https://nodejs.org/en/download/"
+    cmds:
+      - npm install
+
+  build:frontend:
+    label: build:frontend (DEV={{.DEV}})
+    summary: Build the frontend project
+    run: once
+    dir: frontend
+    sources:
+      - "**/*"
+      - exclude: node_modules/**/*
+    generates:
+      - dist/**/*
+    deps:
+      - task: install:frontend:deps
+    cmds:
+      - npm run {{if eq .DEV "true"}}build:dev{{else}}build{{end}} -q
+    env:
+      PRODUCTION: '{{if eq .DEV "true"}}false{{else}}true{{end}}'
+
+  dev:frontend:
+    summary: Runs the frontend in development mode
+    deps:
+      - task: install:frontend:deps
+    dir: frontend
+    cmds:
+      - npm run dev -- --port {{.VITE_PORT}} --strictPort
+
+  update:build-assets:
+    summary: Regenerates the platform build assets from build/config.yml
+    dir: build
+    cmds:
+      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .

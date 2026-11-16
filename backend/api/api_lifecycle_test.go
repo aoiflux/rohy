@@ -107,7 +107,7 @@ func TestShutdownDrainsARunningIngestion(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		api.Shutdown()
+		_ = api.ServiceShutdown()
 		close(done)
 	}()
 	select {
@@ -133,7 +133,7 @@ func TestShutdownReleasesAPausedIngestion(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		api.Shutdown()
+		_ = api.ServiceShutdown()
 		close(done)
 	}()
 	select {
@@ -145,5 +145,5 @@ func TestShutdownReleasesAPausedIngestion(t *testing.T) {
 
 func TestShutdownWithNothingRunningIsANoOp(t *testing.T) {
 	api, _, _ := newEventsAPI(t)
-	api.Shutdown() // must not block or panic
+	_ = api.ServiceShutdown() // must not block or panic
 }

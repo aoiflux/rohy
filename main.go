@@ -2,14 +2,13 @@ package main
 
 import (
 	"embed"
+	"log/slog"
+	"os"
 
 	"rohy/backend/api"
 	"rohy/backend/consts"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/logger"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
@@ -19,11 +18,28 @@ func main() {
 	app, err := NewApp()
 	if err != nil {
 		println("Error: failed to start rohy:", err.Error())
-		return
+		os.Exit(1)
 	}
+	desk := &desktop{}
+	app.desktop = desk
 
-	// Bind the thin API structs (not App): the frontend calls Events and Graph.
-	err = wails.Run(&options.App{
+	wapp := application.New(application.Options{
+		Name:     consts.AppDisplayName,
+		Services: services(app),
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+		// Withholds every call's arguments and result from the log: a passphrase crosses a call as
+		// an argument (item 41).
+		Logger: slog.New(api.NewSafeLogHandler(slog.NewTextHandler(os.Stderr, nil))),
+		// Sends a failed call's code with its message; the frontend's call() reads it.
+		MarshalError: api.MarshalError,
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+	})
+	desk.app = wapp
+	desk.window = wapp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     consts.AppDisplayName,
 		Width:     consts.WindowDefaultWidth,
 		Height:    consts.WindowDefaultHeight,
@@ -31,32 +47,13 @@ func main() {
 		MinHeight: consts.WindowMinHeight,
 		// Frameless: the app draws its own title bar with minimise/maximise/close
 		// controls (see TitleBar.svelte). The window stays resizable from its edges.
-		Frameless: true,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		// Withholds a failed call from the log: a passphrase crosses a call as an argument (item 41).
-		Logger: api.NewSafeLogger(logger.NewDefaultLogger()),
-		// Sends a failed call's code with its message, as a string the frontend's call() decodes.
-		ErrorFormatter: api.FormatError,
-		Bind: []interface{}{
-			app.Events,
-			app.Graph,
-			app.Rules,
-			app.Build,
-			app.Findings,
-			app.System,
-			app.Maintenance,
-			app.Snapshots,
-			app.Annotate,
-			app.Query,
-		},
+		Frameless:        true,
+		BackgroundColour: application.NewRGB(27, 38, 54),
+		URL:              "/",
 	})
 
-	if err != nil {
+	if err := wapp.Run(); err != nil {
 		println("Error:", err.Error())
+		os.Exit(1)
 	}
 }

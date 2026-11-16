@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:dev": "vite build --minify false --mode development",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -14,5 +15,8 @@
     "svelte": "^5.57.3",
     "vite": "^7.0.0",
     "vitest": "^4.1.12"
+  },
+  "dependencies": {
+    "@wailsio/runtime": "^3.1.0"
   }
 }

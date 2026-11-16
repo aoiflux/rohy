@@ -1,8 +1,6 @@
 package api
 
 import (
-	"context"
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,11 +8,9 @@ import (
 	"strings"
 
 	"rohy/backend/consts"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// File/folder picker bindings. They open native dialogs (which need the app context)
+// File/folder picker bindings. They open native dialogs (which need the window)
 // and return only .evtx paths, so the frontend never has to know how to filter — the
 // backend is "smart enough" to ingest event logs only. The pure filtering/walking
 // helpers below are unit-tested independently of the Wails runtime.
@@ -22,16 +18,12 @@ import (
 // PickEVTXFiles opens a multi-select file dialog filtered to .evtx and returns the
 // chosen files. An empty result means the user cancelled.
 func (a *EventsAPI) PickEVTXFiles() ([]string, error) {
-	ctx, err := a.ctx()
+	d, err := a.desktopOrErr()
 	if err != nil {
 		return nil, err
 	}
-	selected, err := runtime.OpenMultipleFilesDialog(ctx, runtime.OpenDialogOptions{
-		Title: consts.DialogFilesTitle,
-		Filters: []runtime.FileFilter{
-			{DisplayName: consts.DialogEVTXFilterName, Pattern: consts.DialogEVTXFilterGlob},
-		},
-	})
+	selected, err := d.PickFiles(consts.DialogFilesTitle,
+		FileFilter{Name: consts.DialogEVTXFilterName, Pattern: consts.DialogEVTXFilterGlob})
 	if err != nil {
 		return nil, AsError(consts.ErrCodeIO, err)
 	}
@@ -42,11 +34,11 @@ func (a *EventsAPI) PickEVTXFiles() ([]string, error) {
 // chosen directory (recursively). Call it repeatedly to add multiple folders. An empty
 // result means the user cancelled or the folder held no logs.
 func (a *EventsAPI) PickEVTXFolder() ([]string, error) {
-	ctx, err := a.ctx()
+	d, err := a.desktopOrErr()
 	if err != nil {
 		return nil, err
 	}
-	dir, err := runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{Title: consts.DialogFolderTitle})
+	dir, err := d.PickFolder(consts.DialogFolderTitle)
 	if err != nil {
 		return nil, AsError(consts.ErrCodeIO, err)
 	}
@@ -58,17 +50,6 @@ func (a *EventsAPI) PickEVTXFolder() ([]string, error) {
 		return nil, AsError(consts.ErrCodeIO, err)
 	}
 	return files, nil
-}
-
-// ctx returns the app context captured at Startup, or an error if the app has not
-// started yet (e.g. a binding called before OnStartup).
-func (a *EventsAPI) ctx() (context.Context, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.appCtx == nil {
-		return nil, AsError(consts.ErrCodeInternal, errors.New("application not started"))
-	}
-	return a.appCtx, nil
 }
 
 // TotalSize returns the combined byte size of the given files, so the UI can warn

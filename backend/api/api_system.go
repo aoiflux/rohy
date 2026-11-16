@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"sync"
 
 	"rohy/backend/consts"
@@ -43,34 +42,37 @@ func NewSystemAPI() *SystemAPI {
 	}
 }
 
-// Startup installs the Wails event sink once the runtime is ready.
-func (a *SystemAPI) Startup(ctx context.Context) {
+// start installs the event sink (see Start) and re-announces the current state, now that
+// anyone can hear it.
+func (a *SystemAPI) start(e Emitter) {
 	a.mu.Lock()
-	a.emitter = NewWailsEmitter(ctx)
+	a.emitter = e
 	state := a.state
 	a.mu.Unlock()
-	// Re-announce the current state now that anyone can hear it.
 	a.emit(state)
 }
 
-// Stage records progress through initialization and announces it.
-func (a *SystemAPI) Stage(stage string) {
-	a.set(InitState{Phase: consts.InitPhaseInitializing, Stage: stage})
+// The app drives initialization through package functions, not methods: Wails binds every
+// exported method of SystemAPI, and the page must not be able to declare the app ready or failed.
+
+// InitStage records progress through initialization and announces it.
+func InitStage(sys *SystemAPI, stage string) {
+	sys.set(InitState{Phase: consts.InitPhaseInitializing, Stage: stage})
 }
 
-// Ready marks initialization complete.
-func (a *SystemAPI) Ready() {
-	a.set(InitState{Phase: consts.InitPhaseReady, Stage: consts.MsgInitReady})
+// InitReady marks initialization complete.
+func InitReady(sys *SystemAPI) {
+	sys.set(InitState{Phase: consts.InitPhaseReady, Stage: consts.MsgInitReady})
 }
 
-// Failed marks initialization as failed. The app stays open so the user can read the
+// InitFailed marks initialization as failed. The app stays open so the user can read the
 // reason rather than the window vanishing.
-func (a *SystemAPI) Failed(err error) {
+func InitFailed(sys *SystemAPI, err error) {
 	msg := ""
 	if err != nil {
 		msg = err.Error()
 	}
-	a.set(InitState{Phase: consts.InitPhaseFailed, Stage: consts.MsgInitFailed, Error: msg})
+	sys.set(InitState{Phase: consts.InitPhaseFailed, Stage: consts.MsgInitFailed, Error: msg})
 }
 
 func (a *SystemAPI) set(state InitState) {

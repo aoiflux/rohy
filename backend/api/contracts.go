@@ -3,10 +3,11 @@
 // arguments and delegate to the ingestion (evtx) and persistence (graphene) layers,
 // and they surface progress/errors/lifecycle as Wails runtime events. This file is
 // the executable contract catalog (P0.3): every request/response DTO, the uniform
-// error shape, the event channel set, and the Emitter abstraction live here.
+// error shape, the event channel set, and the Desktop abstraction live here.
 package api
 
 import (
+	"errors"
 	"fmt"
 
 	"rohy/backend/consts"
@@ -14,18 +15,63 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Emitter abstracts Wails' runtime.EventsEmit so the binding layer can be unit
-// tested without a live application. The production implementation (WailsEmitter)
-// forwards to the Wails runtime; tests inject a capturing fake.
+// Emitter publishes an event to the frontend. The production implementation lives in package
+// main, beside the rest of the Wails code; tests inject a capturing fake.
 type Emitter interface {
-	Emit(channel string, data interface{})
+	Emit(channel string, data any)
 }
 
 // noopEmitter is the default before the app has started (or in tests that ignore
 // events). It discards everything.
 type noopEmitter struct{}
 
-func (noopEmitter) Emit(string, interface{}) {}
+func (noopEmitter) Emit(string, any) {}
+
+// Desktop is what the bindings need from the window around them: events, native dialogs, and
+// quitting.
+//
+// It is an interface, implemented in package main, so that this package never imports Wails. On
+// Linux the Wails application package needs cgo and the GTK headers, and the bindings' tests must
+// build without them.
+//
+// A dialog the analyst cancels returns no path and no error.
+type Desktop interface {
+	Emitter
+	// PickFiles asks for one or more existing files matching the filter.
+	PickFiles(title string, filter FileFilter) ([]string, error)
+	// PickFolder asks for one existing folder.
+	PickFolder(title string) (string, error)
+	// PickFile asks for one existing file matching the filter.
+	PickFile(title string, filter FileFilter) (string, error)
+	// PickNewFile asks where to save a file, suggesting name.
+	PickNewFile(title, name string, filter FileFilter) (string, error)
+	// Quit closes the app through its normal shutdown.
+	Quit()
+}
+
+// FileFilter narrows a file dialog: Pattern is a semicolon-separated list of globs.
+type FileFilter struct {
+	Name    string
+	Pattern string
+}
+
+// Start connects the bindings to the window once it exists. Until then a binding that needs a
+// dialog refuses, and events are discarded.
+//
+// 🔒 A package function, not a method, like AttachSession: Wails binds every exported method of a
+// bound struct, and a method taking the desktop would let the page replace it.
+func Start(d Desktop, events *EventsAPI, rules *RulesAPI, build *BuildAPI, sys *SystemAPI, maint *MaintenanceAPI) {
+	events.start(d)
+	rules.start(d)
+	build.setEmitter(d)
+	sys.start(d)
+	maint.start(d)
+}
+
+// errNotStarted is a binding's answer when it needs the window before there is one.
+func errNotStarted() error {
+	return AsError(consts.ErrCodeInternal, errors.New(consts.MsgDialogUnavailable))
+}
 
 // --- Event contract catalog (backend → frontend) ---
 //

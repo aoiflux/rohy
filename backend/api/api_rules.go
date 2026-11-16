@@ -1,15 +1,11 @@
 package api
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"sync"
 
 	"rohy/backend/consts"
 	"rohy/backend/rules"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // RulesAPI is the Wails binding over the correlation-rule registry (P2). It exposes the
@@ -20,7 +16,7 @@ import (
 type RulesAPI struct {
 	registry *rules.Registry
 	mu       sync.Mutex
-	appCtx   context.Context
+	desktop  Desktop
 }
 
 // NewRulesAPI constructs the binding over an open registry.
@@ -28,24 +24,21 @@ func NewRulesAPI(registry *rules.Registry) *RulesAPI {
 	return &RulesAPI{registry: registry}
 }
 
-// Startup captures the application context so the import bindings can open native
-// dialogs. Wails injects this context and does not expose it to JS, so it stays out of
-// the frontend's callable surface.
-func (a *RulesAPI) Startup(ctx context.Context) {
+// start gives the import bindings the window's dialogs (see Start).
+func (a *RulesAPI) start(d Desktop) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.appCtx = ctx
+	a.desktop = d
 }
 
-// ctx returns the app context captured at Startup, or an error if a binding is called
-// before the app has started.
-func (a *RulesAPI) ctx() (context.Context, error) {
+// desktopOrErr is the window, or a refusal before there is one.
+func (a *RulesAPI) desktopOrErr() (Desktop, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.appCtx == nil {
-		return nil, AsError(consts.ErrCodeInternal, errors.New("application not started"))
+	if a.desktop == nil {
+		return nil, errNotStarted()
 	}
-	return a.appCtx, nil
+	return a.desktop, nil
 }
 
 // RulesResult is the DTO returned to the frontend: the valid rules plus the per-file load
@@ -83,16 +76,12 @@ func (a *RulesAPI) ReloadRules() (RulesResult, error) {
 // chosen ones. Valid rules are copied into the rules directory and become live; invalid
 // ones are reported per file and left untouched. A cancelled dialog imports nothing.
 func (a *RulesAPI) ImportRuleFiles() (rules.ImportResult, error) {
-	ctx, err := a.ctx()
+	d, err := a.desktopOrErr()
 	if err != nil {
 		return rules.ImportResult{}, err
 	}
-	selected, err := runtime.OpenMultipleFilesDialog(ctx, runtime.OpenDialogOptions{
-		Title: consts.DialogRuleFilesTitle,
-		Filters: []runtime.FileFilter{
-			{DisplayName: consts.DialogRuleFilterName, Pattern: consts.DialogRuleFilterGlob},
-		},
-	})
+	selected, err := d.PickFiles(consts.DialogRuleFilesTitle,
+		FileFilter{Name: consts.DialogRuleFilterName, Pattern: consts.DialogRuleFilterGlob})
 	if err != nil {
 		return rules.ImportResult{}, AsError(consts.ErrCodeIO, err)
 	}
@@ -109,11 +98,11 @@ func (a *RulesAPI) ImportRuleFiles() (rules.ImportResult, error) {
 // ImportRuleFolder opens a folder dialog and imports every rule file beneath it
 // (recursively), with the same per-file validation as ImportRuleFiles.
 func (a *RulesAPI) ImportRuleFolder() (rules.ImportResult, error) {
-	ctx, err := a.ctx()
+	d, err := a.desktopOrErr()
 	if err != nil {
 		return rules.ImportResult{}, err
 	}
-	dir, err := runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{Title: consts.DialogRuleFolderTitle})
+	dir, err := d.PickFolder(consts.DialogRuleFolderTitle)
 	if err != nil {
 		return rules.ImportResult{}, AsError(consts.ErrCodeIO, err)
 	}

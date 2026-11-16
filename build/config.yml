@@ -1,0 +1,46 @@
+# rohy's identity for the platform build assets. After changing `info`, regenerate the assets:
+#   wails3 task common:update:build-assets
+# That rewrites build/windows/info.json and wails.exe.manifest, build/darwin/Info*.plist, the NSIS
+# script and the Linux desktop and package files, overwriting edits made to them by hand.
+#
+# `version` is the file version Windows and macOS show. The version rohy reports about itself is
+# stamped at build time (Taskfile.yml, VERSION); a release sets both to the tag.
+version: '3'
+
+info:
+  companyName: "aoiflux"
+  productName: "rohy"
+  productIdentifier: "com.aoiflux.rohy"
+  description: "Forensic event-log correlation and graph analysis"
+  copyright: "Copyright (c) 2026 aoiflux. MIT License."
+  comments: "https://github.com/aoiflux/rohy"
+  version: "0.3.0"
+
+# Dev mode (`wails3 dev`): rebuilds the app when Go changes, while Vite serves the frontend.
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+      - rohy-data
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task common:dev:frontend
+      type: background
+    - cmd: wails3 task run
+      type: primary
+      exit_policy: shutdown

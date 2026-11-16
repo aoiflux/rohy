@@ -1,27 +1,20 @@
 <script>
   // Custom window title bar for the frameless window. The bar itself is draggable
-  // (--wails-draggable: drag); the controls opt out (no-drag). Runtime calls are
-  // guarded so the app still renders in a plain browser (vite dev) where the Wails
-  // runtime is absent.
-  import {
-    WindowMinimise,
-    WindowToggleMaximise,
-    Quit,
-  } from '../../../wailsjs/runtime/runtime.js';
+  // (--wails-draggable: drag); the controls opt out (no-drag). In a plain browser
+  // (vite dev) there is no window to act on, and a control does nothing.
+  import { Application, Window } from '@wailsio/runtime';
   import { UI } from '../../lib/consts/index.js';
   import { openAbout } from '../../stores/about.js';
   import Logo from './Logo.svelte';
 
-  function safe(fn) {
-    try {
-      fn?.();
-    } catch (_) {
+  function safe(act) {
+    Promise.resolve().then(act).catch(() => {
       /* not running inside Wails */
-    }
+    });
   }
-  const minimise = () => safe(WindowMinimise);
-  const maximise = () => safe(WindowToggleMaximise);
-  const close = () => safe(Quit);
+  const minimise = () => safe(() => Window.Minimise());
+  const maximise = () => safe(() => Window.ToggleMaximise());
+  const close = () => safe(() => Application.Quit());
 </script>
 
 <div class="titlebar" style="--wails-draggable: drag">

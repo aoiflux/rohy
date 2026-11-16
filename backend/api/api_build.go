@@ -36,13 +36,8 @@ func NewBuildAPI(builder *graphbuild.Builder) *BuildAPI {
 	return &BuildAPI{builder: builder, emitter: noopEmitter{}}
 }
 
-// Startup installs the Wails event sink once the runtime is ready.
-func (a *BuildAPI) Startup(ctx context.Context) {
-	a.setEmitter(NewWailsEmitter(ctx))
-}
-
-// setEmitter installs the event sink. Unexported so the interface never leaks into the
-// generated bindings; tests inject a fake.
+// setEmitter installs the event sink (see Start). Unexported so Wails never binds it; tests
+// inject a fake.
 func (a *BuildAPI) setEmitter(e Emitter) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

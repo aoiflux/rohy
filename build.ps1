@@ -21,6 +21,9 @@
 # so those targets need their own toolchain and headers. Windows does NOT: it uses the
 # pure-Go WebView2 loader, so windows/arm64 cross-builds from an amd64 Windows host — which
 # is exactly what the release workflow does.
+#
+# The build itself is Taskfile.yml, run by the Wails v3 CLI:
+#   go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 
 [CmdletBinding()]
 param(
@@ -52,9 +55,6 @@ try {
 catch { }
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-$pkg = "rohy/backend/version"
-$ldflags = "-s -w -X $pkg.Version=$Version -X $pkg.Commit=$commit -X $pkg.Date=$date"
-
 Write-Host "rohy $Version ($commit) built $date" -ForegroundColor Green
 
 # --- Tests --------------------------------------------------------------------------
@@ -72,31 +72,23 @@ if (-not $SkipTests) {
 }
 
 # --- Clean frontend build (the hygiene gate) ----------------------------------------
-Step "Clean frontend build"
+# --force reruns every task, the frontend's too, whatever the task runner remembers of an
+# earlier build.
+Step "Clean build"
 if (Test-Path frontend/dist) {
     Remove-Item -Recurse -Force frontend/dist
     Write-Host "removed stale frontend/dist"
 }
-Push-Location frontend
-npm ci --silent 2>$null
-if ($LASTEXITCODE -ne 0) { npm install --silent }
-npm run build
-$buildExit = $LASTEXITCODE
-Pop-Location
-if ($buildExit -ne 0) { throw "frontend build failed" }
+$task = if ($Installer) { "package" } else { "build" }
+wails3 task --force $task "VERSION=$Version" "COMMIT=$commit" "DATE=$date"
+if ($LASTEXITCODE -ne 0) { throw "wails3 task $task failed" }
 if (-not (Test-Path frontend/dist/index.html)) { throw "frontend/dist is missing after build" }
-
-# --- App build ----------------------------------------------------------------------
-Step "Wails build"
-# NB: not $args — that is a PowerShell automatic variable and splatting it misbehaves.
-$wailsArgs = @("build", "-clean", "-ldflags", $ldflags)
-if ($Installer) { $wailsArgs += "-nsis" }
-wails @wailsArgs
-if ($LASTEXITCODE -ne 0) { throw "wails build failed" }
 
 # --- Report -------------------------------------------------------------------------
 Step "Artifacts"
-Get-ChildItem build/bin -File | ForEach-Object {
+$out = @(Get-ChildItem bin -File)
+if ($Installer) { $out += Get-ChildItem build/windows/nsis -Filter *-installer.exe -File }
+$out | ForEach-Object {
     "{0,10:N0} KB  {1}" -f ($_.Length / 1KB), $_.Name
 }
 Write-Host "`nDone." -ForegroundColor Green

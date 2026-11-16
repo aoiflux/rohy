@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -445,17 +446,28 @@ func auditHas(t *testing.T, c *sessionCase, detail string) bool {
 	return false
 }
 
-var _ = bytes.Contains
-
-// 🔒 A failed call's raw message — arguments, passphrase and all — never reaches the log.
+// 🔒 A call's arguments and result — passphrase and all — never reach the log, at any level, in
+// any of the shapes slog can carry them. The records are the ones Wails writes for a binding call.
 func TestTheLogNeverSeesACallsArguments(t *testing.T) {
-	msg := `process message error: C{"name":"main.MaintenanceAPI.UnlockKey","args":[{"passphrase":"hunter2 -> hunter2"}]} -> error parsing arguments: json: cannot unmarshal`
-	got := scrub(msg)
-	if strings.Contains(got, "hunter2") || !strings.Contains(got, "error parsing arguments") {
-		t.Fatalf("scrubbed to %q", got)
+	const secret = "hunter2"
+	args := `[{"passphrase":"` + secret + `"}]`
+	var buf bytes.Buffer
+	log := slog.New(NewSafeLogHandler(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	log.Debug("Binding call complete:", "id", "c1", "method", "api.MaintenanceAPI.UnlockKey", "args", args, "result", secret)
+	log.Debug("Runtime call:", "method", "Events.Emit", "args", args)
+	log.With("args", args).Error("a handler carrying it")
+	log.Info("grouped", slog.Group("call", slog.String("args", args)))
+	log.WithGroup("wails").Warn("in a group", "result", secret)
+
+	out := buf.String()
+	if strings.Contains(out, secret) {
+		t.Fatalf("the log holds the passphrase:\n%s", out)
 	}
-	if scrub("an ordinary line") != "an ordinary line" {
-		t.Fatal("an ordinary line was changed")
+	for _, want := range []string{"Binding call complete:", "method=api.MaintenanceAPI.UnlockKey", "args=" + withheldValue, "result=" + withheldValue, "a handler carrying it", "grouped", "in a group"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log lost %q:\n%s", want, out)
+		}
 	}
 }
 

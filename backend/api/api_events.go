@@ -34,7 +34,7 @@ type EventsAPI struct {
 
 	mu      sync.Mutex
 	emitter Emitter
-	appCtx  context.Context
+	desktop Desktop
 	cancel  context.CancelFunc
 	running bool
 	// Live-capture session state, mirrored for the capture indicator (P7).
@@ -116,22 +116,26 @@ func (a *EventsAPI) ResumeIngestion() error {
 	return nil
 }
 
-// Shutdown stops any running ingestion and waits (briefly) for it to flush and persist, so
-// a clean exit never abandons buffered events or a stale capture position. A run that is
+// ServiceShutdown stops any running ingestion and waits (briefly) for it to flush and persist,
+// so a clean exit never abandons buffered events or a stale capture position. A run that is
 // paused is resumed first — otherwise it would sit blocked instead of unwinding.
-func (a *EventsAPI) Shutdown() {
+//
+// Wails calls it at quit and never binds it. Services stop in reverse registration order, and
+// main registers the app (which closes the session and the store) first, so the drain runs
+// before the store closes.
+func (a *EventsAPI) ServiceShutdown() error {
 	a.mu.Lock()
 	cancel, gate, done, running := a.cancel, a.gate, a.done, a.running
 	a.mu.Unlock()
 	if !running {
-		return
+		return nil
 	}
 	gate.Resume()
 	if cancel != nil {
 		cancel()
 	}
 	if done == nil {
-		return
+		return nil
 	}
 	select {
 	case <-done:
@@ -139,16 +143,25 @@ func (a *EventsAPI) Shutdown() {
 		// The pipeline is wedged; the store still closes cleanly and the bookmark simply
 		// lags, which costs a re-read rather than lost data.
 	}
+	return nil
 }
 
-// Startup installs the Wails-backed event sink. The app lifecycle calls it once with
-// the application context; Wails injects that context and does not expose it as a JS
-// argument, so this stays out of the frontend's callable surface.
-func (a *EventsAPI) Startup(ctx context.Context) {
+// start connects the binding to the window: its dialogs, and its event sink (see Start).
+func (a *EventsAPI) start(d Desktop) {
 	a.mu.Lock()
-	a.appCtx = ctx
+	a.desktop = d
 	a.mu.Unlock()
-	a.setEmitter(NewWailsEmitter(ctx))
+	a.setEmitter(d)
+}
+
+// desktopOrErr is the window, or a refusal before there is one.
+func (a *EventsAPI) desktopOrErr() (Desktop, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.desktop == nil {
+		return nil, errNotStarted()
+	}
+	return a.desktop, nil
 }
 
 // setEmitter installs the event sink. Kept unexported so the emitter (an interface)

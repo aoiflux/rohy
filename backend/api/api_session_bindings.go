@@ -1,11 +1,8 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"strings"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"rohy/backend/consts"
 	"rohy/backend/keyfile"
@@ -15,8 +12,8 @@ import (
 // talks to; the signing actions on MaintenanceAPI, beside the rest of the case's integrity.
 //
 // 🔒 A binding that takes a passphrase recovers its own panic. Wails would otherwise recover it and
-// log the raw call, passphrase and all; recovered here, the log never sees it, and the error says
-// nothing about what was passed.
+// log the panic's value with a stack trace, and a value can carry what was passed; recovered here,
+// the log never sees it, and the error says nothing about what was passed.
 
 // recoverSecret turns a panic in a binding that holds a secret into a plain error.
 func recoverSecret(err *error) {
@@ -103,19 +100,17 @@ func (a *MaintenanceAPI) UnlockKey(req KeyUnlockRequest) (err error) {
 // PickKeyFile opens the native dialog for a key file: a save dialog for a new key, an open dialog
 // for an existing one. An empty path means the analyst cancelled.
 func (a *MaintenanceAPI) PickKeyFile(create bool) (string, error) {
-	ctx := a.dialogCtx()
-	if ctx == nil {
-		return "", AsError(consts.ErrCodeInternal, errors.New(consts.MsgDialogUnavailable))
+	d := a.desktopNow()
+	if d == nil {
+		return "", errNotStarted()
 	}
-	filters := []runtime.FileFilter{{DisplayName: consts.DialogKeyFilterName, Pattern: consts.DialogKeyFilterGlob}}
+	filter := FileFilter{Name: consts.DialogKeyFilterName, Pattern: consts.DialogKeyFilterGlob}
 	var path string
 	var err error
 	if create {
-		path, err = runtime.SaveFileDialog(ctx, runtime.SaveDialogOptions{
-			Title: consts.DialogKeyCreateTitle, DefaultFilename: consts.DialogKeyDefaultName, Filters: filters,
-		})
+		path, err = d.PickNewFile(consts.DialogKeyCreateTitle, consts.DialogKeyDefaultName, filter)
 	} else {
-		path, err = runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{Title: consts.DialogKeyOpenTitle, Filters: filters})
+		path, err = d.PickFile(consts.DialogKeyOpenTitle, filter)
 	}
 	if err != nil {
 		return "", AsError(consts.ErrCodeIO, err)
@@ -148,8 +143,8 @@ func (a *MaintenanceAPI) sessionNow() *Session {
 	return a.session
 }
 
-func (a *MaintenanceAPI) dialogCtx() context.Context {
+func (a *MaintenanceAPI) desktopNow() Desktop {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.ctx
+	return a.desktop
 }

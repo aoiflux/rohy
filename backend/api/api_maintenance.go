@@ -40,8 +40,8 @@ type MaintenanceAPI struct {
 	// integrity holds the sidecars the case checks read. Attached after construction (see
 	// WithIntegrity) so this binding keeps its narrow constructor.
 	integrity IntegrityDeps
-	// ctx is the Wails runtime context, for the key file dialogs.
-	ctx context.Context
+	// desktop is the window, for the key file dialogs. Nil until Start.
+	desktop Desktop
 	// session is the analyst's session (item 41): the case's keys for checking signatures, and the
 	// signing actions the Maintenance page offers. Nil in tests that need neither.
 	session *Session
@@ -52,16 +52,15 @@ func NewMaintenanceAPI(store *graphene.Store) *MaintenanceAPI {
 	return &MaintenanceAPI{store: store, emitter: noopEmitter{}}
 }
 
-// Startup installs the Wails event sink once the runtime is ready.
-func (a *MaintenanceAPI) Startup(ctx context.Context) {
+// start connects the binding to the window: its dialogs, and its event sink (see Start).
+func (a *MaintenanceAPI) start(d Desktop) {
 	a.mu.Lock()
-	a.ctx = ctx
+	a.desktop = d
 	a.mu.Unlock()
-	a.setEmitter(NewWailsEmitter(ctx))
+	a.setEmitter(d)
 }
 
-// setEmitter installs the event sink. Unexported so the interface never leaks into the
-// generated bindings; tests inject a fake.
+// setEmitter installs the event sink. Unexported so Wails never binds it; tests inject a fake.
 func (a *MaintenanceAPI) setEmitter(e Emitter) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

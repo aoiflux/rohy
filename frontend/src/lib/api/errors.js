@@ -1,34 +1,28 @@
 // How a failed backend call carries its error code across the Wails boundary (item 33).
 //
-// The backend's ErrorFormatter (backend/api/api_errors.go) sends every failure as the JSON of
-// {code, message}, as a STRING, because the Wails runtime wraps whatever it receives in
-// `new Error(x)` and an object would read "[object Object]". call() in index.js passes every
-// rejection through decodeError, so a handler that reads .message reads the message, as it always
-// has, and one that needs to know whose fault it was reads .code.
+// The backend's MarshalError (backend/api/api_errors.go) describes every failure as {code, message}.
+// The Wails runtime rejects the call with an Error whose .cause is that object. call() in index.js
+// passes every rejection through decodeError, so a handler that reads .message reads the backend's
+// message, as it always has, and one that needs to know whose fault it was reads .code.
 //
-// Some failures never reach the formatter: Wails' own "error parsing arguments" text, and the
-// "backend unavailable" rejection outside Wails. Those stay as they are, and errorCode calls them
-// internal_error, never a refusal by the case.
+// Some failures carry no cause: a call Wails could not make (a ReferenceError for an unknown method,
+// a TypeError for the wrong arguments), and a call made outside Wails. Those stay as they are, and
+// errorCode calls them internal_error, never a refusal by the case.
 import { ERROR_CODES } from '../consts/index.js';
 
 /**
  * decodeError returns an Error with the backend's message and its .code when e carries the
- * formatter's string, and e unchanged otherwise.
+ * backend's cause, and e unchanged otherwise.
  * @param {unknown} e
  */
 export function decodeError(e) {
-  if (!(e instanceof Error) || !e.message.startsWith('{')) return e;
-  let parsed;
-  try {
-    parsed = JSON.parse(e.message);
-  } catch {
+  if (!(e instanceof Error)) return e;
+  const cause = e.cause;
+  if (!cause || typeof cause !== 'object' || typeof cause.code !== 'string' || cause.code === '' || typeof cause.message !== 'string') {
     return e;
   }
-  if (!parsed || typeof parsed.code !== 'string' || parsed.code === '' || typeof parsed.message !== 'string') {
-    return e;
-  }
-  const out = new Error(parsed.message);
-  out.code = parsed.code;
+  const out = new Error(cause.message);
+  out.code = cause.code;
   return out;
 }
 

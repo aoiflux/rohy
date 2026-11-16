@@ -8,7 +8,6 @@ import (
 	"rohy/backend/consts"
 	"rohy/backend/evtx"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/windows"
 )
 
@@ -18,7 +17,7 @@ import (
 // a no-op; if the user dismisses the UAC prompt the current instance keeps running and
 // the (ERROR_CANCELLED) error is returned for the UI to surface.
 func (a *EventsAPI) RelaunchAsAdmin() error {
-	ctx, err := a.ctx()
+	d, err := a.desktopOrErr()
 	if err != nil {
 		return err
 	}
@@ -49,8 +48,8 @@ func (a *EventsAPI) RelaunchAsAdmin() error {
 	if err := windows.ShellExecute(0, verbPtr, exePtr, nil, cwdPtr, windows.SW_NORMAL); err != nil {
 		return AsError(consts.ErrCodePermission, err)
 	}
-	// Hand off to the elevated instance. The UAC approval delay means the old process
-	// has effectively released the DB by the time the new one opens it.
-	runtime.Quit(ctx)
+	// Hand off to the elevated instance. This one still holds the case until its quit has sealed
+	// and closed it; an elevated instance that opens the case first is refused with MsgCaseHeld.
+	d.Quit()
 	return nil
 }

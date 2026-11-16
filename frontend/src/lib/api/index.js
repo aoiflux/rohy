@@ -1,16 +1,16 @@
 // API wrapper layer (P5.3). The ONLY module that talks to the Wails backend.
-// Components and stores call these functions; they never touch window.go or the
-// runtime directly. Wails injects bound methods at window.go.<pkg>.<Struct>.<Method>
-// (here pkg = "api", the Go package name) and each returns a Promise.
+// Components and stores call these functions; they never touch the runtime directly.
+// Each calls a bound method by its full name, <Go package path>.<Struct>.<Method>, and
+// returns a Promise. backend/api's TestEveryMethodTheFrontendCallsIsBound holds every
+// name here to a method Wails binds.
 //
-// When running outside the Wails runtime (e.g. `vite dev` in a plain browser),
-// window.go is undefined; calls reject with a clear error and event subscription is a
-// no-op, so the UI degrades instead of throwing on load.
+// When running outside Wails (e.g. `vite dev` in a plain browser) there is no backend
+// to answer: a call rejects, and the shell shows a notice (isBackendAvailable).
 
-import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
+import { Call, Events, System } from '@wailsio/runtime';
 import { decodeError } from './errors.js';
 
-const PKG = 'api';
+const PKG = 'rohy/backend/api';
 const EVENTS = 'EventsAPI';
 const GRAPH = 'GraphAPI';
 const RULES = 'RulesAPI';
@@ -22,26 +22,19 @@ const SNAPSHOTS = 'SnapshotAPI';
 const ANNOTATE = 'AnnotateAPI';
 const QUERY = 'QueryAPI';
 
-function bound(struct, method) {
-  const go = typeof window !== 'undefined' ? window.go : undefined;
-  const fn = go && go[PKG] && go[PKG][struct] && go[PKG][struct][method];
-  return typeof fn === 'function' ? fn : null;
-}
-
 // call is the one door to the backend, so it is where a failure's code is decoded (errors.js).
+// Wails matches a method by its arity: every parameter must be forwarded, or the call fails
+// with a TypeError rather than defaulting.
 function call(struct, method, ...args) {
-  const fn = bound(struct, method);
-  if (!fn) {
-    return Promise.reject(new Error(`backend unavailable: ${struct}.${method} (not running inside Wails)`));
-  }
-  return Promise.resolve(fn(...args)).catch((e) => {
+  return Promise.resolve(Call.ByName(`${PKG}.${struct}.${method}`, ...args)).catch((e) => {
     throw decodeError(e);
   });
 }
 
-// isBackendAvailable lets the shell show a friendly notice in browser-only dev.
+// isBackendAvailable lets the shell show a friendly notice in browser-only dev. Wails tells the
+// page it serves which OS it runs on; a plain browser is told nothing, so it is none of them.
 export function isBackendAvailable() {
-  return bound(EVENTS, 'IsIngesting') !== null;
+  return System.IsWindows() || System.IsMac() || System.IsLinux();
 }
 
 // --- Events API ---
@@ -793,15 +786,14 @@ export function version() {
 // --- Runtime events ---
 
 /**
- * Subscribe to a backend event channel. Returns an unsubscribe function. No-op (but
- * still returns a disposer) when the runtime is unavailable.
+ * Subscribe to a backend event channel. The handler gets the event's data, as the backend
+ * emitted it. Returns an unsubscribe function that removes this handler alone: other
+ * subscribers to the same channel keep listening.
  * @param {string} channel
  * @param {(data:any)=>void} handler
  */
 export function on(channel, handler) {
-  if (typeof EventsOn !== 'function') return () => {};
-  EventsOn(channel, handler);
-  return () => EventsOff(channel);
+  return Events.On(channel, (event) => handler(event.data));
 }
 
 // --- Query console (item 33): read-only, structured, no expression language ---

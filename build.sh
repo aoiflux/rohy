@@ -40,9 +40,6 @@ if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then
 fi
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-PKG="rohy/backend/version"
-LDFLAGS="-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
-
 echo "rohy ${VERSION} (${COMMIT}) built ${DATE}"
 
 # --- Tests --------------------------------------------------------------------------
@@ -54,17 +51,15 @@ if [ "$SKIP_TESTS" != "1" ]; then
   (cd frontend && npm test)
 fi
 
-# --- Clean frontend build (the hygiene gate) ----------------------------------------
-step "Clean frontend build"
+# --- Clean build (the hygiene gate) -------------------------------------------------
+# The build is Taskfile.yml, run by the Wails v3 CLI. --force reruns every task, the
+# frontend's too, whatever the task runner remembers of an earlier build.
+step "Clean build"
 rm -rf frontend/dist
-(cd frontend && (npm ci --silent || npm install --silent) && npm run build)
+wails3 task --force build "VERSION=${VERSION}" "COMMIT=${COMMIT}" "DATE=${DATE}"
 [ -f frontend/dist/index.html ] || { echo "frontend/dist missing after build" >&2; exit 1; }
 
-# --- App build ----------------------------------------------------------------------
-step "Wails build"
-wails build -clean -ldflags "$LDFLAGS"
-
 step "Artifacts"
-ls -lh build/bin
+ls -lh bin
 echo
 echo "Done."

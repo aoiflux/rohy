@@ -12,21 +12,17 @@ import (
 	"rohy/backend/consts"
 )
 
-// formatted runs FormatError and decodes what the frontend will receive. Wails puts the formatter's
-// value in the callback's `error` field and the runtime turns it into `new Error(value)`, so only a
-// non-empty string survives the crossing.
+// formatted runs MarshalError and decodes what the frontend will receive as the rejection's cause.
+// Wails requires valid JSON from it: anything else would corrupt the response.
 func formatted(t *testing.T, err error) ErrorEvent {
 	t.Helper()
-	s, ok := FormatError(err).(string)
-	if !ok {
-		t.Fatalf("FormatError returned %T, want a string: the runtime turns anything else into %q", FormatError(err), "[object Object]")
-	}
-	if s == "" {
-		t.Fatal("FormatError returned an empty string: the runtime would resolve the call instead of rejecting it")
+	data := MarshalError(err)
+	if !json.Valid(data) {
+		t.Fatalf("MarshalError returned %q, not JSON", data)
 	}
 	var ev ErrorEvent
-	if err := json.Unmarshal([]byte(s), &ev); err != nil {
-		t.Fatalf("FormatError returned %q, not JSON: %v", s, err)
+	if err := json.Unmarshal(data, &ev); err != nil {
+		t.Fatalf("MarshalError returned %q, not an ErrorEvent: %v", data, err)
 	}
 	return ev
 }
@@ -58,7 +54,7 @@ func TestEveryBindingErrorCrossesWithItsCode(t *testing.T) {
 	}
 }
 
-// Wails calls the formatter only with a failure, but a nil must still not cross as success.
+// Wails calls the marshaller only with a failure, but a nil must still not cross as success.
 // 🔒 After the engine's log stops, every call is refused, reads too; whichever the analyst meets
 // first says to restart, coded or not.
 func TestAStoppedLogSaysToRestartWhereverItIsMet(t *testing.T) {

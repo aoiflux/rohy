@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=rohy
+Comment=Forensic event-log correlation and graph analysis
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/rohy %u
+Terminal=false
+Type=Application
+Icon=rohy
+Categories=Utility;
+StartupWMClass=rohy
+
+ 
