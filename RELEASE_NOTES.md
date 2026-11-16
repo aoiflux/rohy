@@ -29,7 +29,8 @@ not read as fine.
 
 Beside that: a read-only query console, error codes that reach the screen, network correlation
 fields, ingest in file order with an integration suite over the real pipeline, and a VS Code
-extension for rule files.
+extension for rule files. Underneath, rohy moves to Wails v3 and GrapheneDB 0.10, and a case it
+seals no longer opens in v0.2.0 (see below).
 
 > **Named for Perseus**, who stands beside Andromeda in the sky, as Andromeda stands beside
 > Cassiopeia. v0.1.0 ordered events and v0.2.0 related them. v0.3.0 makes a claim about the case
@@ -45,6 +46,19 @@ whole answer.
 
 The backfill seals the case when it has rewritten any event, so **the case fingerprint changes**.
 Keep the new one: a fingerprint exported before the backfill no longer matches the case.
+
+### ⚠️ A case sealed by v0.3.0 no longer opens in v0.2.0
+
+v0.3.0 stores cases with GrapheneDB 0.10, whose sealed image is format **9**; v0.2.0 reads format 8
+only. A case from v0.2.0 opens in v0.3.0 as it is. The fingerprint you kept still matches it, and a
+proof built from it verifies against that fingerprint. Its **first seal converts it to format 9**,
+and v0.2.0 cannot open it after that. The backfill above seals, and so does closing the app after
+any change.
+
+**Copy the case folder before you open it in v0.3.0** if you may need v0.2.0 to open it again.
+v0.3.0 also writes to a case as it opens it writable, before any seal, and v0.2.0 has not been
+tested against a case in that state. The conversion keeps the content: every event, relation,
+redaction and checkpoint reads back, and every event can still be proven.
 
 ### Added
 
@@ -337,8 +351,36 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 - **The fingerprint history records who sealed and the seal's signature** (format 2). A build that
   reads only format 1 keeps a format-2 history aside rather than drop those fields by rewriting it;
   no released build reads format 1.
-- **Some writes now commit once instead of once per relation**: a snapshot restore, the migration of
-  relations from before named graphs, and clearing a graph whose relations had drifted.
+- **Some writes now commit once instead of once per relation**: a snapshot restore, re-registering
+  relations the index lost, and clearing a graph whose relations had drifted.
+- **One rohy per case.** A case another program holds open, most likely another rohy, is refused at
+  the session step, and the message says so. A case whose `graphene.labels` names rohy's two types
+  otherwise is refused the same way. Neither refusal changes anything on disk, and no recovery is
+  offered for either.
+- **A log damaged before its end is refused, not cut.** The case opens nothing and cuts nothing.
+  The message names the byte and both repairs: restore the case folder from a backup, or keep what
+  replays with `graphene wal cut`, which saves what it cuts. Only a torn tail at the very end, which
+  is what a crash leaves, is cut, and kept (next).
+- **The torn tail a crash leaves is kept.** A writable open cuts it from each of the case's
+  append-only files (the log, the audit log, checkpoints, redactions and grants) and records only a
+  digest. Before the open, rohy now copies each tail beside its file as `<file>.torn-<UTC>` and
+  records it in the audit log. Those bytes are evidence of the crash.
+- **A read-only or recovery session changes nothing on disk.** The case opens read-only underneath
+  too, so nothing is cut or repaired. Unlocking the key mid-session reopens it writable; a reopen
+  that is refused leaves the session read-only.
+- **A failed write to the case's log stops the session.** After a failed write or flush to disk,
+  every call is refused, reads included, until rohy restarts. The session turns read-only with a
+  reason naming the restart, as a failed seal already did.
+- **An ingest or relation write commits its index entries with its records.** A crash now leaves
+  all of a write or none of it, never a record its own keys cannot find. A case written by an
+  earlier build can still hold that gap, so graph builds and snapshot restores still repair first.
+- **Sidecar files are synced to disk before they replace the old one**: annotations, capture
+  positions, custody records, findings, the graph list, canvases, rule state, imported and saved
+  rules, and snapshots. A power cut can no longer leave one empty. On Linux and macOS they are now
+  created readable by their owner only (`0600`, was `0644`). Windows is unchanged.
+- **A time range is read through an ordered index.** A narrow range is 17× faster and a count over
+  it 30× faster. A case from an earlier build pays about 2.3 ms for this, once, at its first
+  writable open.
 
 - **A raw record that cannot be read, or a damaged sealed image, is reported as damage.** *Save
   proof…* used to fail with a generic error in both cases. It now says which, the same way as a
@@ -374,16 +416,31 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   again: asking costs about a millisecond.
 - **Attribution costs nothing measurable.** Every write is now an attributed transaction, and a
   512-event batch takes the same time inside the run-to-run spread, signed or not.
-- **GrapheneDB 0.4.0 and Wails 2.13.0**, both unchanged from v0.2.0.
+- **GrapheneDB 0.4.0 → 0.10.0.** The sealed image now carries its index, so opening a sealed case is
+  2.5× faster at 10 000 events and 6× faster at 50 000, with 600× fewer allocations. Opening a case
+  with a long unsealed log is 1.3× slower at 10 000 events: the log is replayed, and its tail is
+  copied first (above). A correlation backfill is 1.36× slower, because each rewritten event now
+  updates only the index entries that moved. Batched relation writes on disk are 3.2× faster, and
+  the *related* event filter 14–17× faster. PERFORMANCE.md §9 and §10 have the interleaved A/B.
+- **Wails 2.13.0 → 3.1.0.** The window, dialogs and events are Wails v3's, and the frontend calls
+  the backend through `@wailsio/runtime`. rohy's `backend/api` package no longer imports Wails, so the
+  API tests run on Linux without GTK. Wails v3 logs every call's arguments and result at Debug
+  level. rohy withholds both from its log at every level, so a passphrase never reaches it.
+  Unsubscribing one listener from a backend event used to remove every listener on that event. It
+  now removes only its own.
+- **vite 8, vite-plugin-svelte 7 and vitest 5.** The app bundle is 499 kB (161 kB gzipped), down
+  from 511 kB, and builds in 2.5 s rather than 8.4 s.
+- **Go 1.26 idioms throughout**, and every benchmark loops with `b.Loop()`. Figures recorded before
+  that change may differ slightly from a new run (PERFORMANCE.md §8).
 - **Ten new backend packages** (`analyst`, `anchor`, `custody`, `durable`, `eventproof`, `keyfile`,
   `query`, `redaction`, and `synth` and `integration` for tests), the `tools/profile` harness, and
   33 Go packages in total.
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,216 Go tests, 10 fuzz targets and 65 benchmarks; 878 frontend tests; 58 extension tests.**
-  The new benchmarks measure auto-layout, the relationship heatmap and the backfill on the disk
-  backend (PERFORMANCE.md §21).
+- **1,246 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 58 extension tests.**
+  The new benchmarks measure auto-layout, the relationship heatmap, the backfill on the disk
+  backend (PERFORMANCE.md §21) and the whole-case scans (§10).
 
 ### Compatibility
 
@@ -391,12 +448,18 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
   rule with `match_scope: "global"` now matches per computer, temporal chains with a repeated event
   ID are assembled correctly, and `ip_address` values are normalized and, on inbound WFP events,
   oriented by initiator (see Fixed and Changed).
-- **A v0.2.0 case opens unchanged, with the same fingerprint.** The redaction ledger and the audit
-  log are added empty. Its events report stale correlation keys until the backfill runs (see the
-  action above).
+- **A v0.2.0 case opens with the same fingerprint, but does not go back.** The redaction ledger and
+  the audit log are added empty. Its events report stale correlation keys until the backfill runs.
+  Its first seal converts it to image format 9, which v0.2.0 cannot open. Both are actions above.
 - **The fingerprint history (`roots.json`, format 2) is new in this release.** v0.2.0 neither reads
-  nor writes it, so a seal v0.2.0 makes is not recorded. If a case goes back to v0.2.0 and returns,
-  the integrity check reports that its image does not follow the last recorded seal.
+  nor writes it, so a seal v0.2.0 makes is not recorded. If v0.2.0 ever seals a case v0.3.0 has
+  recorded seals for, the integrity check then reports that its image does not follow the last
+  recorded seal.
+- **Cases from builds before v0.1.0 are no longer migrated.** Those builds could leave relations
+  with no graph and a single `canvas.json`. No release wrote either, so v0.3.0 removed the startup
+  migration for them.
+- **Linux needs GTK 4 and WebKitGTK 6.0** (Ubuntu 24.04 or later, or a distribution of the same
+  age). v0.2.0 used GTK 3 and WebKitGTK 4.0. Windows and macOS need nothing new.
 - **New portable files are versioned from 1**: event proofs (checked with this release's
   `rohyctl verify-proof`) and signing keys.
 
@@ -415,7 +478,9 @@ Keep the new one: a fingerprint exported before the backfill no longer matches t
 
 Stated rather than left to be discovered:
 
-- Code signing and notarization. Windows SmartScreen and macOS Gatekeeper will still warn.
+- Code signing and notarization. Windows SmartScreen and macOS Gatekeeper will still warn. The macOS
+  app is signed ad hoc only, which names no developer, and is not notarized: Gatekeeper blocks it
+  until you allow it in System Settings → Privacy & Security.
 - Manual verification on Linux and macOS — both build in CI, neither has been exercised by hand.
 - `rohyctl` in the release downloads. A recipient checking a proof builds it with
   `go build ./cmd/rohyctl`.

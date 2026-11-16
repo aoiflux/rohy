@@ -75,17 +75,20 @@ Get-FileHash .\rohy.exe -Algorithm SHA256   # Windows — compare against SHA256
 ```
 
 > **Binaries are not code-signed yet.** Windows SmartScreen and macOS Gatekeeper
-> will warn you. That is expected at v0.3.0 — signing and notarization are
+> will warn you. The macOS app carries only an ad-hoc signature, which Apple
+> Silicon needs to run it at all; it names no developer. That is expected at
+> v0.3.0 — signing and notarization are
 > planned, and this note will go away when they land rather than being quietly
 > dropped.
 
 ### Build from source
 
-Requires **Go 1.26**, **Node 24**, and the
-[Wails CLI](https://wails.io/docs/gettingstarted/installation) **v2.13.0** — the
-same versions CI builds releases with.
+Requires **Go 1.26**, **Node 24**, and the Wails CLI **v3.1.0** (`wails3`) — the
+same versions CI builds releases with. On Linux, also the GTK 4 and WebKitGTK 6.0
+development packages (`libgtk-4-dev libwebkitgtk-6.0-dev` on Ubuntu 24.04).
 
 ```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 git clone <repo> && cd rohy
 ./build.sh 0.3.0             # Linux / macOS — the version shown at the top of this file
 .\build.ps1 -Version 0.3.0   # Windows
@@ -98,7 +101,9 @@ here and passing the same number to the build. A binary built without a stamp re
 itself as `unreleased`, never as a number it has no basis for.
 
 The build scripts run the test suites, delete `frontend/dist` and rebuild it
-from scratch, then stamp version/commit/date into the binary. The clean-frontend
+from scratch, then build through `wails3 task`, which stamps version/commit/date into
+the binary and writes it to `bin/`. `build-all.ps1` and `build-all.sh` build every
+target the host can and write the release archives to `artefacts/`. The clean-frontend
 step is deliberate: the Go binary embeds whatever is in `dist`, so reusing a
 stale build ships an old UI behind a new backend.
 
@@ -124,11 +129,12 @@ one place the mark is defined; after changing it, regenerate the raster assets:
 python tools/gen_icons.py      # needs Pillow
 ```
 
-That rewrites `build/appicon.png` (used for macOS and Linux) and
-`build/windows/icon.ico` (all six Windows sizes), and writes
-`build/icon-preview.png` so small sizes can be checked by eye. Both generated
-assets are committed — Wails substitutes its own default artwork when they are
-missing, so an uncommitted icon means a fresh clone silently ships the
+That rewrites `build/appicon.png` (used for Linux) and `build/windows/icon.ico`
+(all six Windows sizes), and writes `build/icon-preview.png` so small sizes can be
+checked by eye. The macOS icon, `build/darwin/icons.icns`, is made from
+`appicon.png`; the comment at the top of `build/Taskfile.yml` gives the command,
+which keeps it from overwriting `icon.ico`. The builds generate no icons, so all
+three are committed. An uncommitted icon means a fresh clone silently ships Wails'
 placeholder.
 
 Working on the persistence layer? Read [PERFORMANCE.md](PERFORMANCE.md) first —
@@ -173,7 +179,7 @@ a working folder is self-contained and portable.
 | --------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Windows 10/11 (amd64) | Primary — developed and tested here | [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (preinstalled on Windows 11) |
 | Windows (arm64)       | Builds in CI                        | WebView2 runtime                                                                                          |
-| Linux (amd64, arm64)  | Builds in CI                        | `libwebkit2gtk-4.0` + `libgtk-3`                                                                          |
+| Linux (amd64, arm64)  | Builds in CI                        | GTK 4 + WebKitGTK 6.0 (`libgtk-4-1`, `libwebkitgtk-6.0-4`): Ubuntu 24.04 or later                         |
 | macOS (amd64, arm64)  | Builds in CI                        | WKWebView (system)                                                                                        |
 
 **Live event-log capture is Windows-only** — it uses the native `wevtapi`. On

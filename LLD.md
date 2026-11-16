@@ -6,7 +6,7 @@
 
 **A technical deep dive into how rohy actually works.**
 
-Go + Wails + Svelte · version stated in [README.md](README.md)
+Go + Wails v3 + Svelte · version stated in [README.md](README.md)
 
 </div>
 
@@ -75,7 +75,7 @@ flowchart TB
         subgraph fe["Frontend — Svelte, running in a native webview"]
             routes["Routes<br/>Dashboard · Events · Graph · Rules · Timeline ·<br/>Algorithms · Maintenance · Query"]
             stores["Svelte stores<br/>events · graph · rules · findings · ingestion ·<br/>maintenance · query · replay · annotations · session"]
-            apiw["lib/api/index.js<br/>the ONLY module that touches window.go"]
+            apiw["lib/api/index.js<br/>the ONLY module that calls the backend"]
             routes --> stores --> apiw
         end
 
@@ -113,11 +113,12 @@ to go.
 
 ```
 rohy/
-├── main.go                  Wails entry point: window options + which structs to bind
+├── main.go                  Wails entry point: window options + which services to bind
+├── desktop.go               api.Desktop over Wails: events, dialogs, quit (the only Wails caller)
 ├── app.go                   Lifecycle: open stores, wire bindings, startup/shutdown
 │
 ├── backend/
-│   ├── api/                 Wails binding layer — the Go↔JS boundary
+│   ├── api/                 Binding layer — the Go↔JS boundary; imports no Wails
 │   ├── consts/              Every constant, message string and enum in one file
 │   ├── evtx/                Ingestion pipeline: parse, normalize, dedup, batch, persist
 │   ├── dbsource/            SQLite .db reader (two documented schemas)
@@ -168,14 +169,15 @@ rohy/
 │   │                        editor, the schema when rohyctl is absent (§10.3)
 │   └── gen_icons.py         Draws the application icons from the one source mark
 │
+├── Taskfile.yml, build/     wails3 task: per-platform build and package tasks, config, icons
 ├── build-all.{sh,ps1}       Full six-target matrix build
 ├── build.{sh,ps1}           Single-target release build
 └── .github/workflows/       ci.yml · release.yml
 ```
 
-Roughly 33,700 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,216 Go test functions**, with 10 fuzz targets and 65 benchmarks beside them,
-**878 frontend test cases** and **58 extension tests**.
+Roughly 34,300 lines of non-test Go, plus the Svelte frontend. The tests are
+**1,246 Go test functions**, with 10 fuzz targets and 66 benchmarks beside them,
+**880 frontend test cases** and **58 extension tests**.
 
 ---
 
@@ -280,21 +282,22 @@ sequenceDiagram
     M->>A: NewApp()
     Note over A: Cheap only.<br/>OpenLazy() does NOT open the database.<br/>Sidecars just create their directories.
     A-->>M: bindings constructed
-    M->>W: wails.Run(options, Bind: 10 structs)
-    W->>UI: window opens, Splash renders
-    W->>A: OnStartup(ctx)
-    A->>A: hand ctx to event-emitting bindings
+    M->>W: application.New(Services: app first, then 10 bound structs)<br/>Window.NewWithOptions(frameless) · Run()
+    W->>A: ServiceStartup(ctx)
+    A->>A: api.Start(desktop, …) — events and dialogs reach the window
     A->>A: go initialize()   « background goroutine »
+    W->>UI: window opens, Splash renders
 
     par UI is already interactive
         UI->>UI: user can see the splash and the title bar
     and Warm-up runs behind it
-        A->>UI: emit init:state {stage:"opening store"}
+        A->>A: session step — begins at once, or waits for the analyst's answer
+        A->>UI: emit init:state {stage:"Opening case database…"}
         A->>S: Warm()  « replays WAL, loads property index »
         S-->>A: ok
-        A->>UI: emit init:state {stage:"migrating graphs"}
-        A->>A: migrateGraphs() — idempotent
-        A->>UI: emit init:state {stage:"loading rules"}
+        A->>UI: emit init:state {stage:"Preparing graphs…"}  « writable sessions only »
+        A->>A: EnsureDefault() — idempotent
+        A->>UI: emit init:state {stage:"Loading correlation rules…"}
         A->>UI: emit init:state {ready}
     end
 
@@ -320,24 +323,32 @@ happens-before edge that makes reading `s.g` lock-free afterwards.
 
 ### Failure is shown, not fatal
 
-If warm-up fails, `initialize()` calls `System.Failed(err)` and returns. The
+If warm-up fails, `initialize()` calls `api.InitFailed(a.System, err)` and returns. The
 process stays alive and the window shows the reason. A user who can read
 "permission denied on rohy-data/db" can fix it; a user whose app vanished
 cannot.
 
+`InitStage`, `InitReady` and `InitFailed` are package functions, not `SystemAPI` methods: Wails v3
+binds every exported method of a service, and the page must not be able to declare the app ready.
+
 ### Shutdown
 
+Wails stops services in **reverse** registration order, and `services()` in `app.go` registers the
+app first, so it stops last:
+
 ```go
-func (a *App) shutdown(ctx context.Context) {
-    a.Events.Shutdown()   // stop ingestion, let it flush + bookmark first
-    a.store.Compact()     // merge delta layer, truncate the WAL
+// EventsAPI.ServiceShutdown runs first: stop ingestion, let it flush + bookmark.
+func (a *App) ServiceShutdown() error {
+    a.session.Close()   // seals what changed since the last seal; records how a signed case was left
     a.store.Close()
+    return nil
 }
 ```
 
 The order matters. Draining ingestion **before** closing is what keeps a live
 capture's bookmark honest: otherwise the next session would resume from a
-position whose events were never written.
+position whose events were never written. There is no `OnShutdown` hook; the order is the
+registration order, and the comment on `services()` says so.
 
 ---
 
@@ -1517,10 +1528,13 @@ Two refusals are deliberate, and neither is an error:
   view out from under someone mid-investigation is worse than leaving one empty
   graph in the list.
 
-The startup migration folds pre-multi-graph data forward: relations with no
-`graph_id` are assigned to `Default`, and a legacy `canvas.json` is moved to that
-graph's per-graph file. Every step is idempotent, which is what makes it safe to
-run on **every** startup rather than gating it behind a version flag.
+A writable startup seeds `Default` in a new case (`graphreg.EnsureDefault`). It is idempotent, so it
+runs on **every** writable startup rather than behind a version flag; a read-only session leaves the
+case as it is. There is no migration of older data. Builds before multiple graphs could leave
+relations with no `graph_id` and a single `canvas.json`, but no release did: every relation writer
+in v0.1.0 and v0.2.0 stamps a registry id of 1 or more, and neither writes `canvas.json`. So v0.3.0
+dropped the migration, and `graphIDFromFile` skips a stray `canvas.json` like any other file that
+is not a per-graph canvas.
 
 **Deleting an event prunes every layout, and nothing else.** `GraphAPI.DeleteEvent` removes the
 event from the store first, then from every graph's saved canvas (`layout.Store.RemoveNode`, a walk
@@ -1560,7 +1574,7 @@ event again runs the prune again, although the store no longer holds it
 The case check reports both: a damaged canvas still in place, and every canvas already moved aside
 (`layout.Survey`, detector 7).
 
-🔒 One mutex in `layout.Store` covers `Save`, `Load`, `Delete`, `RemoveNode` and `MigrateLegacy`, so a
+🔒 One mutex in `layout.Store` covers `Save`, `Load`, `Delete` and `RemoveNode`, so a
 *Save layout* cannot land between `RemoveNode`'s read and its write and be undone. `Load` takes it
 too: on Windows a file another handle holds open cannot be renamed over, and a file in the middle of
 that rename cannot be opened (`TestConcurrentSaveAndRemoveNodeLeaveAReadableCanvas`).
@@ -2113,7 +2127,7 @@ flowchart TD
     end
 
     subgraph lib["lib/"]
-        api["<b>api/index.js</b><br/>the ONLY module that touches window.go"]
+        api["<b>api/index.js</b><br/>the ONLY module that calls the backend"]
         cons["consts/index.js<br/>mirrors backend/consts"]
         pure["filter · shortcuts · export · timeline · motion<br/>rules/ — validate, format, highlight,<br/>complete, diff, history"]
     end
@@ -2125,18 +2139,31 @@ flowchart TD
     st --> pure
     comps --> pure
     comps --> cons
-    api --> wails["window.go.api.*  ·  EventsOn / EventsOff"]
+    api --> wails["@wailsio/runtime  ·  Call.ByName · Events.On"]
 ```
 
 ### 15.1 One door to the backend
 
-`lib/api/index.js` is the only module that reads `window.go`. Everything else
-calls its exported functions. Two payoffs:
+`lib/api/index.js` is the only module that calls the backend. Everything else
+calls its exported functions. The only other importer of `@wailsio/runtime` is
+`TitleBar.svelte`, for the window controls. Three payoffs:
 
-- **Graceful degradation.** Under `vite dev` in a plain browser, `window.go` is
-  undefined; calls reject with a clear message and event subscription is a no-op,
-  so the UI loads instead of throwing.
+- **Graceful degradation.** Under `vite dev` in a plain browser there is no backend:
+  calls reject, events never arrive, and `isBackendAvailable()` is false, because
+  Wails tells only the pages it serves which OS they run on. The shell shows a notice
+  instead of throwing.
 - **One place to change** when a binding's shape moves.
+- **No generated bindings.** Each wrapper calls `Call.ByName("rohy/backend/api.<Struct>.<Method>", …)`.
+  Wails matches a method by name and arity, so `TestEveryMethodTheFrontendCallsIsBound`
+  (`backend/api/api_surface_test.go`) reads `index.js` and holds every name and argument count
+  to a bound method. A dropped argument would otherwise fail only at runtime, as a `TypeError`.
+
+`on(channel, handler)` subscribes with `Events.On` and passes the handler the event's
+`data`. It returns that one listener's unsubscribe. Under Wails v2 it returned
+`EventsOff(channel)`, which removed every listener on the channel. Events are **not**
+declared with `application.RegisterEvent`: Wails cancels an event whose payload type does
+not match its registered type exactly, and a cancelled progress event would leave the page
+silent rather than failing.
 
 ### 15.2 Progressive loading
 
@@ -2249,29 +2276,50 @@ A stable `code` lets the frontend branch on the *kind* of failure — a refused
 note is the caller's input being wrong, not the disk failing, and the two deserve
 different messages.
 
-**How a returned error crosses (#33).** Until #33 only the message did: Wails sends `err.Error()`
-unless an `ErrorFormatter` is set, and none was. `api.FormatError` is now that formatter.
-- 🔒 It returns a **string**, the JSON of the `ErrorEvent`. The runtime wraps whatever arrives in
-  `new Error(x)` unless it already is an Error, so an object would read "[object Object]".
-- `call()` in `frontend/src/lib/api/index.js`, the one door to the backend, decodes the string
-  into an `Error` with `.message` and `.code`. Anything it cannot decode is left as it was: Wails'
-  own argument-parse text, and "backend unavailable" outside Wails. `errorCode()` calls that
-  `internal_error`.
-- A wrapped error keeps its code and its full message. An uncoded one is `internal_error`. An empty
-  message becomes the code, because an empty error field makes the runtime resolve the call.
+**How a returned error crosses (#33).** Without help, Wails sends only `err.Error()`.
+`api.MarshalError` is the app's `MarshalError` option (`main.go`).
+- It returns the JSON **bytes** of the `ErrorEvent`. The runtime rejects the call with an `Error`
+  whose `.cause` is that object, decoded.
+- `decodeError` in `frontend/src/lib/api/errors.js`, applied by `call()` in `index.js`, the one door
+  to the backend, turns that into an `Error` with the backend's `.message` and `.code`. An error with
+  no such cause is left as it was: an unknown method (`ReferenceError`), the wrong arguments
+  (`TypeError`), a panic, and any call outside Wails. `errorCode()` calls those `internal_error`.
+- A wrapped error keeps its code and its full message, because the message is the outer error's. An
+  uncoded one is `internal_error`. An empty message becomes the code, so a page always has
+  something to show.
 - A vitest fails if a backend `ErrCode*` is missing from the frontend's `ERROR_CODES`.
 
-### 16.3 The Emitter seam
+### 16.3 The Desktop seam
 
 ```go
-type Emitter interface{ Emit(channel string, data interface{}) }
+type Emitter interface{ Emit(channel string, data any) }
+
+type Desktop interface {
+    Emitter
+    PickFiles(title string, filter FileFilter) ([]string, error)
+    PickFolder(title string) (string, error)
+    PickFile(title string, filter FileFilter) (string, error)
+    PickNewFile(title, name string, filter FileFilter) (string, error)
+    Quit()
+}
 ```
 
-Production uses `WailsEmitter`; tests inject a capturing fake. This is why
-[emitter_wails.go](backend/api/emitter_wails.go) is the **only** file in the
-package that imports the Wails runtime — the bindings and all their tests stay
-runtime-independent, which is what allows the API layer to be tested without a
-window.
+`backend/api` imports **no** Wails package. Everything the bindings need from the window is
+`api.Desktop` ([contracts.go](backend/api/contracts.go)), implemented over Wails in
+[desktop.go](desktop.go) in package `main`. `api.Start` hands it to the bindings that emit or
+open dialogs, once the app is running. Before that, events are discarded and a dialog refuses.
+Tests inject a capturing fake.
+
+The seam is required, not just tidy. On Linux, Wails' `application` package needs cgo and the GTK 4
+headers, and the CI test job has neither. Because of the seam, the whole API layer and its tests
+build and run there without a window.
+
+- **A cancelled dialog is no selection.** Wails' Windows dialogs return the error
+  `cancelled by user` when the analyst cancels; every other platform returns an empty path.
+  `picked()` maps the first to the second. The sentinel is in an internal Wails package, so its
+  text is matched, and `TestWhatRohyAssumesOfWailsStillHolds` (`main_test.go`) pins it, and the
+  log attributes `SafeLogHandler` withholds, to the Wails source.
+- **Every dialog is attached to the window**, so it is modal to it.
 
 ---
 
@@ -2591,7 +2639,7 @@ The invariants, each a test:
   refuses every call until a reopen, reads included, so a read cannot answer with a commit its
   caller was told had failed. Every commit, compaction and redaction goes through
   `Store.noteStopped`, which makes the session read-only with a reason naming the restart, as a seal
-  that poisons the image does. `api.AsError` and `FormatError` rewrite any call the stop refused to
+  that poisons the image does. `api.AsError` and `MarshalError` rewrite any call the stop refused to
   say the same, whichever call meets it first. The next open clears both reasons.
 - **A read-only session writes nothing** — not the case, not its sidecars, not the audit log, not a
   damaged seal history moved aside (`custody.OpenDeferred`); the image check still runs. The engine
@@ -2602,7 +2650,7 @@ The invariants, each a test:
 - **The audit log holds no evidence.** rohy's entries are ids, counts and the analyst's reasons; a
   test searches the file for an ingested needle.
 - **No secret reaches the log.** Passphrases cross one struct argument; the key bindings recover
-  their own panics; `api.SafeLogger` withholds the call Wails would log on a failed one.
+  their own panics; `api.SafeLogHandler` withholds the arguments and result Wails logs for every call.
 
 **What the integrity report says about it (#43).** `caseintegrity` reads three more values, gathered
 by `MaintenanceAPI.readPosture` under `sealMu`:
@@ -2859,8 +2907,8 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,216 Go test functions**, 10 fuzz targets, 65 benchmarks, **878 frontend test
-cases** in 56 files, and **58 extension tests**.
+**1,246 Go test functions**, 10 fuzz targets, 66 benchmarks, **880 frontend test
+cases** in 57 files, and **58 extension tests**.
 
 Where each runs:
 
@@ -2871,7 +2919,9 @@ Where each runs:
   `go vet`, the backend, `cmd` and `tools` tests, the race detector over
   `graphene`, `evtx`, `api` and `graphbuild`, the frontend tests, the built-in
   rules' format and load check, and the schema golden. Its build job compiles each
-  platform without testing again.
+  platform with `wails3 task`. Its Linux row also vets and tests the root package
+  (`main.go`, `app.go`, `desktop.go`), the one place that runs, because the root
+  package imports Wails, which needs cgo and GTK 4 on Linux, and the test job has neither.
 - **The local gate only:** the integration suite (`-tags=integration`) and the
   extension tests. A CI job for each is deferred with the other CI additions.
 
@@ -2911,9 +2961,9 @@ flowchart TD
     tag["git push tag v*"] --> ver["<b>version job</b><br/>resolve the SemVer ONCE,<br/>so every artefact reports the same identity"]
 
     ver --> win["<b>windows-latest</b><br/>amd64 + arm64 from one runner<br/><i>no cgo — the WebView2 loader is pure Go</i>"]
-    ver --> lin1["<b>ubuntu-22.04</b><br/>linux/amd64"]
-    ver --> lin2["<b>ubuntu-22.04-arm</b><br/>linux/arm64"]
-    ver --> mac["<b>macos-latest</b><br/>amd64 + arm64 from one runner<br/><i>cgo, but Xcode targets both</i>"]
+    ver --> lin1["<b>ubuntu-24.04</b><br/>linux/amd64 · GTK 4 + WebKitGTK 6.0"]
+    ver --> lin2["<b>ubuntu-24.04-arm</b><br/>linux/arm64 · GTK 4 + WebKitGTK 6.0"]
+    ver --> mac["<b>macos-latest</b><br/>amd64 + arm64 from one runner<br/><i>cgo, but Xcode targets both; ad-hoc signed .app</i>"]
 
     win --> gate; lin1 --> gate; lin2 --> gate; mac --> gate
 
@@ -2938,14 +2988,23 @@ weakened in CI:
    marking a dirty tree with a `-dirty` suffix — so an artefact can always say
    exactly what it was built from.
 
-Linux builds against WebKitGTK **4.0** rather than 4.1 deliberately, to keep the
-artefact usable on older distributions; the README states 4.0 as the runtime
-requirement to match.
+Every build goes through `wails3 task` (`Taskfile.yml`, with a Taskfile per platform under
+`build/`). The version, commit and date are passed as task variables
+(`wails3 task -f <os>:build ARCH=… VERSION=… COMMIT=… DATE=…`), and each platform's task puts
+them in `-ldflags`. `wails3 build` would not do: it drops those variables. `-f` forces the
+frontend's tasks to rerun, which is what keeps the clean `dist` above honest across targets.
+No task runs `go mod tidy` or generates bindings.
+
+Linux builds against **GTK 4 and WebKitGTK 6.0**, Wails v3's default, on ubuntu-24.04. The
+artefact needs a distribution that ships both (Ubuntu 24.04 or later); the README states this
+as the runtime requirement to match. macOS builds through `darwin:package`, which assembles the
+`.app` bundle and signs it ad hoc (`codesign --sign -`). That is not a Developer ID signature,
+and Gatekeeper still warns.
 
 ```go
 // backend/version — one source of truth, injected via -ldflags
 var (
-    Version = "0.0.1"   // overridden at link time
+    Version string        // no default: unstamped reports "unreleased"
     Commit  = "dev"
     Date    = "unknown"
 )
@@ -3053,7 +3112,7 @@ come for free — that is the entire reason the sink is a separate function.
 ### Add a backend error code
 
 1. `backend/consts` — add `ErrCodeYours = "yours_error"` beside the others.
-2. Return it from the binding as `AsError(consts.ErrCodeYours, err)`. `FormatError` carries the
+2. Return it from the binding as `AsError(consts.ErrCodeYours, err)`. `MarshalError` carries the
    code across (§16.2); wrapping with `%w` keeps it, because the formatter finds the code with
    `errors.As` and takes the message from the outermost error.
 3. `frontend/src/lib/consts` — add it to `ERROR_CODES`. `lib/api/errors.test.js` reads
@@ -3081,12 +3140,15 @@ The Query page needs nothing: it builds its form from `Describe()`.
 1. `backend/api/api_yours.go` — a struct over **narrow interfaces**, a `NewYoursAPI` constructor,
    and methods that adapt arguments and call one thing. Wails binds **every** exported method, so
    a helper that should not be callable from the page must be unexported.
-2. If it emits events, give it `Startup(ctx)` and call it from `App.startup` in `app.go`.
-3. Build it in `NewApp` (`app.go`) and add it to `Bind` in `main.go`.
-4. Regenerate `frontend/wailsjs/` (any `wails build` or `wails dev` does).
-5. `frontend/src/lib/api/index.js` — a struct-name constant and one wrapper per method over
-   `call()`. Nothing else in the frontend touches `window.go`.
-6. Add a row to §16.1. If the struct must stay read-only, pin its method set with a reflection
+2. If it emits events or opens dialogs, give it an unexported `start(d Desktop)` and call it from
+   `api.Start` (`contracts.go`). It must not be a method taking the desktop: the page could call
+   that method and replace the desktop.
+3. Build it in `NewApp` (`app.go`) and add it to `services()` there, **after** the app, which
+   must stay first so it stops last. If it has work to drain at quit, give it `ServiceShutdown`.
+4. `frontend/src/lib/api/index.js` — a struct-name constant and one wrapper per method over
+   `call()`, forwarding every parameter. Nothing is generated. `TestEveryMethodTheFrontendCallsIsBound`
+   fails on a misspelled name or a wrong argument count.
+5. Add a row to §16.1. If the struct must stay read-only, pin its method set with a reflection
    test, as `QueryAPI`'s does.
 
 ---
@@ -3129,19 +3191,24 @@ An honest list, for anyone about to change something.
 
 Added with v0.3.0:
 
-- **The error formatter must return a string.** The Wails runtime rejects with
-  `x instanceof Error ? x : new Error(x)`, so an object reaches every handler as
-  "[object Object]". `FormatError` returns the JSON of an `ErrorEvent` *as a string*, and
-  `call()` decodes it.
-- **Two failures never reach the formatter.** An argument that fails to parse arrives as plain
-  text, so `errorCode` defaults to `internal_error`. A panic in a binding leaves the page's
-  promise unsettled for good, so a binding that can panic on its input recovers itself, as
-  `QueryAPI.Run` does.
-- **Wails binds every exported method** of a bound struct. A helper on one is callable from the
-  page.
-- **Wails logs a failed call's arguments.** On a parse failure or a panic it writes the raw call
-  message, and a passphrase crosses as an argument. `SafeLogger` withholds the call; replace it
-  and the passphrase can reach the log.
+- **A code reaches the page only through `.cause`.** Wails puts what `MarshalError` returns in
+  the rejected `Error`'s `cause`; `.message` alone carries no code. Read errors through `call()`,
+  never through `Call.ByName` directly.
+- **Two failures carry no code of rohy's.** An argument that fails to parse reaches `MarshalError`
+  as a parse error, so it arrives as `internal_error` with Wails' parse text. Wails turns a panic
+  in a binding into a rejection with no cause, which is `internal_error` too, and logs the
+  panic's stack. A binding that can panic on its input still recovers itself, as `QueryAPI.Run`
+  does, so the page is told what was wrong with the input.
+- **Wails binds every exported method** of a service, and every service is bound. A helper on one
+  is callable from the page. That is why `api.Start`, `AttachSession` and the splash's
+  `InitStage`/`InitReady`/`InitFailed` are package functions.
+- **Wails logs every call's arguments and result.** At Debug it writes both for each binding call,
+  and a passphrase crosses as an argument. `SafeLogHandler` (`api_safelog.go`) replaces the `args`
+  and `result` attributes with `(withheld)` on every record, at every level. Replace the logger in
+  `main.go` without it and the passphrase can reach the log.
+- **A Wails-registered event is a typed event.** `application.RegisterEvent` would make Wails
+  cancel an event whose payload type differs from the registered one, so rohy registers none
+  (§15.1).
 - **Edge order is not id order.** The disk store returns delta edges before compacted ones, and a
   property lookup keeps the first key's order. Anything that pages or compares relations sorts
   the ids first.

@@ -4235,8 +4235,59 @@ After the owner's decisions of 2026-11-08, each batch adds its own count here:
     passing message, `UI.INSPECTOR_FAILED`, through the pure `inspectRelation` in
     `stores/selection.js` (3 cases in `selection.test.js`). A deleted link reads as not found.
 - **Found in passing, not touched:** comments in `api_snapshot_test.go` and `api_annotate_test.go`
-  imply ids are reused; the comment at `api_events.go:53` still names `SetEmitter`.
+  imply ids are reused; the comment at `api_events.go:53` still names `SetEmitter` (fixed in §15.17).
 - **Not automated:** the heatmap effect has no test (view tests render on the server, where effects
   do not run), and `RulesView` has no route test; its message choice is tested through
   `backfillNotice`. The wails bindings were regenerated with `wails generate module`; a normal build
   should confirm them.
+
+### 15.17 The stack migration: Wails v3.1.0, GrapheneDB 0.10.0 (2026-11-08 to 2026-11-16)
+
+Decided (owner, 2026-11-08): the migration folds into v0.3.0, not a v0.4.0, and cases go one way to
+image format 9. Rohy has no outside consumers, so the target was native v3 and v0.10 use with no
+compatibility layer. One commit per phase:
+
+| Phase | Commit | What |
+| --- | --- | --- |
+| 0, 1 | `d9db729` | Baseline; routine bumps; `testdata/v8-case`, a sealed case written by graphene 0.4.0 |
+| 2a | `9e58976` | graphene 0.10.0: indexed updates (reindex now rejects by default), `VerifyImage` without an open, torn tails kept, read-only engine for sessions that cannot write |
+| 2b | `f0c182d` | Index entries commit with their records |
+| 2c | `2b985b6` | `ErrCaseHeld`, `ErrLogRefused`, a stopped engine turns the session read-only, rohy's `closed` flag gone |
+| 2d | `b5e7a9b` | Timestamp declared ordered (reverses PERFORMANCE.md §9 on new numbers); type names in `graphene.labels` |
+| 2e | `f93b046` | Whole-case scans through the batch readers; the relation filter decodes nothing |
+| 3a | `1de8a0a` | Wails v3.1.0: services, `api.Desktop`, `MarshalError`, `SafeLogHandler`, `Call.ByName`, Taskfile |
+| 3b | `c792609` | `build-all.*`, ci.yml and release.yml on `wails3 task`; Linux on ubuntu-24.04 with GTK 4 |
+| 4 | `45e88db` | vite 8, vite-plugin-svelte 7, vitest 5 |
+| 5 | `60c0f12` | Every sidecar through `durable.WriteFile`; `go fix`; `slices`; `b.Loop()`; pre-release migrations deleted |
+| 6 | — | This record, the release notes, LLD, README and PERFORMANCE.md |
+
+**Departures from the plan, and why:**
+
+- **Phase 3 was re-cut.** The planned layout, backend and frontend commits could not each leave a
+  runnable app, so 3a is the whole switch and 3b the build pipeline.
+- **No generated bindings.** The frontend calls methods by name. `TestEveryMethodTheFrontendCallsIsBound`
+  holds every name and arity in `index.js` to a bound method, which is what generation would have
+  given, without a generated tree to keep in step.
+- **No `RegisterEvent`.** Wails cancels an event whose payload type does not match the registered
+  one, and a cancelled progress event fails silently.
+- **`backend/api` does not import Wails.** On Linux the application package needs cgo and GTK 4, and
+  the CI test job has neither. `api.Desktop` in `desktop.go` is the seam; the root package is vetted
+  and tested on the build job's Linux row.
+- **The query builder replaced nothing in 2e.** Its order is by node id; the events list is by time
+  with undated events last. PERFORMANCE.md §10 records each kept path.
+- **The pre-release migrations were removed by reading v0.1.0 and v0.2.0, not by a v0.2.0 fixture.**
+  Every relation writer in both tags stamps a registry id of 1 or more, the migration is the only
+  code that ever reassigned one, and neither tag writes `canvas.json`. A fixture would have shown
+  one case; the source shows every writer.
+- **vitest 5** shipped after the plan and was taken in Phase 4.
+
+**Still open before the tag:**
+
+- The runtime walk-through in the plan's validation list (dialogs, title bar, seal to v9 on a real
+  case, elevation on Windows, a Debug-level log scan for the passphrase), and a green CI run.
+- Elevation: the relaunched elevated rohy may meet `MsgCaseHeld` if the first one still holds the
+  case when it opens. Not yet checked.
+- `disk.InspectWAL` is unbuffered (about 1.6 s per 10k-event log), and the session step pays it
+  after a crash. The fix belongs upstream.
+- `TestBoundedMemoryStreaming` in `evtx` is flaky under the full parallel gate (GC noise). It passes
+  alone.

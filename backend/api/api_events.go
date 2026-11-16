@@ -50,7 +50,7 @@ type EventsAPI struct {
 
 // NewEventsAPI constructs the binding over an open store, the durable capture bookmark
 // store, and the analyst-findings sidecar (which may be nil where findings filters are not
-// used). Until SetEmitter is called (at app startup) events are discarded.
+// used). Until Start connects it to the window (at app startup) events are discarded.
 func NewEventsAPI(store *graphene.Store, positions evtx.PositionStore, findingStore *findings.Store) *EventsAPI {
 	return &EventsAPI{
 		store:     store,

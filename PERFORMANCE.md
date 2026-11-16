@@ -226,6 +226,21 @@ Use `-count=5` and read the spread — the first run of a fixture includes setup
 and is not representative. For open benchmarks use `-benchtime=Nx`, since each
 iteration seeds a store.
 
+**Every benchmark loops with `for b.Loop()`** (since v0.3.0), not `for i := 0; i < b.N; i++`.
+Three things follow:
+
+- **Setup before the loop is never timed, and runs once.** `b.Loop` resets the timer on its first
+  call, so no benchmark calls `b.ResetTimer`. Under `b.N` the function ran again for each
+  ramp-up, setup included.
+- **A loop that pauses the timer must restart it before the iteration ends.** `b.Loop` fails the
+  benchmark if it is called with the timer stopped. Per-iteration setup is still
+  `b.StopTimer()` … `b.StartTimer()` inside the body.
+- **Numbers recorded before the change may differ slightly.** `b.Loop` keeps the body's
+  arguments and results alive, so the compiler cannot drop a call whose result was unused. No
+  figure in this file was re-measured for the change alone. Compare a new run against a run
+  from the same tree, never against a figure recorded here, which is the same rule §10's
+  interleaved A/B follows.
+
 ### Coverage groups
 
 | File                               | Covers                                                                                                   |
@@ -437,14 +452,14 @@ paths neither build touches, so only interleaved numbers are quoted.
    flipped to _reject_ in v0.5.0: nothing failed to compile, and every update of
    an indexed record failed at commit. Run the full test suite against the bump
    before changing anything, and read each failure as a contract.
-6. **Interleave the A/B.** A full benchmark run takes 25 minutes, and on this rig
+4. **Interleave the A/B.** A full benchmark run takes 25 minutes, and on this rig
    paths neither build touches moved by up to 2× between two of them. Export the
    old tree (`git archive HEAD backend go.mod go.sum`), and run the paths in
    question against both, alternating.
-4. For each compile break, ask **"did the contract change, or just the shape?"**
+5. For each compile break, ask **"did the contract change, or just the shape?"**
    Preserve the old contract unless changing it is a deliberate, separate
    decision.
-5. Re-run the **full** benchmark set — including lifecycle — before and after.
+6. Re-run the **full** benchmark set — including lifecycle — before and after.
 
 ### Record: adopting v0.10's readers
 
