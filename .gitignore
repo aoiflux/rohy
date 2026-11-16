@@ -10,6 +10,10 @@ rohy-data/
 /bin/
 /.task/
 *.syso
+# build-all.ps1 / build-all.sh release archives and their checksum manifest.
+/artefacts/
+# The .desktop file every Linux build writes (generate:dotdesktop, build/linux/Taskfile.yml).
+/build/linux/rohy.desktop
 # The WebView2 bootstrapper the NSIS installer task downloads.
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 # Outputs of the Wails v2 build, which wrote into build/.

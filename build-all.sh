@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # rohy multi-target release build — Linux / macOS host. Mirrors build-all.ps1.
 #
-# Produces every artefact THIS MACHINE can produce, drops them in build/artefacts, and
-# writes a checksum manifest.
+# Produces every artefact THIS MACHINE can produce, drops them in artefacts/, and writes a
+# checksum manifest. Each target is built by the Taskfile (Taskfile.yml, build/<os>/), run by
+# the Wails v3 CLI:
+#   go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 #
 # ----------------------------------------------------------------------------------------
 # Why one machine cannot produce all six
 # ----------------------------------------------------------------------------------------
 #
-# Measured by attempting a real cross-build of every target with cgo disabled:
-#
 #   windows/amd64, windows/arm64  PURE GO — Wails uses the pure-Go WebView2 loader, so these
 #                                 cross-build from any host.
-#   linux/amd64, linux/arm64      cgo (WebKitGTK). Needs Linux and the target arch's headers.
+#   linux/amd64, linux/arm64      cgo (GTK4 / WebKitGTK 6.0). Needs Linux and the target
+#                                 arch's headers.
 #   darwin/amd64, darwin/arm64    cgo (WKWebView). Needs macOS and Xcode, which targets both
 #                                 architectures from either.
 #
@@ -21,9 +22,9 @@
 # is reported as skipped, with the reason — never silently absent. For all six in one run,
 # use .github/workflows/release.yml.
 #
-# Cross-architecture Linux (building arm64 on amd64) needs a cross toolchain and a target
-# sysroot carrying the GTK/WebKit headers. That is deliberately out of scope here: the CI
-# workflow uses a native arm64 runner instead, which is simpler and less fragile.
+# Cross-architecture Linux (building arm64 on amd64) would go through the Taskfile's Docker
+# cross-compiler. That is deliberately out of scope here: the release workflow uses a native
+# arm64 runner instead, which is simpler and less fragile.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -41,7 +42,7 @@ case "$VERSION" in
 esac
 SKIP_TESTS="${SKIP_TESTS:-0}"
 TRY_CROSS="${TRY_CROSS:-0}"     # attempt targets this host is expected to fail on
-ARTEFACTS="build/artefacts"
+ARTEFACTS="artefacts"
 
 step() { printf '\n=== %s ===\n' "$1"; }
 warn() { printf '  ! %s\n' "$1" >&2; }
@@ -67,12 +68,12 @@ buildable_reason() {
   case "$1" in
     windows/*) echo "" ;;                       # pure Go, cross-builds anywhere
     linux/"$HOST_ARCH")
-      [ "$HOST" = "linux" ] && echo "" || echo "cgo: needs a Linux host (WebKitGTK)" ;;
+      [ "$HOST" = "linux" ] && echo "" || echo "cgo: needs a Linux host (GTK4 / WebKitGTK 6.0)" ;;
     linux/*)
       if [ "$HOST" = "linux" ]; then
-        echo "cgo: cross-arch Linux needs a cross toolchain and target sysroot"
+        echo "cgo: cross-arch Linux needs the Docker cross-compiler"
       else
-        echo "cgo: needs a Linux host (WebKitGTK)"
+        echo "cgo: needs a Linux host (GTK4 / WebKitGTK 6.0)"
       fi ;;
     darwin/*)
       [ "$HOST" = "darwin" ] && echo "" || echo "cgo: needs macOS + Xcode (WKWebView)" ;;
@@ -88,8 +89,6 @@ if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then
   COMMIT="${COMMIT}-dirty"   # a dirty tree must never masquerade as a clean release
 fi
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-PKG="rohy/backend/version"
-LDFLAGS="-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
 
 echo "rohy ${VERSION} (${COMMIT}) built ${DATE}  [host ${HOST}/${HOST_ARCH}]"
 
@@ -101,15 +100,6 @@ if [ "$SKIP_TESTS" != "1" ]; then
   (cd frontend && npm test)
 fi
 
-# --- Clean frontend build ----------------------------------------------------------------
-# Once for the whole run: the embedded frontend is identical for every target. Deleted rather
-# than reused, because the binary embeds whatever is in dist and a stale dist ships an old UI
-# behind a new backend.
-step "Clean frontend build"
-rm -rf frontend/dist
-(cd frontend && (npm ci --silent || npm install --silent) && npm run build)
-[ -f frontend/dist/index.html ] || { echo "frontend/dist missing after build" >&2; exit 1; }
-
 rm -rf "$ARTEFACTS"
 mkdir -p "$ARTEFACTS"
 
@@ -117,7 +107,9 @@ BUILT=""
 SKIPPED=""
 
 for platform in $TARGETS; do
-  slug="${platform//\//_}"
+  os="${platform%/*}"
+  arch="${platform#*/}"
+  slug="${os}_${arch}"
   name="rohy_${VERSION}_${slug}"
   reason="$(buildable_reason "$platform")"
 
@@ -126,15 +118,17 @@ for platform in $TARGETS; do
     continue
   fi
 
-  step "Build $platform"
-  case "$platform" in
-    windows/*) out="rohy.exe" ;;
-    *)         out="rohy" ;;
-  esac
+  # macOS ships a .app bundle, which only the package task assembles.
+  task="build"
+  [ "$os" = "darwin" ] && task="package"
 
-  # -skipbindings: the generated TypeScript bindings are identical for every target, so
-  # regenerating them per target only costs time.
-  if ! wails build -clean -skipbindings -platform "$platform" -ldflags "$LDFLAGS" -o "$out"; then
+  step "Build $platform"
+  # Every target writes the same bin/ path, so each is packaged before the next one builds.
+  # dist is deleted and -f reruns the frontend's tasks too, so no target embeds a
+  # frontend left over from an earlier one.
+  rm -rf frontend/dist
+  if ! wails3 task -f "${os}:${task}" "ARCH=${arch}" \
+      "VERSION=${VERSION}" "COMMIT=${COMMIT}" "DATE=${DATE}"; then
     if [ -z "$reason" ]; then
       echo "build failed for $platform" >&2
       exit 1
@@ -143,40 +137,35 @@ for platform in $TARGETS; do
     SKIPPED="${SKIPPED}${platform}|attempted; ${reason}\n"
     continue
   fi
+  [ -f frontend/dist/index.html ] || { echo "frontend/dist missing after $platform build" >&2; exit 1; }
+
+  case "$os" in
+    darwin)
+      # Zipped with ditto where available, so the bundle structure, the executable bit and the
+      # ad-hoc signature survive.
+      [ -d bin/rohy.app ] || { echo "bin/rohy.app missing after $platform build" >&2; exit 1; }
+      if command -v ditto >/dev/null 2>&1; then
+        ditto -c -k --keepParent bin/rohy.app "${ARTEFACTS}/${name}.zip"
+      else
+        (cd bin && zip -qr "../${ARTEFACTS}/${name}.zip" rohy.app)
+      fi
+      BUILT="${BUILT}${platform}|${name}.zip\n"
+      continue ;;
+    windows) out="bin/rohy.exe" ;;
+    *)       out="bin/rohy" ;;
+  esac
+  [ -f "$out" ] || { echo "$out missing after $platform build" >&2; exit 1; }
 
   stage="${ARTEFACTS}/${slug}"
   mkdir -p "$stage"
-
-  case "$platform" in
-    darwin/*)
-      # macOS ships a .app bundle. It is archived rather than tarred so the bundle structure
-      # and the executable bit survive; ditto is used where available for the same reason.
-      if [ -d "build/bin/rohy.app" ]; then
-        if command -v ditto >/dev/null 2>&1; then
-          ditto -c -k --keepParent "build/bin/rohy.app" "${ARTEFACTS}/${name}.zip"
-        else
-          (cd build/bin && zip -qr "../../${ARTEFACTS}/${name}.zip" "rohy.app")
-        fi
-        rm -rf "$stage"
-        BUILT="${BUILT}${platform}|${name}.zip\n"
-        continue
-      fi
-      cp "build/bin/$out" "$stage/" ;;
-    *)
-      cp "build/bin/$out" "$stage/" ;;
-  esac
-
-  cp LICENSE README.md "$stage/"
-  case "$platform" in
-    windows/*) (cd "$stage" && zip -qr "../${name}.zip" .) ;;
-    *)         tar -czf "${ARTEFACTS}/${name}.tar.gz" -C "$stage" . ;;
+  cp "$out" LICENSE README.md "$stage/"
+  case "$os" in
+    windows) (cd "$stage" && zip -qr "../${name}.zip" .)
+             BUILT="${BUILT}${platform}|${name}.zip\n" ;;
+    *)       tar -czf "${ARTEFACTS}/${name}.tar.gz" -C "$stage" .
+             BUILT="${BUILT}${platform}|${name}.tar.gz\n" ;;
   esac
   rm -rf "$stage"
-
-  case "$platform" in
-    windows/*) BUILT="${BUILT}${platform}|${name}.zip\n" ;;
-    *)         BUILT="${BUILT}${platform}|${name}.tar.gz\n" ;;
-  esac
 done
 
 # --- Checksums ---------------------------------------------------------------------------

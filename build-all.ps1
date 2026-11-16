@@ -1,7 +1,9 @@
 # rohy multi-target release build — Windows host.
 #
-# Produces every artefact THIS MACHINE can produce, drops them in build/artefacts, and
-# writes a checksum manifest. Its companion is build-all.sh for Linux and macOS hosts.
+# Produces every artefact THIS MACHINE can produce, drops them in artefacts/, and writes a
+# checksum manifest. Its companion is build-all.sh for Linux and macOS hosts. Each target is
+# built by the Taskfile (Taskfile.yml, build/<os>/), run by the Wails v3 CLI:
+#   go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 #
 # ----------------------------------------------------------------------------------------
 # Why one machine cannot produce all six
@@ -13,8 +15,8 @@
 #   windows/amd64, windows/arm64  PURE GO. Wails uses the pure-Go WebView2 loader on
 #                                 Windows, so both cross-build from any host. Verified:
 #                                 an arm64 binary built here reports PE machine 0xAA64.
-#   linux/amd64, linux/arm64      cgo. The frontend binds WebKitGTK, so it needs the target's
-#                                 headers and toolchain.
+#   linux/amd64, linux/arm64      cgo. The frontend binds GTK4 / WebKitGTK 6.0, so it needs the
+#                                 target's headers and toolchain.
 #   darwin/amd64, darwin/arm64    cgo. The frontend binds WKWebView, so it needs macOS + Xcode.
 #
 # So this script builds the two Windows targets and reports the other four as skipped, with
@@ -46,17 +48,18 @@ Set-Location -Path $PSScriptRoot
 function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 function Warn($msg) { Write-Host "  ! $msg" -ForegroundColor Yellow }
 
-$ArtefactDir = Join-Path $PSScriptRoot "build/artefacts"
+$ArtefactDir = Join-Path $PSScriptRoot "artefacts"
 
 # --- Targets -----------------------------------------------------------------------------
-# Buildable = this host can link it. See the header for how that was determined.
+# Buildable = this host can link it. See the header for how that was determined. Every target
+# writes the same bin/ path, Output names it.
 $targets = @(
-    @{ Platform = "windows/amd64"; Ext = ".exe"; Buildable = $true; Reason = "" }
-    @{ Platform = "windows/arm64"; Ext = ".exe"; Buildable = $true; Reason = "" }
-    @{ Platform = "linux/amd64"; Ext = ""; Buildable = $false; Reason = "cgo: needs Linux + libwebkit2gtk/libgtk-3 headers" }
-    @{ Platform = "linux/arm64"; Ext = ""; Buildable = $false; Reason = "cgo: needs Linux arm64 + libwebkit2gtk/libgtk-3 headers" }
-    @{ Platform = "darwin/amd64"; Ext = ""; Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
-    @{ Platform = "darwin/arm64"; Ext = ""; Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
+    @{ Platform = "windows/amd64"; Output = "bin/rohy.exe"; Buildable = $true; Reason = "" }
+    @{ Platform = "windows/arm64"; Output = "bin/rohy.exe"; Buildable = $true; Reason = "" }
+    @{ Platform = "linux/amd64"; Output = "bin/rohy"; Buildable = $false; Reason = "cgo: needs Linux + GTK4 / WebKitGTK 6.0 headers" }
+    @{ Platform = "linux/arm64"; Output = "bin/rohy"; Buildable = $false; Reason = "cgo: needs Linux arm64 + GTK4 / WebKitGTK 6.0 headers" }
+    @{ Platform = "darwin/amd64"; Output = "bin/rohy.app"; Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
+    @{ Platform = "darwin/arm64"; Output = "bin/rohy.app"; Buildable = $false; Reason = "cgo: needs macOS + Xcode (WKWebView)" }
 )
 
 # --- Build metadata ----------------------------------------------------------------------
@@ -71,9 +74,6 @@ try {
 }
 catch { }
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-
-$pkg = "rohy/backend/version"
-$ldflags = "-s -w -X $pkg.Version=$Version -X $pkg.Commit=$commit -X $pkg.Date=$date"
 
 Write-Host "rohy $Version ($commit) built $date" -ForegroundColor Green
 
@@ -91,26 +91,6 @@ if (-not $SkipTests) {
     if ($testExit -ne 0) { throw "frontend tests failed - refusing to build a release" }
 }
 
-# --- Clean frontend build ----------------------------------------------------------------
-# Done ONCE for the whole run: the embedded frontend is identical across targets, and
-# rebuilding it per target would multiply the slowest step by six for no benefit.
-#
-# Deleted rather than reused. The Go binary embeds whatever is in dist, so a stale dist ships
-# an old UI behind a new backend — a failure this project has already paid for once.
-Step "Clean frontend build"
-if (Test-Path frontend/dist) {
-    Remove-Item -Recurse -Force frontend/dist
-    Write-Host "removed stale frontend/dist"
-}
-Push-Location frontend
-npm ci --silent 2>$null
-if ($LASTEXITCODE -ne 0) { npm install --silent }
-npm run build
-$buildExit = $LASTEXITCODE
-Pop-Location
-if ($buildExit -ne 0) { throw "frontend build failed" }
-if (-not (Test-Path frontend/dist/index.html)) { throw "frontend/dist is missing after build" }
-
 # --- Artefact directory ------------------------------------------------------------------
 if (Test-Path $ArtefactDir) { Remove-Item -Recurse -Force $ArtefactDir }
 New-Item -ItemType Directory -Force -Path $ArtefactDir | Out-Null
@@ -121,7 +101,8 @@ $skipped = @()
 
 foreach ($t in $targets) {
     $platform = $t.Platform
-    $slug = $platform -replace "/", "_"
+    $os, $arch = $platform -split "/"
+    $slug = "${os}_${arch}"
     $name = "rohy_${Version}_${slug}"
 
     if (-not $t.Buildable -and -not $TryCrossTargets) {
@@ -129,31 +110,42 @@ foreach ($t in $targets) {
         continue
     }
 
+    # macOS ships a .app bundle, which only the package task assembles.
+    $task = if ($os -eq "darwin") { "package" } else { "build" }
+
     Step "Build $platform"
-    $outName = "rohy$($t.Ext)"
-    # -skipbindings: the TypeScript bindings are generated from the Go API and are identical
-    # for every target, so regenerating them six times only costs time.
-    wails build -clean -skipbindings -platform $platform -ldflags $ldflags -o $outName
+    # Every target writes the same bin/ path, so each is packaged before the next one builds.
+    # dist is deleted and -f reruns the frontend's tasks too, so no target embeds a
+    # frontend left over from an earlier one: the Go binary embeds whatever is in dist, and a
+    # stale dist ships an old UI behind a new backend, a failure this project has paid for once.
+    if (Test-Path frontend/dist) { Remove-Item -Recurse -Force frontend/dist }
+    wails3 task -f "${os}:${task}" "ARCH=$arch" "VERSION=$Version" "COMMIT=$commit" "DATE=$date"
     if ($LASTEXITCODE -ne 0) {
         if ($t.Buildable) { throw "build failed for $platform" }
         Warn "$platform failed as expected on this host ($($t.Reason))"
         $skipped += [pscustomobject]@{ Platform = $platform; Reason = "attempted; $($t.Reason)" }
         continue
     }
+    if (-not (Test-Path frontend/dist/index.html)) { throw "frontend/dist is missing after the $platform build" }
 
-    $produced = Join-Path "build/bin" $outName
-    if (-not (Test-Path $produced)) { throw "wails reported success but $produced is missing" }
+    $produced = $t.Output
+    if (-not (Test-Path $produced)) { throw "wails3 reported success but $produced is missing" }
 
-    # Package. Windows artefacts ship as zip; the licence and readme travel with the binary
-    # so an extracted folder is self-describing.
-    $stage = Join-Path $ArtefactDir $slug
-    New-Item -ItemType Directory -Force -Path $stage | Out-Null
-    Copy-Item $produced (Join-Path $stage $outName)
-    Copy-Item "LICENSE" $stage
-    Copy-Item "README.md" $stage
+    # Package. The licence and readme travel with the binary so an extracted folder is
+    # self-describing; a .app bundle is zipped as it stands.
     $zip = Join-Path $ArtefactDir "$name.zip"
-    Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
-    Remove-Item -Recurse -Force $stage
+    if ($os -eq "darwin") {
+        Compress-Archive -Path $produced -DestinationPath $zip -Force
+    }
+    else {
+        $stage = Join-Path $ArtefactDir $slug
+        New-Item -ItemType Directory -Force -Path $stage | Out-Null
+        Copy-Item $produced $stage
+        Copy-Item "LICENSE" $stage
+        Copy-Item "README.md" $stage
+        Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+        Remove-Item -Recurse -Force $stage
+    }
 
     $built += [pscustomobject]@{ Platform = $platform; Artefact = (Split-Path $zip -Leaf) }
 }

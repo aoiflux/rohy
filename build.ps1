@@ -72,7 +72,7 @@ if (-not $SkipTests) {
 }
 
 # --- Clean frontend build (the hygiene gate) ----------------------------------------
-# --force reruns every task, the frontend's too, whatever the task runner remembers of an
+# -f reruns every task, the frontend's too, whatever the task runner remembers of an
 # earlier build.
 Step "Clean build"
 if (Test-Path frontend/dist) {
@@ -80,7 +80,7 @@ if (Test-Path frontend/dist) {
     Write-Host "removed stale frontend/dist"
 }
 $task = if ($Installer) { "package" } else { "build" }
-wails3 task --force $task "VERSION=$Version" "COMMIT=$commit" "DATE=$date"
+wails3 task -f $task "VERSION=$Version" "COMMIT=$commit" "DATE=$date"
 if ($LASTEXITCODE -ne 0) { throw "wails3 task $task failed" }
 if (-not (Test-Path frontend/dist/index.html)) { throw "frontend/dist is missing after build" }
 

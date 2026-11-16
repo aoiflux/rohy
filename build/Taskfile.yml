@@ -1,6 +1,6 @@
 version: '3'
 
-# Tasks every platform shares. Two scaffold defaults are left out on purpose:
+# Tasks every platform shares. Three scaffold defaults are left out on purpose:
 #   - No `go mod tidy` inside a build: a build must not rewrite go.mod, or a tagged release
 #     is not reproducible from its tag.
 #   - No generated bindings: frontend/src/lib/api/index.js calls bound methods by name, and

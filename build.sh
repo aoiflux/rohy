@@ -52,11 +52,11 @@ if [ "$SKIP_TESTS" != "1" ]; then
 fi
 
 # --- Clean build (the hygiene gate) -------------------------------------------------
-# The build is Taskfile.yml, run by the Wails v3 CLI. --force reruns every task, the
+# The build is Taskfile.yml, run by the Wails v3 CLI. -f reruns every task, the
 # frontend's too, whatever the task runner remembers of an earlier build.
 step "Clean build"
 rm -rf frontend/dist
-wails3 task --force build "VERSION=${VERSION}" "COMMIT=${COMMIT}" "DATE=${DATE}"
+wails3 task -f build "VERSION=${VERSION}" "COMMIT=${COMMIT}" "DATE=${DATE}"
 [ -f frontend/dist/index.html ] || { echo "frontend/dist missing after build" >&2; exit 1; }
 
 step "Artifacts"

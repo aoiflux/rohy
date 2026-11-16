@@ -9,8 +9,8 @@
 #
 #   windows/amd64 + windows/arm64 -> one Windows runner. Wails on Windows uses the pure-Go
 #     WebView2 loader, so no cgo is involved and arm64 cross-builds from an amd64 host.
-#   linux/amd64, linux/arm64      -> native runners each. The GTK/WebKit frontend is cgo,
-#     so it needs the target's headers and toolchain.
+#   linux/amd64, linux/arm64      -> native runners each. The GTK4 / WebKitGTK 6.0 frontend
+#     is cgo, so it needs the target's headers and toolchain.
 #   darwin/amd64 + darwin/arm64   -> one macOS runner. The WKWebView frontend is cgo, but
 #     Xcode targets both architectures from either host.
 #
@@ -20,6 +20,9 @@
 #      before every build and is NEVER cached.
 #   2. Version metadata is injected at link time and reflects reality, including marking a
 #      dirty tree, so an artefact can always say exactly what it was built from.
+#
+# Every build is the Taskfile (Taskfile.yml, build/<os>/), run by the Wails v3 CLI with the
+# identity passed as task variables: wails3 task -f <os>:build ARCH= VERSION= COMMIT= DATE=
 
 name: release
 
@@ -41,7 +44,7 @@ permissions:
 env:
   GO_VERSION: "1.26"
   NODE_VERSION: "24"
-  WAILS_VERSION: "v2.13.0"
+  WAILS_VERSION: "v3.1.0"
 
 jobs:
   # ---------------------------------------------------------------------------------
@@ -82,7 +85,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: Backend tests
         run: go test ./backend/...
@@ -93,20 +96,15 @@ jobs:
           npm ci
           npm test
 
-      # Deleted, never cached — see the header note.
-      - name: Clean frontend build
-        shell: bash
-        run: rm -rf frontend/dist
-
       # 🔒 Each architecture is PACKAGED inside the loop, before the next iteration starts.
       #
-      # `wails build -clean` wipes build/bin, so a binary left sitting there is destroyed by the
-      # next architecture's build. That is exactly how the v0.2.0 release broke: both binaries
-      # built successfully, and packaging then could not find the first one. macOS has always had
-      # this shape; Windows built both first and packaged afterwards, which cannot work.
+      # Both architectures write bin/rohy.exe, so a binary left sitting there is overwritten by
+      # the next architecture's build. That is exactly how the v0.2.0 release broke: both
+      # binaries built successfully, and packaging then could not find the first one.
       #
-      # Keeping -clean is the point — it is what guarantees the embedded frontend is rebuilt from
-      # scratch rather than carried over from the previous architecture.
+      # dist is deleted, and -f reruns the frontend's tasks, on every iteration: that is what
+      # guarantees the embedded frontend is rebuilt from scratch rather than carried over from the
+      # previous architecture.
       - name: Build and package windows/amd64 and windows/arm64
         shell: bash
         run: |
@@ -114,15 +112,15 @@ jobs:
           COMMIT=$(git rev-parse --short HEAD)
           if [ -n "$(git status --porcelain)" ]; then COMMIT="${COMMIT}-dirty"; fi
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          PKG=rohy/backend/version
-          LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
           V=${{ needs.version.outputs.version }}
           mkdir -p dist
           for arch in amd64 arm64; do
-            wails build -clean -platform "windows/${arch}" -ldflags "$LDFLAGS" -o "rohy-${arch}.exe"
+            rm -rf frontend/dist bin
+            wails3 task -f windows:build "ARCH=${arch}" "VERSION=${V}" "COMMIT=${COMMIT}" "DATE=${DATE}"
             # Proves the frontend was rebuilt for THIS architecture, not carried over.
             test -f frontend/dist/index.html
-            cp "build/bin/rohy-${arch}.exe" "rohy.exe"
+            # Copied out so the archive holds rohy.exe at its root, not under bin/.
+            cp bin/rohy.exe rohy.exe
             7z a -tzip "dist/rohy_${V}_windows_${arch}.zip" rohy.exe LICENSE README.md >/dev/null
             rm rohy.exe
           done
@@ -144,9 +142,9 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
           - arch: arm64
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -162,16 +160,16 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # 22.04 ships WebKitGTK 4.0. Building against it rather than 4.1 keeps the artefact
-      # usable on older distributions; the README states 4.0 as the runtime requirement to
-      # match.
+      # GTK4 and WebKitGTK 6.0, the Linux frontend Wails v3 binds by default; 24.04 is the
+      # first Ubuntu LTS that ships both. The artefact needs the same two libraries at run time,
+      # which the README states as the requirement.
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: Backend tests
         run: go test ./backend/...
@@ -191,9 +189,8 @@ jobs:
           COMMIT=$(git rev-parse --short HEAD)
           if [ -n "$(git status --porcelain)" ]; then COMMIT="${COMMIT}-dirty"; fi
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          PKG=rohy/backend/version
-          LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
-          wails build -clean -platform "linux/${{ matrix.arch }}" -ldflags "$LDFLAGS" -o rohy
+          wails3 task -f linux:build "ARCH=${{ matrix.arch }}" \
+            "VERSION=${{ needs.version.outputs.version }}" "COMMIT=${COMMIT}" "DATE=${DATE}"
           test -f frontend/dist/index.html
 
       - name: Package
@@ -201,8 +198,8 @@ jobs:
           set -euo pipefail
           V=${{ needs.version.outputs.version }}
           mkdir -p dist
-          cp LICENSE README.md build/bin/
-          tar -czf "dist/rohy_${V}_linux_${{ matrix.arch }}.tar.gz" -C build/bin rohy LICENSE README.md
+          cp LICENSE README.md bin/
+          tar -czf "dist/rohy_${V}_linux_${{ matrix.arch }}.tar.gz" -C bin rohy LICENSE README.md
 
       - uses: actions/upload-artifact@v4
         with:
@@ -231,7 +228,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: Backend tests
         run: go test ./backend/...
@@ -242,35 +239,31 @@ jobs:
           npm ci
           npm test
 
-      - name: Clean frontend build
-        run: rm -rf frontend/dist
-
+      # The package task builds the binary and assembles bin/rohy.app around it.
       - name: Build darwin/amd64 and darwin/arm64
         run: |
           set -euo pipefail
           COMMIT=$(git rev-parse --short HEAD)
           if [ -n "$(git status --porcelain)" ]; then COMMIT="${COMMIT}-dirty"; fi
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          PKG=rohy/backend/version
-          LDFLAGS="-s -w -X ${PKG}.Version=${{ needs.version.outputs.version }} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
           V=${{ needs.version.outputs.version }}
           mkdir -p dist
           for arch in amd64 arm64; do
-            rm -rf build/bin
-            wails build -clean -platform "darwin/${arch}" -ldflags "$LDFLAGS"
+            rm -rf frontend/dist bin
+            wails3 task -f darwin:package "ARCH=${arch}" "VERSION=${V}" "COMMIT=${COMMIT}" "DATE=${DATE}"
             test -f frontend/dist/index.html
-            # macOS ships a .app bundle; zip preserves the bundle structure and the
-            # executable bit, which a plain tar of the binary would lose.
-            ditto -c -k --keepParent "build/bin/rohy.app" "dist/rohy_${V}_darwin_${arch}.zip"
+            # macOS ships a .app bundle; zip preserves the bundle structure, the executable
+            # bit and the signature, which a plain tar of the binary would lose.
+            ditto -c -k --keepParent bin/rohy.app "dist/rohy_${V}_darwin_${arch}.zip"
           done
 
-      # Signing and notarization are NOT performed. An unsigned macOS build is blocked by
-      # Gatekeeper until the user clears it explicitly, and that is stated in the release
-      # notes rather than left as a surprise. Wiring it needs an Apple Developer identity
-      # and notarization credentials in repository secrets; until those exist, degrading
-      # loudly beats pretending the artefact is signed.
+      # Only an ad-hoc signature is applied (the package task's codesign --sign -), and the
+      # bundle is not notarized. Gatekeeper blocks it until the user clears it explicitly, and
+      # that is stated in the release notes rather than left as a surprise. Real signing needs an
+      # Apple Developer identity and notarization credentials in repository secrets; until those
+      # exist, degrading loudly beats pretending the artefact is signed.
       - name: Note signing status
-        run: echo "::warning::macOS artefacts are UNSIGNED and not notarized; Gatekeeper will require manual approval."
+        run: echo "::warning::macOS artefacts are ad-hoc signed only and not notarized; Gatekeeper will require manual approval."
 
       - uses: actions/upload-artifact@v4
         with:
