@@ -2,7 +2,7 @@
   "name": "rohy-vi",
   "displayName": "Rohy VI",
   "description": "Checks and formats rohy correlation rule files with rohyctl — the check the application loads them with — and with the rule schema when rohyctl is not installed.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "aoiflux",
   "icon": "icon.png",
   "license": "MIT",
