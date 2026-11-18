@@ -21,7 +21,7 @@ import (
 
 func (c *sessionCase) maintenance() *MaintenanceAPI {
 	c.t.Helper()
-	m := NewMaintenanceAPI(c.store).WithIntegrity(IntegrityDeps{
+	m := AttachIntegrity(NewMaintenanceAPI(c.store), IntegrityDeps{
 		Roots: c.roots, Receipts: anchor.Open(filepath.Join(filepath.Dir(c.db), consts.RootsSubdir)),
 	})
 	AttachSession(c.session, nil, m)

@@ -16,7 +16,7 @@ import (
 
 func (c *sessionCase) check() caseintegrity.Report {
 	c.t.Helper()
-	maint := NewMaintenanceAPI(c.store).WithIntegrity(IntegrityDeps{Roots: c.roots})
+	maint := AttachIntegrity(NewMaintenanceAPI(c.store), IntegrityDeps{Roots: c.roots})
 	AttachSession(c.session, nil, maint)
 	rep, err := maint.CheckIntegrity(false)
 	if err != nil {

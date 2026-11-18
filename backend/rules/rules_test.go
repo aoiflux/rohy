@@ -30,6 +30,18 @@ func TestParseValidRule(t *testing.T) {
 	}
 }
 
+// Strings are trimmed on load (RULES.md §3), relation_type included: " temporal " is temporal,
+// never the correlation an unrecognized value falls back to.
+func TestParseTrimsRelationType(t *testing.T) {
+	spec, err := Parse([]byte(`{"name": "padded", "sequence": ["4625", "4624"], "relation_type": " temporal "}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if spec.RelationType != consts.RelationTemporal {
+		t.Errorf("relation type = %q, want %q", spec.RelationType, consts.RelationTemporal)
+	}
+}
+
 func TestParseOptionalConnectionLabels(t *testing.T) {
 	// Two connections (3 steps); only the second is labeled → 1234 → 5156 —spawns→ 3.
 	spec, err := Parse([]byte(`{

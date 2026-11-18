@@ -54,7 +54,7 @@ And the same idea made precise, so that a match means something stronger:
 | `name` | **yes** | — | Human-readable name. Also the rule's identity: its id is a slug of the name, so two rules with the same name collide. |
 | `format_version` | no | current (`1`) | The schema version this file targets. See §5. |
 | `description` | no | `""` | Free text shown in the rules list and inspector. |
-| `relation_type` | no | `correlation` | Edge type for the relations produced: `correlation`, `temporal`, or `default`. An empty or unrecognized value becomes `correlation`. |
+| `relation_type` | no | `correlation` | Edge type for the relations produced: `correlation`, `temporal`, or `default`. The value is trimmed; an empty or unrecognized value then becomes `correlation`. The editor schema lists only the three values, so the VS Code extension underlines any other value the loader would turn into `correlation`. |
 | `algorithm` | no | `sequence` | How this rule's events are correlated. See §7 and §8. |
 | `channels` | no | none | The Windows log channels this rule needs in order to fire. No algorithm reads it — see below. |
 
@@ -332,8 +332,8 @@ initiator and `dst_ip`/`dst_port` this machine's listener. Sysmon event 3 is rea
 
 Values are normalized so two spellings of one thing compare equal: identifiers become
 lowercase `0x`-prefixed hex whether the provider wrote decimal or hex, image paths reduce to
-their lowercased basename, and `-`, the null SID, `null` and `n/a` count as **absent** rather
-than as values.
+their lowercased basename, and `-`, the null SID, `null`, `(null)` and `n/a` count as
+**absent** rather than as values.
 
 Addresses get their own normalization, and two parts of it change what matches:
 
@@ -374,6 +374,7 @@ once one does, not something that matches today:
 
 ```jsonc
 {
+  "name": "IDS alert then logon from the same address",
   "algorithm": "temporal",
   "sequence": ["suricata:alert", "4624"],
   "match_fields": ["src_ip"],
@@ -475,8 +476,10 @@ quietly accepts something the loader will refuse.
 The descriptor in `backend/rules/schema.go` is the format described as data, and three things
 generate themselves from it: the guided form's controls, the raw editor's completion list, and
 the client-side validator. A reflection test fails the build if a `Spec` field has no
-descriptor, and a golden test fails if the descriptor changes at all — which is the reminder
-that this document has to change with it.
+descriptor, and a golden test fails if the descriptor's structure changes: a name, kind, group,
+enum, bound or the algorithms a field applies to. That failure is the reminder that this
+document has to change with it. The golden does not pin the prose (description, guidance,
+example); other tests require each to be present and run every example through the loader.
 
 ### Adding an algorithm
 

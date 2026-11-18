@@ -70,8 +70,17 @@ the machine.
 
 ## Install
 
+Download the archive for your platform and `SHA256SUMS.txt` from the same release, then
+check the archive before you unpack it. `SHA256SUMS.txt` lists the archives, not the
+binaries inside them.
+
 ```powershell
-Get-FileHash .\rohy.exe -Algorithm SHA256   # Windows — compare against SHA256SUMS.txt
+Get-FileHash .\rohy_0.3.0_windows_amd64.zip -Algorithm SHA256   # Windows: compare with its line in SHA256SUMS.txt
+```
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing     # Linux: checks the archives in this folder
+shasum -a 256 rohy_0.3.0_darwin_arm64.zip        # macOS: compare with its line in SHA256SUMS.txt
 ```
 
 > **Binaries are not code-signed yet.** Windows SmartScreen and macOS Gatekeeper
@@ -95,10 +104,15 @@ git clone <repo> && cd rohy
 ```
 
 The version argument is **required** and has no default anywhere — not in the build
-scripts, not in `backend/version`, and not in the release workflow. This file is the
-only place the release version is written down, so bumping it means editing one line
-here and passing the same number to the build. A binary built without a stamp reports
-itself as `unreleased`, never as a number it has no basis for.
+scripts, not in `backend/version`, and not in the release workflow. It is the version
+rohy reports about itself. A binary built without a stamp reports itself as
+`unreleased`, never as a number it has no basis for.
+
+The packaging files carry a second copy: the file version Windows shows, the macOS
+bundle version, and the Linux package and installer versions. They all come from
+`info.version` in `build/config.yml`. To bump a release, edit the version at the top of
+this file and in `build/config.yml`, run `wails3 task common:update:build-assets` to
+write it into the platform files, and pass the same number to the build.
 
 The build scripts run the test suites, delete `frontend/dist` and rebuild it
 from scratch, then build through `wails3 task`, which stamps version/commit/date into

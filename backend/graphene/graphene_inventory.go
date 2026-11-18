@@ -168,9 +168,11 @@ var relationIndexKeys = func() []string {
 // relationIndexGaps lists, in edge id order, every relation edge that some index entry of its own
 // does not list, with the entries it lacks.
 //
-// 🔒 Every key, not only graph_id. The engine registers a relation's entries one write-ahead record
-// per key, in map order, so a crash between two of them leaves an edge graph_id finds and rule_id
-// does not — missing from "this rule's edges" while every graph-scoped check reads it as healthy.
+// 🔒 Every key, not only graph_id. Before v0.3.0 the engine registered a relation's entries after
+// its commit, one write-ahead record per key, in map order, so a crash between two of them could
+// leave an edge graph_id finds and rule_id does not — missing from "this rule's edges" while every
+// graph-scoped check read it as healthy. Writes now index inside their transaction, but a case
+// written before then can still hold that gap.
 //
 // It walks the edges directly, which is the authoritative set: it is derived from adjacency rather
 // than from the index whose truthfulness is in question. Then, one key at a time so that only one

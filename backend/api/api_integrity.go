@@ -46,9 +46,10 @@ type IntegrityDeps struct {
 	Receipts *anchor.Store
 }
 
-// WithIntegrity attaches the stores the integrity checks read. Returns the receiver so it can be
-// chained at construction.
-func (a *MaintenanceAPI) WithIntegrity(d IntegrityDeps) *MaintenanceAPI {
+// AttachIntegrity attaches the stores the integrity checks read, and returns a so it can wrap
+// the constructor. 🔒 It is a package function, not a method: Wails binds every exported method,
+// and a bound one would let the page replace these stores with empty ones.
+func AttachIntegrity(a *MaintenanceAPI, d IntegrityDeps) *MaintenanceAPI {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.integrity = d

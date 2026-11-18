@@ -179,8 +179,9 @@ redaction and checkpoint reads back, and every event can still be proven.
   recovery from an interrupted build, and a build-side memory test. `go run ./tools/profile`
   writes CPU and heap profiles of ingest, build and open at chosen sizes.
 - **A query console.** The new Query page (Alt+8) asks the case about its events or relations:
-  - **Conditions** on event ID, provider, channel, computer, user, source, time, text, occurrences,
-    relations, rule, algorithm, who made a relation, graph, match or event.
+  - **Conditions** on event ID, provider, channel, computer, user, source type, source, time, text,
+    occurrences, relations, undated events, rule, algorithm, relation type, who made a relation,
+    graph, match or event.
   - **Answers** list the matches or count them by a field.
   - **Every answer says what it left out:**
     - it shows at most 1000 rows or groups, and gives the full total beside them
@@ -227,6 +228,21 @@ redaction and checkpoint reads back, and every event can still be proven.
   that its graph listed and its rule did not was never repaired, and the integrity check did not
   count it. Both now check every entry.
 - Closing a case twice no longer fails with `wal closed`.
+- **An ingest releases the evidence file on every path.** An ingest that failed or was cancelled
+  could leave its parse workers holding the `.evtx` file open until rohy closed. They now stop, and
+  close it, whenever the ingest returns.
+- **An ingest whose workers could not open the file no longer reports "Completed".** Each parse
+  worker opened its own handle, and a run in which none of them could read nothing and called that
+  success. The handle that checked the file is now the first worker's. A further handle that
+  cannot be opened is reported, and the run goes on with fewer workers.
+- **A `relation_type` with spaces around it is read as written.** `" temporal "` used to become
+  `correlation`, because it was the one rule string not trimmed on load.
+- **The rule schema bounds `lineage_depth`.** The VS Code extension now underlines a depth outside
+  0 to 16, which the loader has always refused.
+- **The page can no longer change what the app attached at startup.** Two setup calls, the stores
+  the integrity check reads and the files a graph deletion clears, were reachable from the page.
+  Nothing called them, but a call with empty values would have blanked them. They are now
+  reachable from Go only, and a test checks every bound call for anything only Go can supply.
 
 - **The event drawer showed no raw record and no parsed fields** (since v0.1.0). The binding
   returned the stored record, which deliberately leaves both out, so the drawer never received
@@ -353,19 +369,26 @@ redaction and checkpoint reads back, and every event can still be proven.
   no released build reads format 1.
 - **Some writes now commit once instead of once per relation**: a snapshot restore, re-registering
   relations the index lost, and clearing a graph whose relations had drifted.
-- **One rohy per case.** A case another program holds open, most likely another rohy, is refused at
-  the session step, and the message says so. A case whose `graphene.labels` names rohy's two types
-  otherwise is refused the same way. Neither refusal changes anything on disk, and no recovery is
-  offered for either. **Restart as administrator** on Windows waits, for up to 30 seconds, for the
+- **One rohy per case.** A case another program holds open, most likely another rohy, is refused
+  when rohy opens it, and the message says so: at the session step, or on the start screen when
+  there is no step to show. A case whose `graphene.labels` names rohy's two types otherwise is
+  refused the same way. Neither refusal changes anything on disk, and no recovery is offered for
+  either. **Restart as administrator** on Windows waits, for up to 30 seconds, for the
   window it replaces to close the case, so the elevated rohy is not refused by the one it replaced.
 - **A log damaged before its end is refused, not cut.** The case opens nothing and cuts nothing.
   The message names the byte and both repairs: restore the case folder from a backup, or keep what
   replays with `graphene wal cut`, which saves what it cuts. Only a torn tail at the very end, which
   is what a crash leaves, is cut, and kept (next).
+- **A case image that does not parse is refused.** Damage, truncation and an image written by a
+  newer rohy all look the same to the parser. The case opens nothing and changes nothing, and the
+  message names `graphene.csr` and the remedy: restore the case folder from a backup, or open the
+  case in the newer rohy. No recovery is offered, because a recovery open reads the same image.
 - **The torn tail a crash leaves is kept.** A writable open cuts it from each of the case's
   append-only files (the log, the audit log, checkpoints, redactions and grants) and records only a
-  digest. Before the open, rohy now copies each tail beside its file as `<file>.torn-<UTC>` and
-  records it in the audit log. Those bytes are evidence of the crash.
+  digest. rohy now keeps each tail beside its file as `<file>.torn-<UTC>` and records it in the
+  audit log. The audit log's and checkpoints' tails are moved aside before the open. The other
+  files are copied whole before the open, and what the open cut is kept from that copy after it.
+  Those bytes are evidence of the crash.
 - **A read-only or recovery session changes nothing on disk.** The case opens read-only underneath
   too, so nothing is cut or repaired. Unlocking the key mid-session reopens it writable; a reopen
   that is refused leaves the session read-only.
@@ -439,7 +462,7 @@ redaction and checkpoint reads back, and every event can still be proven.
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,246 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 58 extension tests.**
+- **1,253 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 58 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap, the backfill on the disk
   backend (PERFORMANCE.md §21) and the whole-case scans (§10).
 

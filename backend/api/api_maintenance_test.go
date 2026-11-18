@@ -162,7 +162,7 @@ func keylessDiskCase(t *testing.T, n int) (*graphene.Store, *custody.Store, *Mai
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, hist, NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist})
+	return store, hist, AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist})
 }
 
 // 🔒 A backfill seals what it rewrote. The disk engine holds every rewritten event in its delta
@@ -316,7 +316,7 @@ func TestABackfillWhoseSealIsNotRecordedStillSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	maint := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: held})
+	maint := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: held})
 
 	out, err := maint.BackfillCorrelationKeys()
 	if err != nil {

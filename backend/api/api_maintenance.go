@@ -38,7 +38,7 @@ type MaintenanceAPI struct {
 	// releaseCase gives back the case lock the running pass shares (begin, finish).
 	releaseCase func()
 	// integrity holds the sidecars the case checks read. Attached after construction (see
-	// WithIntegrity) so this binding keeps its narrow constructor.
+	// AttachIntegrity) so this binding keeps its narrow constructor.
 	integrity IntegrityDeps
 	// desktop is the window, for the key file dialogs. Nil until Start.
 	desktop Desktop

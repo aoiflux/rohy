@@ -60,12 +60,13 @@ type Field struct {
 	// Aliases are further spellings the loader accepts for an Enum value, mapped to that value.
 	// Served rather than restated, so every validator accepts exactly what the loader does: an
 	// alias the loader takes but an editor underlines teaches the author a rule that is not true.
-	Aliases     map[string]string `json:"aliases,omitempty"`
-	MinItems    int               `json:"min_items,omitempty"`
-	MaxItems    int               `json:"max_items,omitempty"`
-	Description string            `json:"description"`
-	Guidance    string            `json:"guidance"`
-	Example     any               `json:"example"`
+	Aliases map[string]string `json:"aliases,omitempty"`
+	// MinItems and MaxItems bound a list's length. On an integer field they bound its value.
+	MinItems    int    `json:"min_items,omitempty"`
+	MaxItems    int    `json:"max_items,omitempty"`
+	Description string `json:"description"`
+	Guidance    string `json:"guidance"`
+	Example     any    `json:"example"`
 	// AppliesTo names the algorithms that READ this field. Empty means every algorithm.
 	//
 	// It is what lets the guided form show a rule's actual controls instead of every control

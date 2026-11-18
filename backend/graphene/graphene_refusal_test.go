@@ -117,6 +117,51 @@ func TestALogDamagedBeforeItsEndIsRefusedAndLeftWhole(t *testing.T) {
 	}
 }
 
+// 🔒 A case image that does not parse is refused by every posture, named as the case's damage
+// rather than the engine's fault, and left exactly as it was: a recovery open reads the same image.
+func TestAMalformedImageIsRefusedAndLeftWhole(t *testing.T) {
+	s, dir := attributedStore(t)
+	oneEvent(t, s, "a")
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "graphene.csr")
+	whole, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := whole[:len(whole)/2]
+	if err := os.WriteFile(path, cut, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range []Posture{unsigned(), recovery()} {
+		s := OpenAwaitingSession(dir)
+		err := s.BeginSession(p)
+		s.Close()
+		if !errors.Is(err, ErrImageRefused) || !errors.Is(err, disk.ErrImageMalformed) {
+			t.Fatalf("%s open of a malformed image: %v, want ErrImageRefused wrapping disk.ErrImageMalformed", p.Mode, err)
+		}
+		if !NoPostureOpens(err) {
+			t.Fatalf("%s: a malformed image offers another posture as a way in", p.Mode)
+		}
+		if !strings.Contains(err.Error(), "backup") {
+			t.Fatalf("%s: the refusal does not name the remedy: %v", p.Mode, err)
+		}
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cut, after) {
+		t.Fatal("a refused open changed the image")
+	}
+}
+
 // 🔒 A log that stopped taking writes makes the session read-only with a reason that says how to
 // recover, and a reopen is that recovery. An error that is not a stop changes nothing.
 func TestAStoppedLogMakesTheSessionReadOnlyUntilReopened(t *testing.T) {

@@ -481,7 +481,7 @@ func TestDeleteGraphWithoutALayoutStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cleared []uint64
-	graph := NewGraphAPI(store, nil, reg).WithCascades(cascadeFunc(func(id uint64) error {
+	graph := AttachGraphCascades(NewGraphAPI(store, nil, reg), cascadeFunc(func(id uint64) error {
 		cleared = append(cleared, id)
 		return nil
 	}))

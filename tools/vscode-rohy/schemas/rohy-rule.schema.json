@@ -79,6 +79,8 @@
       "examples": [
         0
       ],
+      "maximum": 16,
+      "minimum": 0,
       "type": "integer"
     },
     "match_fields": {

@@ -178,7 +178,7 @@ func TestSigningACaseTakesEffectAtTheNextStartWithASignedSeal(t *testing.T) {
 	if _, err := sealAndRecord(c.store, c.roots, true); err != nil {
 		t.Fatal(err)
 	}
-	maint := NewMaintenanceAPI(c.store).WithIntegrity(IntegrityDeps{Roots: c.roots})
+	maint := AttachIntegrity(NewMaintenanceAPI(c.store), IntegrityDeps{Roots: c.roots})
 	AttachSession(c.session, nil, maint)
 	rep, err := maint.EventCustody(id, "")
 	if err != nil {
@@ -386,7 +386,7 @@ func TestASecondAnalystAddsTheirKey(t *testing.T) {
 	if _, err := sealAndRecord(c.store, c.roots, true); err != nil {
 		t.Fatal(err)
 	}
-	maint := NewMaintenanceAPI(c.store).WithIntegrity(IntegrityDeps{Roots: c.roots})
+	maint := AttachIntegrity(NewMaintenanceAPI(c.store), IntegrityDeps{Roots: c.roots})
 	AttachSession(c.session, nil, maint)
 	rep, err := maint.EventCustody(id, "")
 	if err != nil {

@@ -173,7 +173,7 @@ rohy/
 ```
 
 Roughly 34,300 lines of non-test Go, plus the Svelte frontend. The tests are
-**1,246 Go test functions**, with 10 fuzz targets and 66 benchmarks beside them,
+**1,253 Go test functions**, with 10 fuzz targets and 66 benchmarks beside them,
 **880 frontend test cases** and **58 extension tests**.
 
 ---
@@ -277,7 +277,7 @@ sequenceDiagram
 
     U->>M: launch rohy
     M->>A: NewApp()
-    Note over A: Cheap only.<br/>OpenLazy() does NOT open the database.<br/>Sidecars just create their directories.
+    Note over A: Cheap only.<br/>OpenAwaitingSession() does NOT open the database.<br/>Sidecars just create their directories.
     A-->>M: bindings constructed
     M->>W: application.New(Services: app first, then 10 bound structs)<br/>Window.NewWithOptions(frameless) · Run()
     W->>A: ServiceStartup(ctx)
@@ -293,8 +293,9 @@ sequenceDiagram
             A->>A: AwaitExit(N, 30 s) — the old rohy seals and closes the case as it quits
         end
         A->>A: session step — begins at once, or waits for the analyst's answer
+        A->>S: BeginSession(posture)  « opens: replays WAL, loads property index »
         A->>UI: emit init:state {stage:"Opening case database…"}
-        A->>S: Warm()  « replays WAL, loads property index »
+        A->>S: Warm()  « returns once the open is done »
         S-->>A: ok
         A->>UI: emit init:state {stage:"Preparing graphs…"}  « writable sessions only »
         A->>A: EnsureDefault() — idempotent
@@ -307,20 +308,32 @@ sequenceDiagram
 
 ### The laziness is safe, not merely fast
 
-`graphene.OpenLazy` returns a `Store` whose database is not open yet. Every
-accessor funnels through `ensure()`, which is a `sync.Once`:
+`graphene.OpenAwaitingSession` returns a `Store` whose database is not open yet.
+It opens only when `BeginSession` fixes the session's posture, because graphene
+takes the signer and the actor at open. Every accessor funnels through `ensure()`:
 
 ```go
 func (s *Store) ensure() error {
-    s.openOnce.Do(func() { /* open graph + payload log */ })
-    return s.openErr
+    if s.ready.Load() { return nil }             // atomic: the fast path takes no lock
+    if s.awaiting {                              // wait for the session's open, or shutdown
+        select {
+        case <-s.session:  return nil
+        case <-s.stopping: return ErrNoSession
+        }
+    }
+    s.openMu.Lock(); defer s.openMu.Unlock()     // a lazy store opens here, once
+    ...
 }
 ```
 
-A call that arrives **before** warm-up finishes simply blocks until the open
+A call that arrives **before** the open finishes simply blocks until it
 completes. Laziness can therefore never surface as a nil dereference or a
-half-open read — a property the `sync.Once` gives for free, along with the
-happens-before edge that makes reading `s.g` lock-free afterwards.
+half-open read. The open stores `cur` (an `atomic.Pointer` to the engine, the
+payload log and the posture) and then sets `ready`, under `openMu`. A reader
+loads `ready` first, which gives the happens-before edge that makes reading
+`cur` lock-free afterwards. A failed session open keeps nothing, so the session
+can be begun again with another posture. `graphene.OpenLazy` still exists for
+tests and benchmarks: it opens on first use and keeps a failed open's error.
 
 ### Failure is shown, not fatal
 
@@ -643,9 +656,15 @@ version it was written under), and idempotent. The binding then seals what it re
     ├── db/                        graph store — events, relations, indexes, WAL
     │   ├── payloads/
     │   │   └── payloads.log       append-only cold store
+    │   ├── graphene.csr           the case image: what a seal writes
+    │   ├── graphene.wal           the engine's log of commits since the last seal
     │   ├── graphene.audit         the engine's audit log: who did what to the store (§18.5)
     │   ├── graphene.redactions    the engine's own redaction ledger (§18.4)
-    │   └── graphene.checkpoints   the local checkpoint chain (§18.6)
+    │   ├── graphene.checkpoints   the local checkpoint chain (§18.6)
+    │   ├── graphene.grants        the engine's role-grant ledger (rohy writes no grants)
+    │   ├── graphene.schema        the engine's declarations, such as the ordered timestamp (§5.3)
+    │   ├── graphene.labels        the names of rohy's event and relation types
+    │   └── graphene.lock          the engine's lock: one writer, or any number of readers
     ├── graphs/registry.json       named graphs + which one is active
     ├── layout/canvas-<id>.json    node positions + viewport, one file per graph
     ├── rules/                     user rule files (*.json)
@@ -664,14 +683,17 @@ version it was written under), and idempotent. The binding then seals what it re
                                             analyst, not the case
 ```
 
-The three `graphene.*` files belong to the engine, and rohy appends to them only
-through it. It reads them to check that their last record is whole. When the
-tail of `graphene.audit` or `graphene.checkpoints` is torn, rohy copies that
-tail aside (`<file>.torn-<UTC time>`) and cuts the file back to its last whole
-record itself; that is the one place it changes an engine file. Apart from its
-own payload log under `db/payloads/`, those torn-tail copies, and the analyst
-profile in the user config directory, every rohy-owned file sits in a directory
-beside `db/`.
+The `graphene.*` files belong to the engine, and rohy writes them only through
+it. A writable open cuts every append-only engine ledger (`graphene.wal`,
+`.audit`, `.checkpoints`, `.redactions`, `.grants`) back to its last whole
+record. Before every writable open, rohy copies each torn tail aside as
+`<file>.torn-<UTC time>` (`graphene_torntail.go`). The audit log and the
+checkpoint chain it can frame itself, so it moves their tails aside and cuts
+them back before the open; that is the one place it changes an engine file. The
+other three it saves first and, after the open, copies aside exactly what the
+engine cut. A read-only open cuts nothing. Apart from its own payload log under
+`db/payloads/`, those torn-tail copies, and the analyst profile in the user
+config directory, every rohy-owned file sits in a directory beside `db/`.
 
 Two deliberate choices:
 
@@ -1138,7 +1160,7 @@ refuses that:
 
 ```mermaid
 flowchart LR
-    val["<b>rules.Validate</b><br/>returns []ValidationError:<br/>code · field · index · line · col · message"]
+    val["<b>rules.ValidateSource</b><br/>returns a ValidationReport of ValidationErrors:<br/>code · field · index · line · col · message"]
     val --> load["<b>Loader</b><br/>reads entry[0] — the first problem,<br/>as a sentence, exactly as before"]
     val --> guided["<b>Guided form</b><br/>highlights the control named by<br/>field + index"]
     val --> raw["<b>Raw editor</b><br/>underlines the token at<br/>line + col"]
@@ -1203,15 +1225,16 @@ reason about.
 
 ```mermaid
 flowchart TD
-    in["Generate(spec, events)"] --> guard{"len(sequence) >= 2?"}
-    guard -- no --> empty["empty result"]
-    guard -- yes --> undated["<b>Drop undated events</b><br/>SkippedUndated++<br/><i>a timeless event has no position in a<br/>time-ordered chain; ordering it by its<br/>zero time would let it match chains it<br/>never took part in</i>"]
-
+    prep["<b>Prepare(events, req)</b> — once per build"] --> undated["<b>Drop undated events</b><br/>SkippedUndated++<br/><i>a timeless event has no position in a<br/>time-ordered chain; ordering it by its<br/>zero time would let it match chains it<br/>never took part in</i>"]
     undated --> group["Group by <b>computer</b> — the correlation scope"]
     group --> sortsc["Sort scope names<br/><i>so the global match cap always drops<br/>the same tail, whatever the input order</i>"]
-    sortsc --> loop["For each scope"]
-    loop --> chron["Sort chronologically,<br/>tie-broken by node id"]
-    chron --> match["Greedy non-overlapping match"]
+    sortsc --> chron["Sort each group chronologically,<br/>tie-broken by node id"]
+
+    chron --> in["GenerateWith(spec, ds) — per rule"]
+    in --> guard{"len(sequence) >= 2?"}
+    guard -- no --> empty["empty result"]
+    guard -- yes --> loop["For each scope group"]
+    loop --> match["Greedy non-overlapping match"]
     match --> emit["Emit one edge per consecutive pair<br/>label = spec.LabelFor(k)<br/>confidence = 1.0<br/>created_by = <b>system</b>"]
     emit --> next["Resume scanning AFTER<br/>the occurrence's final event"]
     next --> loop
@@ -1399,16 +1422,18 @@ sequenceDiagram
 
     UI->>B: RunWithProgress(rules, filter)
     B->>S: RepairRelationIndex()
-    Note over B,S: Runs ONCE per build, before anything is cleared.<br/>Recovers a previous run that died between committing<br/>edges and indexing them — such edges are invisible to<br/>graph-scoped queries, so the clear below would step<br/>right past them and the rebuild would add a second copy.
+    Note over B,S: Runs ONCE per build, before anything is cleared.<br/>Recovers a run by a build before v0.3.0 that died between<br/>committing edges and indexing them — such edges are invisible<br/>to graph-scoped queries, so the clear below would step<br/>right past them and the rebuild would add a second copy.
     B->>S: QueryEvents(filter, offset=0, limit=0, undated=exclude)
     Note over B,S: Read the dataset ONCE. N rules cost one query, not N.<br/>Undated exclusion is stated here AND guarded again<br/>inside the algorithm — two independent checks.
+    B->>A: Prepare(events, RequirementsFor(rules))
+    A-->>B: dataset — grouped and sorted once, for every rule
 
     loop for each selected rule
         B->>R: EnsureForRule(ruleID, name, desc)
         R-->>B: graph
         B->>S: DeleteGraphRelations(graph.ID)
         Note over S: One transaction. Edge-by-edge deletion paid a<br/>durable write each time and could stop half way,<br/>leaving a partly-cleared graph the next rebuild<br/>would mistake for the previous result.
-        B->>A: Generate(rule.Spec, events)
+        B->>A: GenerateWith(rule.Spec, dataset)
         A-->>B: relations, matches, truncated, dropped
         loop chunks of 512
             B->>S: InsertRelations(batch)
@@ -1423,17 +1448,19 @@ sequenceDiagram
 
 Three decisions worth understanding:
 
-**Repair before clear.** Since v0.3.0 a relation's index entries commit with it, so only a case
-written before that can hold the following. A relation whose index entry was never registered still
+**Repair before clear.** Since v0.3.0 an insert indexes inside its own transaction
+(`tx.IndexNodeProperties` / `tx.IndexEdgeProperties` before the commit), so a relation's index
+entries commit with it, and only a case written before that can hold the following. A relation
+whose index entry was never registered still
 shows up in adjacency (adjacency reads incident edges directly) but is invisible
 to graph-scoped queries (those resolve through the `graph_id` index). Structural
 verification cannot catch this — the edge and its adjacency agree, so nothing is
 *damaged*; a caller-encoded value simply was never written. Only `graphene`
 knows how a relation encodes its own index entries, so repair lives there and is
-called here. The engine registers a relation's entries one write-ahead record per
-key, so a crash can also leave an edge its graph lists and its rule does not; the
-repair, and the integrity count beside it, check **every** key a relation is
-indexed under, not only `graph_id`.
+called here. Before v0.3.0 the engine registered a relation's entries one write-ahead
+record per key, so a crash could also leave an edge its graph lists and its rule does not; the
+repair, and the integrity count beside it (`CountUnindexedRelations`), check **every** key a
+relation is indexed under, not only `graph_id`.
 
 **Empty graphs are discarded.** Keeping them would fill the graph picker with one
 empty entry per rule that did not fire, and an empty graph looks exactly like one
@@ -1901,7 +1928,8 @@ re-created, and what can no longer be found. The package is
 [backend/api/api_snapshot.go](backend/api/api_snapshot.go), and the panel is
 [SnapshotPanel.svelte](frontend/src/components/graph/SnapshotPanel.svelte).
 
-**How it works.** Each snapshot is one JSON file, `rohy-data/snapshots/<graphID>/<snapID>.json`.
+**How it works.** Each snapshot is one JSON file, `rohy-data/snapshots/<graphID>/<snapID>.json`,
+written durably (`durable.WriteFile`: synced, renamed, and the rename synced).
 
 | Field                          | Meaning                                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -1955,10 +1983,11 @@ and in a read-only session (§18.5). Listing and previewing take no lock.
 **Applying holds the case lock alone**, as a redaction does, and runs `RepairRelationIndex` before
 it plans. It reads the graph's links and writes the missing ones, so anything else writing links in
 between could make it draw one twice: a rule run between `DeleteGraphRelations` and
-`InsertRelations`, a link drawn by hand, or a maintenance pass rebuilding the index. A restore that
-crashed after `InsertRelations` committed its edges, but before it registered them, left a link
-`RelationsByGraph` cannot see. The repair makes that link visible again, so it is not offered a
-second time. A restore takes seconds, so it is refused while an ingest or a capture runs, and every
+`InsertRelations`, a link drawn by hand, or a maintenance pass rebuilding the index.
+`InsertRelations` now commits a link's index entries in the same transaction as the link. A restore
+by a build before v0.3.0 that crashed after `InsertRelations` committed its edges, but before it
+registered them, left a link `RelationsByGraph` cannot see. The repair makes that link visible
+again, so it is not offered a second time. A restore takes seconds, so it is refused while an ingest or a capture runs, and every
 other write is refused while it runs. A repair that fails refuses the restore before it writes
 anything, including the layout.
 
@@ -2011,7 +2040,6 @@ anything, including the layout.
 **Not done.**
 
 - Snapshot thumbnails.
-- `Save` writes a temporary file and renames it without an fsync; only `Scrub` writes durably.
 - **A preview after a crash can still offer a link again.** The preview writes nothing, so it does
   not repair; applying it repairs first and writes nothing twice.
 - `store_version` is recorded and never compared (see the table above).
@@ -2033,7 +2061,8 @@ An annotation is stored like a finding (§13), but its scope differs:
 | It appears   | in every graph that holds the event  | only on the graph it was drawn on        |
 | Example      | "this 4624 is the account takeover"  | "this cluster is the lateral movement"   |
 
-**How it works.** One file per graph, `rohy-data/annotations/<graphID>.json`, with
+**How it works.** One file per graph, `rohy-data/annotations/<graphID>.json`, written durably
+(`durable.WriteFile`), with
 `annotations_version: 1`, holding `layers[]` (`id`, `name`, `colour`, `visible`, `z`) and `items[]`
 (`id`, `layer`, `kind`, `anchor`, `to` for arrows, `text`, timestamps). An **anchor** is either
 `event`, which stores the event's **hash**, or `world`, a fixed position on the canvas. Every change
@@ -2093,7 +2122,7 @@ Writes hold the case lock shared, like snapshots; reads take none.
 
 **Not done.** Regions and arrows render, but only notes can be created, from the layer panel. The
 panel cannot edit or delete one note, rename a layer or change its colour, though the bindings exist.
-The file is written by rename without an fsync. A layer name cut by an earlier build keeps the
+A layer name cut by an earlier build keeps the
 U+FFFD that the byte cut left.
 
 **Error codes.** Every refusal in `annotate` (a field it does not accept, or a limit reached) wraps
@@ -2262,6 +2291,12 @@ over named channels, defined once in `consts` and reused on both sides:
 | `ingest:cancelled`  | `evtx.Summary`    | terminal, with checkpoint           |
 | `ingest:state`      | ingest state      | running / paused, for the UI        |
 | `permission:warn`   | `AccessDecision`  | a channel needs elevation           |
+| `case:sealing`      | none              | an ingest ended; its seal began     |
+| `case:sealed`       | `SealOutcome`     | sealed / unchanged / unavailable; ends the UI's wait |
+| `case:redacted`     | `redaction.Outcome` | a redaction ran; views drop their copies |
+| `maintenance:progress` | `BackfillProgress` | backfill done / total          |
+| `maintenance:complete` | `BackfillOutcome`  | terminal, with the seal's result |
+| `maintenance:state` | `MaintenanceState` | which pass holds the lock, whether Stop reaches it |
 | `rules:started` / `rules:progress` / `rules:complete` / `rules:cancelled` | build lifecycle | rule-run progress |
 
 **Every** error crossing the boundary — emitted or returned — uses one shape:
@@ -2330,7 +2365,6 @@ Small and deliberate. Here is the whole of it:
 
 | Where                    | Concurrency                                                            | How safety is achieved                                              |
 | ------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Store open               | any number of callers                                                  | `sync.Once` in `ensure()`, giving a happens-before edge              |
 | Ingest producer          | 1 goroutine                                                            | owns the offset channel; blocks on backpressure                      |
 | Ingest workers           | 4 goroutines                                                           | each opens its **own** file handle — parsing seeks                   |
 | Ingest sink              | **1 goroutine**                                                        | all counters and Reporter calls are single-threaded by construction  |
@@ -2340,7 +2374,7 @@ Small and deliberate. Here is the whole of it:
 | Pause gate               | UI flips, pipeline observes                                            | mutex plus **replaced** channels, so a waiter cannot latch a stale one |
 | Cancellation             | everywhere                                                             | one `context.Context` per run, checked at batch and rule boundaries  |
 | Case lock                | every write to the case shares it; a redaction or a restore holds it alone | `api.theCase`: try-only, names its holders in the refusal (§18.4); also the write gate of a read-only session (§18.5) |
-| Store open               | a call before the session waits; shutdown releases it                  | mutex + `atomic.Bool` ready, retryable; `Close` holds the open's mutex (§18.5) |
+| Store open               | any number of callers; a call before the session waits; shutdown releases it | `openMu` + `atomic.Bool` ready in `ensure()`, giving a happens-before edge; retryable; `Close` holds `openMu` (§18.5) |
 | Key slot                 | a mid-session unlock while commits sign                                | `sync.RWMutex`; `KeyID` never changes, so a commit cannot mix two keys |
 
 The rule of thumb the code follows: **make the hot path single-goroutine and put
@@ -2527,7 +2561,7 @@ says custody is accounted for.
 
 | Piece | What it does |
 |---|---|
-| `graphene.Store.EventCustody` | graphene's `CustodyFor(id, nil)` in rohy's shape, plus `ProveEvent`'s state for the record and raw layers. Every field the report decides on is structured; the engine's text is carried only as a cause. |
+| `graphene.Store.EventCustodyUnder` | graphene's `CustodyFor(id, ring)` in rohy's shape, with signatures checked under the keys the case lists (`ring` is nil with no session), plus `ProveEvent`'s state for the record and raw layers. Every field the report decides on is structured; the engine's text is carried only as a cause. |
 | `custody.EventReport` | Pure. Decides presence, words each layer, and lists what the report establishes and does not. |
 | `custody.Store.DescendsFrom` | Does the current image descend from a kept fingerprint through recorded, verifying links? Read-only. |
 | `MaintenanceAPI.EventCustody` | Normalizes the kept fingerprint, then gathers everything under `sealMu`, so no seal lands inside one report. |
@@ -2537,10 +2571,16 @@ seal), `redacted`, then `in_seal`, `written_since_seal`, `no_fingerprint`. An id
 hold is never described by the state of the seal.
 
 The event's layers are the seal, its stored record against the sealed one, its raw record, a
-removal when one is recorded, the history of seals, and the fingerprint the analyst kept.
+removal when one is recorded, the history of seals, the case's signing when a session is open, and
+the fingerprint the analyst kept.
 graphene's store-wide layers (signature, commit history, audit log, role grants, removal ledger)
-read the same for every event, so they are grouped as case records. In this build they are all
-"not recorded": rohy opens cases without them (§14.6).
+read the same for every event, so they are grouped as case records. Each is read from the engine's
+structured counts, and a fatal gap in a layer marks it broken. rohy opens every case with the
+audit log (unless a recovery posture turns it off) and the removal ledger. An audit log with
+entries that chain is established. A removal ledger with entries reads as recorded with its
+signatures unchecked, so it is never established. The seal's signature is established only when it
+checks out under the case's keys. rohy keeps no commit history before a seal and writes no role
+grants, so those two read "not established".
 
 The kept fingerprint is compared against the case's image **now**, whatever the event's state.
 graphene's `CustodyForAnchored` compares only when the entity is in the snapshot, which misses the
@@ -2628,6 +2668,11 @@ The invariants, each a test:
   recovery:
   - **A case another program holds** (`ErrCaseHeld`, wrapping `disk.ErrStoreLocked`). One rohy per
     case: graphene's lock is exclusive to a writer, and a reader shares it only with readers.
+  - **An image that does not parse** (`ErrImageRefused`, wrapping `disk.ErrImageMalformed`). The
+    case image `graphene.csr` is damaged, truncated or written by a newer rohy; the engine cannot
+    tell them apart. Nothing on disk changes, because the image holds sealed evidence. The message
+    names the file and both remedies: restore the case folder from a backup, or open it in the newer
+    rohy.
   - **A log damaged before its end** (`ErrLogRefused`, wrapping `disk.ErrLogMalformed`). The engine
     cuts a crash's torn tail itself. It cuts nothing after damage, because the records there were
     acknowledged. The message names the byte and both repairs: restore a backup, or keep what
@@ -2850,12 +2895,11 @@ The full reasoning is in [PERFORMANCE.md](PERFORMANCE.md). The short version —
 | Decision                                            | Measured effect                                             |
 | --------------------------------------------------- | ----------------------------------------------------------- |
 | Move raw record + parsed fields to a cold store      | 3137 → 867 B/event resident. **70% of memory removed.**      |
-| Do **not** declare the timestamp key ordered         | Open at 100k events: 8.0 s → **0.8 s**                       |
+| Declare the timestamp key ordered (graphene v0.10)   | Open pays **1.04×** at 100k; on disk a narrow range is **17×** faster (§5.3). Under v0.4 it cost 0.8 → 8.0 s at open |
 | Decode a minimal sort view instead of the full Event | Ordering no longer materialises kilobyte payloads            |
 | Cache the id ordering against filter + version       | Paging hydrates one page, not the whole matching set         |
 | Batch relation writes (512 per commit)               | Rule builds go from write-bound-per-edge to one commit/chunk |
 | Batch dedup increments                               | Removes a durable write per duplicate                        |
-| `Degree(id, nil)` over the typed form                | The typed form is ~**488×** dearer — it inspects every label |
 | `EdgesOf(..., nil)` — no edge-type filter            | `EdgeRelation` is the only label rohy writes, so filtering costs and selects nothing extra |
 | Store the correlation projection **by position**     | +138 B/event saved against the same values keyed by name      |
 | Bound each correlation slot to its own domain        | Format worst case 819 → **324 B/event** (381 B at v3's thirteen slots); 71 B on a real 4688 |
@@ -2908,7 +2952,7 @@ The cost model in one table — know what dominates before optimising anything:
 
 ## 20. Testing strategy
 
-**1,246 Go test functions**, 10 fuzz targets, 66 benchmarks, **880 frontend test
+**1,253 Go test functions**, 10 fuzz targets, 66 benchmarks, **880 frontend test
 cases** in 57 files, and **58 extension tests**.
 
 Where each runs:
@@ -3201,8 +3245,12 @@ Added with v0.3.0:
   panic's stack. A binding that can panic on its input still recovers itself, as `QueryAPI.Run`
   does, so the page is told what was wrong with the input.
 - **Wails binds every exported method** of a service, and every service is bound. A helper on one
-  is callable from the page. That is why `api.Start`, `AttachSession` and the splash's
-  `InitStage`/`InitReady`/`InitFailed` are package functions.
+  is callable from the page. That is why `api.Start`, the splash's `InitStage`/`InitReady`/`InitFailed`
+  and every `Attach*` that wires a binding (`AttachSession`, `AttachIntegrity`, `AttachGraphCascades`,
+  `AttachSealHistory`, `AttachRedactionJournal`, `AttachFindingsRedactions`) are package functions.
+  `TestNoBoundMethodTakesTheAppsWiring` fails on a bound method whose argument holds an interface, a
+  func, a channel, the session, or a struct with fields but none the page can set, looking through
+  slices, pointers, maps and struct fields.
 - **Wails logs every call's arguments and result.** At Debug it writes both for each binding call,
   and a passphrase crosses as an argument. `SafeLogHandler` (`api_safelog.go`) replaces the `args`
   and `result` attributes with `(withheld)` on every record, at every level. Replace the logger in

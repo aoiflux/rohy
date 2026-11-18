@@ -66,8 +66,8 @@ type App struct {
 
 // NewApp wires the binding layer WITHOUT doing any slow work.
 //
-// Everything here is cheap: the case store is opened lazily (graphene.OpenLazy), and the
-// sidecar stores only create their directories. The expensive part — replaying the store's
+// Everything here is cheap: the case store waits for the session step to choose how it opens
+// (graphene.OpenAwaitingSession), and the sidecar stores only create their directories. The expensive part — replaying the store's
 // WAL — is deferred to initialize(), which runs in the
 // background once the window is up. That is what lets the UI appear immediately instead of
 // the user watching nothing while a large case loads.
@@ -146,12 +146,12 @@ func NewApp() (*App, error) {
 		session:  session,
 		Events: api.AttachRedactionJournal(
 			api.AttachSealHistory(api.NewEventsAPI(store, positions, findingStore), rootStore), journal),
-		Graph:    api.NewGraphAPI(store, layoutStore, registry).WithCascades(snapStore, noteStore),
+		Graph:    api.AttachGraphCascades(api.NewGraphAPI(store, layoutStore, registry), snapStore, noteStore),
 		Rules:    api.NewRulesAPI(ruleReg),
 		Build:    api.NewBuildAPI(graphbuild.New(store, registry, ruleReg).WithLayouts(layoutStore)),
 		Findings: api.AttachFindingsRedactions(api.NewFindingsAPI(findingStore, store), journal),
 		System:   api.NewSystemAPI(),
-		Maintenance: api.NewMaintenanceAPI(store).WithIntegrity(api.IntegrityDeps{
+		Maintenance: api.AttachIntegrity(api.NewMaintenanceAPI(store), api.IntegrityDeps{
 			Findings:  findingStore,
 			Graphs:    registry,
 			Rules:     ruleReg,

@@ -322,8 +322,8 @@ func (s *Store) commit(tx *gr.Tx) error { return s.noteStopped(tx.Commit()) }
 
 // tx begins a transaction attributed to the session's analyst. Every write rohy can put in a
 // commit goes through one, so the commit records who made it; in a signed session the commit is
-// signed too. Index entries and redaction mutations cannot be part of a commit (upstream), and stay
-// unattributed records outside one.
+// signed too. An insert's index entries commit inside its transaction. Redaction mutations cannot
+// be part of a commit (upstream), and stay unattributed records outside one.
 func (s *Store) tx(g *gr.Graph) *gr.Tx {
 	return g.Begin().As(store.TxContext{ActorID: s.posture().Actor})
 }

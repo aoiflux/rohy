@@ -157,6 +157,10 @@ func property(f rules.Field) map[string]any {
 	switch f.Kind {
 	case rules.KindInt:
 		p["type"] = "integer"
+		if f.MaxItems > 0 { // an integer's bounds are its value range, as the loader checks it
+			p["minimum"] = f.MinItems
+			p["maximum"] = f.MaxItems
+		}
 	case rules.KindStringArray:
 		p["type"] = "array"
 		items := map[string]any{"type": "string"}

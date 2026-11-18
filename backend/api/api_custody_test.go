@@ -50,7 +50,7 @@ func custodyCase(t *testing.T) (*graphene.Store, *custody.Store, *MaintenanceAPI
 	if _, err := sealAndRecord(store, hist, false); err != nil {
 		t.Fatal(err)
 	}
-	return store, hist, NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist}), ids
+	return store, hist, AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist}), ids
 }
 
 func mustReport(t *testing.T, maint *MaintenanceAPI, id uint64, kept string) custody.Report {
@@ -161,7 +161,7 @@ func TestAKeptFingerprintCatchesARollbackThatRemovedTheEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	maint := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist})
+	maint := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist})
 
 	r := mustReport(t, maint, later[0], kept)
 	if r.Presence != consts.CustodyPresenceNotInCase {

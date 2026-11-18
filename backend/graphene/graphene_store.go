@@ -150,16 +150,22 @@ var ErrNotOpen = errors.New("the case is not open")
 // exclusive to a writer, and a reader shares it only with readers.
 var ErrCaseHeld = errors.New(consts.MsgCaseHeld)
 
+// ErrImageRefused is an open refused because the case's image does not parse. The engine cannot
+// tell damage from truncation or from a newer writer's format, so rohy names the file and the
+// remedy and leaves the bytes alone.
+var ErrImageRefused = errors.New(consts.MsgImageRefused)
+
 // ErrLogRefused is an open refused because the case's log is damaged before its end. The engine
 // cuts a crash's torn tail itself, but records after damage were acknowledged, so it cuts nothing
 // and the analyst decides: a backup, or a cut that gives those records up.
 var ErrLogRefused = errors.New(consts.MsgLogRefused)
 
 // NoPostureOpens reports whether err is an open refused for a reason no other posture gets past,
-// so the session step does not offer recovery as a way in: a recovery open meets the same lock and
-// replays the same log.
+// so the session step does not offer recovery as a way in: a recovery open meets the same lock,
+// loads the same image and replays the same log.
 func NoPostureOpens(err error) bool {
-	return errors.Is(err, ErrCaseHeld) || errors.Is(err, ErrLogRefused) || errors.Is(err, ErrLabelsDisagree)
+	return errors.Is(err, ErrCaseHeld) || errors.Is(err, ErrImageRefused) || errors.Is(err, ErrLogRefused) ||
+		errors.Is(err, ErrLabelsDisagree)
 }
 
 // ErrLabelsDisagree is an open refused because the engine's labels file names rohy's event or
@@ -168,11 +174,13 @@ func NoPostureOpens(err error) bool {
 var ErrLabelsDisagree = errors.New(consts.MsgLabelsDisagree)
 
 // explainOpen says in the analyst's terms why the engine refused an open, keeping the engine's
-// error, which names the holder's process or the damaged byte, inside it.
+// error, which names the holder's process, the damaged byte or the field that failed, inside it.
 func explainOpen(err error) error {
 	switch {
 	case errors.Is(err, disk.ErrStoreLocked):
 		return fmt.Errorf("%w: %w", ErrCaseHeld, err)
+	case errors.Is(err, disk.ErrImageMalformed):
+		return fmt.Errorf("%w: %w", ErrImageRefused, err)
 	case errors.Is(err, disk.ErrLogMalformed):
 		return fmt.Errorf("%w: %w", ErrLogRefused, err)
 	case errors.Is(err, store.ErrTypeNameConflict):

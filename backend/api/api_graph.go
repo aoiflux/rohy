@@ -39,9 +39,10 @@ func NewGraphAPI(store *graphene.Store, layoutStore *layout.Store, registry *gra
 	return &GraphAPI{store: store, layout: layoutStore, registry: registry}
 }
 
-// WithCascades registers the sidecars a graph deletion must also clear. Returns the receiver so
-// it can be chained at construction.
-func (a *GraphAPI) WithCascades(c ...GraphCascade) *GraphAPI {
+// AttachGraphCascades registers the sidecars a graph deletion must also clear, and returns a so
+// it can wrap the constructor. 🔒 It is a package function, not a method: Wails binds every
+// exported method, and the page must not change what a deletion clears.
+func AttachGraphCascades(a *GraphAPI, c ...GraphCascade) *GraphAPI {
 	a.cascades = append(a.cascades, c...)
 	return a
 }

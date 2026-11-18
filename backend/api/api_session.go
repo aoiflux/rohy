@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -877,13 +876,6 @@ func keyFingerprint(k analyst.Key) string {
 		return ""
 	}
 	return keyfile.Fingerprint(pub)
-}
-
-func baseName(p string) string {
-	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
-		return p[i+1:]
-	}
-	return p
 }
 
 func keyHex(s string) (ed25519.PublicKey, error) {

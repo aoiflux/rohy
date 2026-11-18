@@ -58,7 +58,7 @@ func integrityFixture(t *testing.T) (*MaintenanceAPI, *graphene.Store) {
 		t.Fatal(err)
 	}
 
-	api := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{
+	api := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{
 		Findings:  findingStore,
 		Graphs:    registry,
 		Rules:     ruleReg,
@@ -237,7 +237,7 @@ func TestCheckIntegrityReportsOrphanedFindings(t *testing.T) {
 		}
 	}
 
-	api := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Findings: findingStore})
+	api := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Findings: findingStore})
 	got, err := api.CheckIntegrity(false)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestCheckIntegrityReportsOrphanedFindings(t *testing.T) {
 }
 
 func TestCheckIntegrityIsSafeWithNoDependenciesAttached(t *testing.T) {
-	// A binding constructed without WithIntegrity must still answer, with the checks that need a
+	// A binding constructed without AttachIntegrity must still answer, with the checks that need a
 	// store simply not run — never a panic and never a fabricated all-clear.
 	store := graphene.OpenInMemory()
 	t.Cleanup(func() { store.Close() })

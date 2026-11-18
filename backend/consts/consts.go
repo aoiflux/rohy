@@ -1056,6 +1056,10 @@ const (
 	// read cannot answer with a commit its caller was told had failed.
 	MsgCaseStopped = "the case stopped answering after a write to its log failed; restart rohy to reopen it (%s)"
 	MsgCaseHeld    = "the case is open in another program, most likely another rohy; close it there and begin the session again"
+	// MsgImageRefused: damage, truncation and an image from a newer rohy all fail the same parse,
+	// and the remedy for each is the files, never a cut: the image holds sealed evidence.
+	MsgImageRefused = "the case's image, graphene.csr, does not parse, so rohy opens nothing and changes nothing. " +
+		"Restore the case folder from a backup; if a newer rohy wrote this case, open it there"
 	// MsgLabelsDisagree: the process keeps a type name once registered, so the restart is needed.
 	MsgLabelsDisagree = "the case's graphene.labels names rohy's event or relation type otherwise; it holds no evidence, " +
 		"so remove it and restart rohy, which writes it again"
@@ -1100,7 +1104,6 @@ const MsgInspectSiblingsUnreadable = "relation %d: could not list the other link
 const (
 	EventIngestStarted   = "ingest:started"
 	EventIngestProgress  = "ingest:progress"
-	EventIngestChunk     = "ingest:chunk"
 	EventIngestError     = "ingest:error"
 	EventIngestComplete  = "ingest:complete"
 	EventIngestCancelled = "ingest:cancelled"
@@ -2201,7 +2204,7 @@ const (
 	MsgCustodyAuditKept           = "%d audit entries are recorded, and they chain."
 	MsgCustodyRolesNone           = "No role grants: nothing records who was permitted to write to, remove from or seal the case."
 	MsgCustodyRolesUnkeyed        = "%d role grants are recorded; their signatures were not checked, because rohy holds no key."
-	MsgCustodyRemovalsNone        = "No removals are recorded. rohy does not yet keep a removal ledger, so a deleted event leaves no trace."
+	MsgCustodyRemovalsNone        = "No removals are recorded: the case's removal ledger is empty."
 	MsgCustodyRemovalsUnkeyed     = "%d removals are recorded; their signatures were not checked, because rohy holds no key."
 	MsgCustodyRecordBroken        = "This record does not hold together."
 	MsgCustodyEngineUnknown       = "The engine reported a gap in its %q record that this build has no words for."

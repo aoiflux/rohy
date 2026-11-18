@@ -281,7 +281,7 @@ func TestDeletingAGraphTakesItsSidecarsWithIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graphAPI := NewGraphAPI(store, layoutStore, registry).WithCascades(snaps, notes)
+	graphAPI := AttachGraphCascades(NewGraphAPI(store, layoutStore, registry), snaps, notes)
 	if err := graphAPI.DeleteGraph(g.ID); err != nil {
 		t.Fatalf("delete graph: %v", err)
 	}

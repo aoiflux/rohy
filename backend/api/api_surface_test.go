@@ -1,9 +1,12 @@
 package api
 
 import (
+	"encoding"
+	"encoding/json"
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"testing"
 )
 
@@ -14,22 +17,68 @@ var boundTypes = []any{
 	&SystemAPI{}, &MaintenanceAPI{}, &SnapshotAPI{}, &AnnotateAPI{}, &QueryAPI{},
 }
 
-// 🔒 No bound method takes what only Go can supply: an interface, a function, a channel, or the
-// session. Such a method is the app's wiring, and bound it would let the page rewire the app; it
-// belongs in a package function (Start, AttachSession) or an unexported method instead.
+// 🔒 No bound method takes what only Go can supply: an interface, a function, a channel, the
+// session, or a store whose fields are all unexported. The check looks through slices, pointers,
+// maps and struct fields, so a variadic of interfaces or a struct of stores is caught too. Such a
+// method is the app's wiring, and bound it would let the page rewire the app: a call with an
+// empty struct would blank what the app attached. It belongs in a package function (Start,
+// AttachSession) or an unexported method instead.
 func TestNoBoundMethodTakesTheAppsWiring(t *testing.T) {
-	session := reflect.TypeFor[*Session]()
 	for _, v := range boundTypes {
 		rt := reflect.TypeOf(v)
 		for m := range rt.Methods() {
-			for in := range m.Type.Ins() { // the receiver too, which is never any of these
-				switch {
-				case in == session, in.Kind() == reflect.Interface, in.Kind() == reflect.Func, in.Kind() == reflect.Chan:
-					t.Errorf("%s.%s takes %s: the page could call it", rt.Elem().Name(), m.Name, in)
+			for i, in := range slices.Collect(m.Type.Ins())[1:] {
+				if why := goOnly(in, map[reflect.Type]bool{}); why != "" {
+					t.Errorf("%s.%s argument %d holds %s: the page could call it", rt.Elem().Name(), m.Name, i, why)
 				}
 			}
 		}
 	}
+}
+
+// goOnly says what in t only Go can supply, or "" when the page can supply all of it as JSON.
+func goOnly(t reflect.Type, seen map[reflect.Type]bool) string {
+	if seen[t] {
+		return ""
+	}
+	seen[t] = true
+	if t == reflect.TypeFor[Session]() {
+		return "the session"
+	}
+	ptr := reflect.PointerTo(t)
+	if ptr.Implements(reflect.TypeFor[json.Unmarshaler]()) || ptr.Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
+		return "" // decodes itself from JSON, as time.Time does
+	}
+	switch t.Kind() {
+	case reflect.Interface:
+		if t.NumMethod() > 0 { // any is plain JSON data
+			return t.String()
+		}
+	case reflect.Func, reflect.Chan:
+		return t.String()
+	case reflect.Map:
+		if why := goOnly(t.Key(), seen); why != "" {
+			return why
+		}
+		return goOnly(t.Elem(), seen)
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		return goOnly(t.Elem(), seen)
+	case reflect.Struct:
+		settable := false
+		for f := range t.Fields() {
+			if !f.IsExported() {
+				continue
+			}
+			settable = true
+			if why := goOnly(f.Type, seen); why != "" {
+				return why
+			}
+		}
+		if !settable && t.NumField() > 0 {
+			return t.String() + ", which has no field the page can set"
+		}
+	}
+	return ""
 }
 
 // The lifecycle Wails calls is the one it never binds: ServiceStartup and ServiceShutdown.

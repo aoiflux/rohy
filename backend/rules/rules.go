@@ -225,7 +225,7 @@ func trimmed(s string) string { return strings.TrimSpace(s) }
 func (s *Spec) normalize() {
 	s.Name = strings.TrimSpace(s.Name)
 	s.Description = strings.TrimSpace(s.Description)
-	s.RelationType = relationTypeOrDefault(s.RelationType)
+	s.RelationType = relationTypeOrDefault(strings.TrimSpace(s.RelationType))
 	if s.Algorithm = strings.TrimSpace(s.Algorithm); s.Algorithm == "" {
 		s.Algorithm = consts.DefaultAlgorithm
 	}

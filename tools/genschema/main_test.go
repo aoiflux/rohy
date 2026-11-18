@@ -134,6 +134,11 @@ func TestTypesAndEnumsComeFromTheDescriptor(t *testing.T) {
 	if depth["type"] != "integer" {
 		t.Errorf("lineage_depth type = %v", depth["type"])
 	}
+	// The loader refuses a depth outside 0..LineageMaxDepth, so the editor must underline one.
+	if depth["minimum"] != float64(0) || depth["maximum"] != float64(consts.LineageMaxDepth) {
+		t.Errorf("lineage_depth bounds = %v..%v, the validator enforces 0..%d",
+			depth["minimum"], depth["maximum"], consts.LineageMaxDepth)
+	}
 }
 
 func TestMatchFieldsOffersTheCorrelationVocabulary(t *testing.T) {

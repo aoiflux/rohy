@@ -44,6 +44,8 @@ Know what actually dominates before optimising anything.
 | **Store open**                  | Loading the property index. Cost scales with _distinct values_, not entry count.                      | Loading the graph itself — linear and cheap (~131 ms at 100k events) — and the raw record, which is no longer resident. |
 | **Ordering / paging**           | Decoding a minimal per-node view to sort.                                                             | Re-querying: the id order is cached against filter + store version.                |
 
+The open figure is graphene v0.4's. §9 and §10 record open and compaction under v0.10.
+
 The single most useful consequence: **in rohy, making a lookup asymptotically
 faster usually buys nothing, because the lookup is not the cost.** Reducing how
 many records get decoded, or how many commits get made, usually buys a lot.
@@ -57,7 +59,8 @@ many records get decoded, or how many commits get made, usually buys a lot.
 - **Ask for ids, not records**, when you only need ids — `QueryNodeIDs` over
   `QueryNodes`, `BFSIDs` over `BFS`. Records copy property blobs; ids do not.
 - **Use `Degree(id, nil)`** where an untyped count will do. The typed form is
-  ~488× dearer because it must inspect every incident edge's labels.
+  ~488× dearer because it must inspect every incident edge's labels. rohy no
+  longer calls `Degree`; the measurement stays as engine guidance.
 - **Pass `nil` edge types to `EdgesOf`.** `consts.EdgeRelation` is the _only_
   edge label rohy writes, so filtering by it selects the same set while forcing
   label inspection. ⚠️ If a second edge type is ever introduced, every one of
@@ -83,20 +86,22 @@ many records get decoded, or how many commits get made, usually buys a lot.
 
 ### Choosing the call
 
-This mirrors the upstream decision table, resolved for rohy's actual shapes:
+Every rohy write is one attributed transaction: `s.tx` begins it as the session's actor
+(`Begin().As`), and `s.commit` commits it. rohy no longer calls the slice APIs (`AddNodes`,
+`AddEdges`) or the single-record ones. What varies is what one transaction holds:
 
-| Situation                                  | Use                   | rohy example                                                     |
-| ------------------------------------------ | --------------------- | ---------------------------------------------------------------- |
-| Many nodes, no edges                       | `AddNodes`            | `InsertEvents`                                                   |
-| Many edges, endpoints already exist        | `AddEdges`            | `InsertRelations`                                                |
-| One record, latency-sensitive              | `AddNode` / `AddEdge` | `InsertRelation` (manual UI relation), live capture              |
-| Nodes **and** their edges together         | `Begin` / `Commit`    | _(none today — ingest makes only nodes, graph build only edges)_ |
-| Several related entities deleted           | `Begin` / `Commit`    | `DeleteGraphRelations`                                           |
-| A multi-step edit that must not half-apply | `Begin` / `Commit`    | `IncrementDedupCounts`                                           |
+| Situation                                  | One transaction holds                     | rohy example                                         |
+| ------------------------------------------ | ----------------------------------------- | ---------------------------------------------------- |
+| Many nodes, no edges                       | A chunk of nodes and their index entries  | `InsertEvents`                                       |
+| Many edges, endpoints already exist        | A chunk of edges and their index entries  | `InsertRelations`                                    |
+| One record, latency-sensitive              | One edge and its index entries            | `InsertRelation` (manual UI relation), a batch of one |
+| Records updated                            | Each record and its new index entries     | `UpdateRelation`, the correlation backfill           |
+| Several related entities deleted           | Every delete                              | `DeleteGraphRelations`                               |
+| A multi-step edit that must not half-apply | Every step                                | `IncrementDedupCounts`                               |
 
-`Begin` and the slice APIs commit through the same path and **cost the same**.
-Choose `Begin` for _semantics_ — atomicity across a node/edge boundary or a
-multi-step edit — never in the hope of speed.
+A transaction and the slice APIs commit through the same path and **cost the same**
+(§18 measures it). rohy uses the transaction for _attribution_: graphene records the actor
+only on a transaction.
 
 ### Rules
 
@@ -105,15 +110,17 @@ multi-step edit — never in the hope of speed.
   cancellation. See `consts.RelationBatchSize`, `consts.EventBatchSize`.
 - **Register index properties per entity, not per key** —
   `IndexNodeProperties(id, map)`, never a call per key.
-- **Use `UpdateNodeIndexed` / `UpdateEdgeIndexed`, never update-then-reindex.**
-  The default reindex policy is _keep_, so a plain update leaves index entries
-  **stale** — the old value still matches. This has already caused one real bug:
-  `graph_id` is indexed, so a relation moved between graphs stayed findable
-  under its old graph.
-- **Index registration is not part of a transaction.** A `Tx` buffers record
-  writes only. Register index entries _after_ commit, and know what a crash in
-  that gap leaves behind. For graph builds the answer is the idempotent rebuild;
-  if you add a path where it is not, say so in a comment.
+- **Update an indexed record with `UpdateEdgeIndexed` or `UpdateNodePartialIndex`,
+  never update-then-reindex.** Since graphene v0.5 the default reindex policy is
+  _reject_: a plain `UpdateNode` / `UpdateEdge` of an indexed record fails at commit
+  with `ErrIndexedPropertiesRequired`. Never call `SetReindexPolicy(ReindexKeep)` to
+  get around it. Under _keep_, the default before v0.5, a plain update left index
+  entries **stale**, and that caused one real bug: `graph_id` is indexed, so a
+  relation moved between graphs stayed findable under its old graph.
+- **Register index entries inside the transaction** (`tx.IndexNodeProperties`,
+  `tx.IndexEdgeProperties`), before `Commit`. The record and its entries then commit
+  together. Never register them after the commit: a crash between the two leaves a
+  record its index cannot find (§12a).
 - **`Compact()` between phases of work, never per write.** It takes an exclusive
   lock.
 
@@ -133,7 +140,7 @@ B per entry, and index loading is what dominates store open.
 
 Node keys: `event_id`, `timestamp`, `provider`, `channel`, `user`, `computer`,
 `hash_normalized`, `search_blob`, `source_type`. Edge keys: `relation_type`,
-`created_by`, `graph_id`.
+`created_by`, `graph_id`, `rule_id`.
 
 All are matched with `Equal` (O(1) postings lookup) except:
 
@@ -167,18 +174,22 @@ upstream advice assumes an alternative that does not exist here.
 Store open is the slowest thing rohy does. Everything here is about keeping it
 off the path to first paint.
 
-- **`OpenLazy` + `Warm` is load-bearing, not decoration.** `OpenLazy` costs ~180
-  ns; the real open costs 58 ms (10k) to 770 ms (100k). It moves the entire cost
-  off first paint. **Never replace a lazy open with an eager one for
-  convenience.**
+- **A deferred open + `Warm` is load-bearing, not decoration.** The app's store comes
+  from `OpenAwaitingSession`, which opens nothing: the store opens only when the session
+  step chooses a posture (`BeginSession`). `Warm` then waits for that open off first
+  paint. The real open costs 58 ms (10k) to 770 ms (100k) under graphene v0.4.
+  **Never replace a deferred open with an eager one for convenience.** `OpenLazy`, which
+  opens on first use, is now used only by tests and benchmarks.
 - **Bind anything that must happen on open to `ensure()`**, the single funnel
   every accessor passes through. Multiple open paths exist (`Open`, `OpenLazy`,
-  `OpenInMemory`) and the failure mode is a path that forgets.
+  `OpenAwaitingSession`, `OpenInMemory`) and the failure mode is a path that forgets.
 - **Compaction speeds up the _next_ open by ~38%** (58 ms → 36 ms at 10k).
   Compact after bulk ingest and before shutdown, not per write.
 - **Close is cheap** (~0.5–0.9 ms) — no need to defer or background it.
 - **Open scales with the property index**, roughly linearly once no key is
   declared ordered. Watch it when adding keys.
+
+The open and compaction figures above are graphene v0.4's. §9 and §10 record v0.10's.
 
 ---
 
@@ -248,6 +259,12 @@ Three things follow:
 | `graphene_bench_test.go`           | Unfiltered paging: first page, scroll, count                                                             |
 | `graphene_adoption_bench_test.go`  | Time-range queries, relation writes (memory **and** disk), graph clear, adjacency                        |
 | `graphene_lifecycle_bench_test.go` | Open (compacted/uncompacted, 10k–100k), close, compact, warm, lazy open, plus index-attribution controls |
+| `graphene_compact_bench_test.go`   | Compaction from scratch and after a small increment, at 10k and 100k (§18)                              |
+| `graphene_forensics_bench_test.go` | Open plain and verified, `VerifyImage`, `ProveEvent`, `Unsealed`, `EventCustody`, at 10k and 100k (§18) |
+| `graphene_signing_bench_test.go`   | One ingest batch and one seal, before attribution, attributed, and signed (§18)                         |
+| `graphene_anchor_bench_test.go`    | Checkpoint reads (`Histories`) and a publish, at 10k and 100k (§19)                                     |
+| `graphene_indexgap_bench_test.go`  | The relation-index repair over a healthy case, 10k and 50k relations (§20)                              |
+| `graphene_scan_bench_test.go`      | Whole-case scans of events and relations on disk, 50k events (§10)                                      |
 | `graphene_heatmap_bench_test.go`   | The relationship heatmap beside the timeline histogram, case-wide and for one graph, at 100k (§21)       |
 | `graphene_backfill_bench_test.go`  | The correlation-key backfill at 10k and 100k: throughput, live heap held, and after a compaction (§21)   |
 | `graphlayout/graphlayout_bench_test.go` | Each auto-layout profile alone, at 5k nodes and at the cap (§21)                                   |
@@ -256,7 +273,7 @@ Three things follow:
 ### The coverage obligation
 
 When you report a performance result, **state which paths the benchmarks covered
-and which they did not.** The M2 regression (§9) was reported as "no regression
+and which they did not.** The ordered-key regression (§9) was reported as "no regression
 on any measured path", which was true and thoroughly misleading: no benchmark
 covered store open, which is exactly where the regression was.
 
@@ -271,6 +288,9 @@ it.
 ---
 
 ## 9. Case study: the ordered-key reversal
+
+The decision this case study records was reversed under graphene v0.10: rohy now declares
+`timestamp` ordered at every writable open. See "Re-measured under graphene v0.10" below.
 
 **Read this before declaring an ordered property.** It is the most instructive
 thing in this document, and the change it describes looks correct from every
@@ -505,7 +525,8 @@ each relation, which is why the two relation paths above stopped decoding.
 
 **Correctness**
 
-- [ ] Does any indexed value change? If so, use the `*Indexed` update form.
+- [ ] Does any indexed value change? If so, use `UpdateEdgeIndexed` or
+      `UpdateNodePartialIndex`.
 - [ ] Does the write path call `bumpVersion()`? The ordering cache must never
       survive a write.
 - [ ] Are the index entries in the same `Tx` as the records (`tx.IndexNodeProperties`,
@@ -538,6 +559,8 @@ each relation, which is why the two relation paths above stopped decoding.
 Windows, 16 logical cores) against synthetic fixtures. Differences under ~25%
 are not resolvable here. Use these to spot order-of-magnitude changes, not to
 validate micro-optimisations. Re-measure locally before drawing conclusions.
+
+The open and compaction figures below are graphene v0.4's. §9 and §10 record v0.10's.
 
 **Queries** — 20 000 events, in-memory, ~1.6 KB `RawXML` each:
 
@@ -580,7 +603,7 @@ recommended shape.
 | ---------------------------------------- | ------- |
 | No property index at all                 | ~131 ms |
 | Low-cardinality keys only                | ~0.55 s |
-| All 9 keys, none declared _(current)_    | ~0.77 s |
+| All 9 keys, none declared                | ~0.77 s |
 | All 9 keys, `timestamp` declared ordered | ~7.98 s |
 
 **Store memory** — resident bytes per event, disk backend, after ingest:
@@ -605,6 +628,9 @@ Two things follow, and both matter for capacity planning:
 that size is far more than 10M events and does not fit in memory under the
 current schema. Closing that gap means not holding RawXML resident — a schema
 change, not a tuning change.
+
+Superseded: the raw record moved to the payload cold store, and resident cost is now flat in
+record size. See §14.
 
 > **Fixture warning, learned the hard way.** The first version of this
 > measurement used NUL bytes as RawXML filler and reported ~4 356 B/event with
@@ -696,7 +722,7 @@ the decision is being changed — check that it is on purpose.
 | `TestTheWholeCaseScansAgreeWithEveryRecord`             | Batched, slim relation reads match a plain read of every record (§10) |
 | `TestRunRecoversFromAnInterruptedPreviousBuild`         | A crashed build reruns without duplicating relations                |
 | `TestStoreMemoryPerEvent`                               | Per-event resident cost, with a regression ceiling                  |
-| `TestStoreMemoryGrowsWithRecordSize`                    | Memory grows far slower than the record; the fixed floor stays flat |
+| `TestStoreMemoryIsFlatInRecordSize`                     | Resident cost does not depend on record size (§14)                  |
 | `TestCorrelationProjectionBudget`                       | The correlation projection's per-event ceiling (§16)                |
 | `TestCorrelationProjectionIsFlatInFieldCount`           | Projection cost depends on the vocabulary, never on the payload     |
 | `TestSlotsAreBoundedToTheirDomain`                      | Every per-slot bound still fits the widest legitimate value         |
@@ -787,8 +813,8 @@ The trap to avoid is a **deceptive** version of this, and two rules keep it hone
    whether the data took 5 ms or 500 ms. It never holds data back — it animates pixels that
    are already there — so it adds **zero real latency**. And because the duration is constant,
    the animation never becomes a *tell* that "this time it was slow", which is exactly what a
-   duration scaled to load time would leak. `TestRevealIsAConsistentArrival` pins that two
-   calls are identical.
+   duration scaled to load time would leak. The vitest block "reveal is a consistent arrival"
+   (`frontend/src/lib/motion.test.js`) pins that two calls are identical.
 
 2. **A skeleton appears only past a threshold.** `SKELETON_DELAY` (140 ms, just above the
    ~100 ms that reads as instant) gates the shimmer via `afterDelay()`. A fast load cancels
@@ -809,7 +835,8 @@ The trap to avoid is a **deceptive** version of this, and two rules keep it hone
   path stays as fast as §1–§14 make it. Perceived speed is layered on top of real speed, never
   traded for it.
 - **Reduced motion still wins.** `reveal()` collapses to an instant, motionless appearance;
-  the skeleton stays (it is information) but its shimmer stills. Same one-place rule as §14.
+  the skeleton stays (it is information) but its shimmer stills. `lib/motion.js` honours `prefers-reduced-motion` in one
+  place, and every animation routes its duration through it.
 
 ---
 
@@ -1176,7 +1203,7 @@ go test ./backend/redaction/ -run XXX -bench 'Resolve|Redact' -benchtime 3x -cou
 
 ### Signing and attribution (v0.3.0)
 
-Item 41 changed three costs: every write rohy can put in a commit became an attributed
+Signing and attribution changed three costs: every write rohy can put in a commit became an attributed
 transaction instead of the engine's batch insert; every case keeps an audit log, which records each
 seal; and a signed case signs each commit and seal. Each is measured against what it replaced, in
 one binary, so no other build is needed. Same machine, `-benchtime 20x`, three runs:

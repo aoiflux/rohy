@@ -9,7 +9,6 @@
 export const CHANNELS = Object.freeze({
   INGEST_STARTED: 'ingest:started',
   INGEST_PROGRESS: 'ingest:progress',
-  INGEST_CHUNK: 'ingest:chunk',
   INGEST_ERROR: 'ingest:error',
   INGEST_COMPLETE: 'ingest:complete',
   INGEST_CANCELLED: 'ingest:cancelled',

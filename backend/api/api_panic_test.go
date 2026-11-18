@@ -21,7 +21,7 @@ type panickingEmitter struct {
 }
 
 func (p *panickingEmitter) Emit(channel string, data any) {
-	if channel == consts.EventIngestProgress || channel == consts.EventIngestChunk {
+	if channel == consts.EventIngestProgress {
 		fault := false
 		p.once.Do(func() { fault = true })
 		if fault {

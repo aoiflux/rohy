@@ -38,7 +38,7 @@ func forensicCase(t *testing.T) (*graphene.Store, *custody.Store, *MaintenanceAP
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, hist, NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist})
+	return store, hist, AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist})
 }
 
 func currentRoots(t *testing.T, store *graphene.Store) *graphene.SnapshotRoots {
@@ -105,7 +105,7 @@ func TestEverySealIsRecordedAndChained(t *testing.T) {
 	em := newCaptureEmitter()
 	events := AttachSealHistory(NewEventsAPI(store, mustCapture(t), mustFindings(t)), hist)
 	events.setEmitter(em)
-	maint := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist})
+	maint := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist})
 
 	// 1. After an ingest.
 	if err := events.StartIngest(IngestRequest{Source: consts.SourceFile, Paths: []string{fixtureSecurity}}); err != nil {
@@ -400,7 +400,7 @@ func TestAReopenedCaseIsStillItsLastSeal(t *testing.T) {
 	if got := currentRoots(t, store).Snapshot; got != sealed {
 		t.Errorf("a launch with nothing written moved the fingerprint: %s → %s", sealed, got)
 	}
-	rep, _ := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist}).CheckIntegrity(false)
+	rep, _ := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist}).CheckIntegrity(false)
 	for _, code := range chainFindings {
 		if hasFinding(rep, code) {
 			t.Errorf("an ordinary reopen reported %s; codes = %v", code, findingCodes(rep))
@@ -457,7 +457,7 @@ func TestARestoredBackupIsReportedAsRolledBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	maint := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist})
+	maint := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist})
 
 	// Every internal check passes the restored image…
 	if check, err := maint.VerifyImage(); err != nil || check.Digest != graphene.DigestMatch || check.RootsError != "" {
@@ -513,7 +513,7 @@ func integrityOf(t *testing.T, dbDir string, hist *custody.Store) caseintegrity.
 		t.Fatal(err)
 	}
 	defer store.Close()
-	rep, _ := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist}).CheckIntegrity(false)
+	rep, _ := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist}).CheckIntegrity(false)
 	return rep
 }
 

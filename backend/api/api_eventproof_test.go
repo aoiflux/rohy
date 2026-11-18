@@ -30,7 +30,7 @@ func TestEveryIngestedEventProvesAgainstTheExportedFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	maint := NewMaintenanceAPI(store).WithIntegrity(IntegrityDeps{Roots: hist})
+	maint := AttachIntegrity(NewMaintenanceAPI(store), IntegrityDeps{Roots: hist})
 
 	if err := events.StartIngest(IngestRequest{Source: consts.SourceFile, Paths: []string{fixtureSecurity}}); err != nil {
 		t.Fatal(err)

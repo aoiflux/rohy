@@ -72,7 +72,7 @@ func openRedactCase(t *testing.T) *redactCase {
 	c.events = AttachRedactionJournal(AttachSealHistory(NewEventsAPI(c.store, mustCapture(t), c.finds), hist), c.j)
 	c.events.setEmitter(c.em)
 	c.memEm = newCaptureEmitter()
-	c.maint = NewMaintenanceAPI(c.store).WithIntegrity(IntegrityDeps{
+	c.maint = AttachIntegrity(NewMaintenanceAPI(c.store), IntegrityDeps{
 		Findings: c.finds, Roots: hist, Journal: c.j, Snapshots: c.snaps,
 	})
 	c.maint.setEmitter(c.memEm)
@@ -332,7 +332,7 @@ func TestARedactionIsRefusedWhereItCannotFinish(t *testing.T) {
 		t.Errorf("during an ingest: %v", err)
 	}
 
-	mem := NewMaintenanceAPI(graphene.OpenInMemory()).WithIntegrity(IntegrityDeps{
+	mem := AttachIntegrity(NewMaintenanceAPI(graphene.OpenInMemory()), IntegrityDeps{
 		Findings: c.finds, Journal: c.j, Snapshots: c.snaps,
 	})
 	if _, err := mem.RedactEvent(RedactRequest{Event: 1, Reason: "erasure"}); err == nil {
