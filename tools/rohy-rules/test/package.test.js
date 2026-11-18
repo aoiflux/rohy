@@ -40,6 +40,18 @@ test('a version the Marketplace cannot take is refused before anything is built'
   }
 });
 
+test('the icon is a square PNG the Marketplace takes', () => {
+  // The Marketplace refuses an SVG icon and asks for at least 128 px. The file is drawn from
+  // frontend/src/assets/logo.svg by tools/gen_icons.py, never by hand.
+  assert.equal(manifest.icon, 'icon.png');
+  const png = fs.readFileSync(path.join(EXT, manifest.icon));
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  assert.equal(width, height);
+  assert.ok(width >= 128, `${width} px`);
+});
+
 test('the build script and built packages are left out of the package', () => {
   const ignored = fs.readFileSync(path.join(EXT, '.vscodeignore'), 'utf8').split(/\r?\n/);
   assert.ok(ignored.includes('scripts/**'));

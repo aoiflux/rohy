@@ -174,7 +174,7 @@ rohy/
 
 Roughly 34,300 lines of non-test Go, plus the Svelte frontend. The tests are
 **1,253 Go test functions**, with 10 fuzz targets and 66 benchmarks beside them,
-**880 frontend test cases** and **63 extension tests**.
+**880 frontend test cases** and **64 extension tests**.
 
 ---
 
@@ -2953,7 +2953,7 @@ The cost model in one table — know what dominates before optimising anything:
 ## 20. Testing strategy
 
 **1,253 Go test functions**, 10 fuzz targets, 66 benchmarks, **880 frontend test
-cases** in 57 files, and **63 extension tests**.
+cases** in 57 files, and **64 extension tests**.
 
 Where each runs:
 

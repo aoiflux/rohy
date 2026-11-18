@@ -10,6 +10,7 @@ Outputs:
     build/appicon.png        1024x1024 — what Wails derives platform icons from
     build/windows/icon.ico   16/32/48/64/128/256 — Windows taskbar, Alt-Tab, Explorer
     build/icon-preview.png   a side-by-side sheet for eyeballing small sizes
+    tools/rohy-rules/icon.png  256x256 — the VS Code extension's Marketplace icon
 
 Why this exists rather than a one-off export
 --------------------------------------------
@@ -49,6 +50,10 @@ SVG = ROOT / "frontend" / "src" / "assets" / "logo.svg"
 APPICON = ROOT / "build" / "appicon.png"
 ICO = ROOT / "build" / "windows" / "icon.ico"
 PREVIEW = ROOT / "build" / "icon-preview.png"
+EXTICON = ROOT / "tools" / "rohy-rules" / "icon.png"
+# The Marketplace shows the icon at 128 px and asks for at least that; 256 keeps it sharp on a
+# high-density screen. It must be a PNG: the Marketplace refuses an SVG icon.
+EXTICON_SIZE = 256
 
 SVG_NS = "{http://www.w3.org/2000/svg}"
 SUPERSAMPLE = 8
@@ -230,6 +235,9 @@ def main() -> None:
     frames = [render(s) for s in ICO_SIZES]
     frames[-1].save(ICO, format="ICO", sizes=[(s, s) for s in ICO_SIZES], append_images=frames[:-1])
     print(f"wrote {ICO.relative_to(ROOT)}  {', '.join(str(s) for s in ICO_SIZES)}")
+
+    render(EXTICON_SIZE).save(EXTICON, format="PNG")
+    print(f"wrote {EXTICON.relative_to(ROOT)}  {EXTICON_SIZE}x{EXTICON_SIZE}")
 
     # A contact sheet, so "is it legible at 16 px?" is answered by looking rather than hoping.
     pad = 8

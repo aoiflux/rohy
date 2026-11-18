@@ -461,7 +461,7 @@ redaction and checkpoint reads back, and every event can still be proven.
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,253 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 63 extension tests.**
+- **1,253 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 64 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap, the backfill on the disk
   backend (PERFORMANCE.md §21) and the whole-case scans (§10).
 
