@@ -490,7 +490,7 @@ const (
 	PropCreatedAt       = "created_at"
 	PropFrom            = "from"
 	PropTo              = "to"
-	// PropGraphID scopes a relation to one named graph (multiple-graphs, P15). It is
+	// PropGraphID scopes a relation to one named graph (multiple-graphs). It is
 	// indexed on the edge so a graph's relations can be queried without scanning all
 	// edges. Event nodes are shared across graphs; only edges + layout are per-graph.
 	PropGraphID = "graph_id"
@@ -526,7 +526,7 @@ const (
 	MaxBasisLen     = 64
 )
 
-// --- Multiple graphs (P15) ---
+// --- Multiple graphs ---
 //
 // A case may hold several named graphs. Relations carry a graph_id; event nodes are
 // shared. DefaultGraphID is the graph seeded for a fresh case, and the graph a request that
@@ -538,7 +538,7 @@ const (
 	GraphsSubdir = "graphs"
 )
 
-// --- Analyst findings (P25) ---
+// --- Analyst findings ---
 //
 // A finding is the analyst's own judgement about an event: a flag, tags, and a note. It is
 // authored, not derived, so it is stored OUTSIDE the graphene store (a sidecar, like the
@@ -573,7 +573,7 @@ const (
 	FindingsHashVersion = 1
 )
 
-// --- Finding-aware event filters (P25) ---
+// --- Finding-aware event filters ---
 //
 // Narrows the events list by the analyst's own marks. Empty means "don't filter".
 const (
@@ -596,10 +596,10 @@ const (
 // --- Provenance values ---
 const (
 	CreatedByUser   = "user"   // manual mapping via the graph canvas
-	CreatedBySystem = "system" // auto-mapping produced by a correlation rule (P3/P6)
+	CreatedBySystem = "system" // auto-mapping produced by a correlation rule
 )
 
-// --- Undated events (P22) ---
+// --- Undated events ---
 //
 // An event with no timestamp cannot be placed on a timeline, so it is not timeline
 // evidence. rohy therefore EXCLUDES undated events from the chronological views by default
@@ -612,7 +612,7 @@ const (
 	UndatedOnly    = "only"    // show only the undated ones (used to count/inspect them)
 )
 
-// --- Timeline lane grouping (P24) ---
+// --- Timeline lane grouping ---
 //
 // Which event field the timeline splits into lanes. An empty or unknown value means "no
 // grouping" rather than an error, so a stale UI selection degrades to the plain view.
@@ -634,7 +634,7 @@ const (
 	TimelineLaneOther = "(other)"
 )
 
-// --- Relation-aware event filters (P11) ---
+// --- Relation-aware event filters ---
 //
 // Narrows the events list by whether an event participates in relations, and by who made
 // them. Empty means "don't filter"; the rest map onto the created_by provenance above.
@@ -712,7 +712,7 @@ const (
 	MsgTornTailUnsaved = "the open cut a torn tail from %s and it could not be kept aside; the file as it was before the open is in %s: %w"
 )
 
-// The redaction journal (plan §14.5, item 40): rohy-data/redactions/journal.json.
+// The redaction journal: rohy-data/redactions/journal.json.
 //
 // One entry per redaction, written durably BEFORE anything is destroyed: it is the only place the
 // targets' payload references survive the strip. It is also the suppression list — ingest skips a
@@ -757,7 +757,7 @@ const (
 	MsgRedactReasonUTF8    = "the reason is not valid text"
 )
 
-// Running a redaction (plan §14.5, item 40).
+// Running a redaction.
 const (
 	// RedactStepNotReached is an outcome's state for a step a failure stopped short of.
 	RedactStepNotReached = "not_reached"
@@ -782,7 +782,7 @@ const (
 	MsgRedactUnfinished       = "the redaction finished every step, but the journal could not mark it done: %v"
 )
 
-// Payload tombstones (plan §14.5.1, item 40). A redacted record is overwritten in place, same
+// Payload tombstones. A redacted record is overwritten in place, same
 // length: this marker, a format version, the redacted event's id, then zeros. The marker starts
 // with 0x00, which no JSON payload can, so a tombstone is never mistaken for a record or for damage.
 const (
@@ -803,7 +803,7 @@ const (
 	MsgPayloadFrameNoStart   = "no record starts there"
 )
 
-// Signing keys (plan §14.6, item 41). A key file holds one Ed25519 key, encrypted under a key derived
+// Signing keys. A key file holds one Ed25519 key, encrypted under a key derived
 // from the analyst's passphrase. It lives outside the case: a key kept beside the evidence proves
 // nothing, because whoever can rewrite the case can re-sign it with the key sitting next to it.
 const (
@@ -853,7 +853,7 @@ const (
 	MsgKeyWriteFailed     = "the key file could not be written: %w"
 )
 
-// Analysts (plan §14.6, item 41).
+// Analysts.
 //
 // The profile is per user and lives OUTSIDE every case (os.UserConfigDir()/rohy/analyst.json): who
 // the analyst is, where their key is, and the cases they have signed — the one record of a signed
@@ -903,7 +903,7 @@ const (
 	MsgSigningReasonUTF8     = "the reason is not valid text"
 )
 
-// The session step (item 41): what the case needs from the analyst before it opens, and the choices
+// The session step: what the case needs from the analyst before it opens, and the choices
 // it offers.
 const (
 	SessionNeedNone     = "none"
@@ -963,10 +963,10 @@ const (
 	MsgDialogUnavailable     = "file dialogs are not available yet"
 )
 
-// How a session opens the case (plan §14.6). The mode is fixed when the store opens: graphene takes
+// How a session opens the case. The mode is fixed when the store opens: graphene takes
 // its signer, verifier and actor as open-time options.
 const (
-	// CaseModeUnsigned: a case that has never been signed. Writes are unsigned, as before #41.
+	// CaseModeUnsigned: a case that has never been signed. Writes are unsigned, as every write was before v0.3.0.
 	CaseModeUnsigned = "unsigned"
 	// CaseModeSigned: commits and seals are signed with the analyst's key. While the key is
 	// locked the case is read-only.
@@ -985,7 +985,7 @@ const (
 	// length, and two hashes.
 	AuditRecordFixed = 8 + 8 + 8 + 2 + 4 + 32 + 32
 
-	// CheckpointFile is graphene's local checkpoint chain in the database directory (items 42, 43).
+	// CheckpointFile is graphene's local checkpoint chain in the database directory.
 	// rohy appends to it only through the engine's PublishCheckpoint.
 	CheckpointFile    = "graphene.checkpoints"
 	MsgCheckpointTorn = "the checkpoint file ends in %d byte(s) that are not a whole checkpoint, which the engine drops without saying so"
@@ -999,7 +999,7 @@ const (
 	MsgCheckpointReceipt     = "receipt recorded for checkpoint %d"
 
 	MsgCheckpointChainBroken = "the case's checkpoint record does not hold together, so no checkpoint is added to it: %v"
-	// The checkpoint statement: the file the analyst publishes the digest from, and keeps (item 42).
+	// The checkpoint statement: the file the analyst publishes the digest from, and keeps.
 	// 🔒 Its limits travel with it, as a fingerprint's do: it is read by people who never saw the screen.
 	CheckpointStatementFormat  = "rohy-checkpoint"
 	CheckpointStatementVersion = 1
@@ -1014,7 +1014,7 @@ const (
 	MsgHandoffHoldsNothing     = "rohy's hand-off anchor holds nothing: a published checkpoint's receipt is recorded by the analyst, not read back"
 )
 
-// The histories a checkpoint commits to (item 42), as layers of a check against one.
+// The histories a checkpoint commits to, as layers of a check against one.
 const (
 	AnchorLayerChain    = "checkpoints"
 	AnchorLayerAudit    = "audit"
@@ -1025,7 +1025,7 @@ const (
 	AnchorLayerLog      = "log"
 )
 
-// Whether a history still holds what a checkpoint committed to (item 42).
+// Whether a history still holds what a checkpoint committed to.
 const (
 	// HeldOK: the history still holds the entries the checkpoint covered, unchanged. It may hold more.
 	HeldOK = "held"
@@ -1037,7 +1037,7 @@ const (
 	HeldUnread = "unread"
 )
 
-// Where a digest was found in the case's checkpoint chain (item 42).
+// Where a digest was found in the case's checkpoint chain.
 const (
 	CheckpointFound       = "found"
 	CheckpointNotFound    = "not_found"
@@ -1105,13 +1105,13 @@ const (
 	EventIngestComplete  = "ingest:complete"
 	EventIngestCancelled = "ingest:cancelled"
 	EventPermissionWarn  = "permission:warn"
-	// EventIngestState carries the backend-authoritative ingestion state (P8) so the UI
+	// EventIngestState carries the backend-authoritative ingestion state so the UI
 	// never has to infer paused/active from progress going quiet.
 	EventIngestState = "ingest:state"
-	// EventInitState carries application initialization progress (P21), so the window can
+	// EventInitState carries application initialization progress, so the window can
 	// appear immediately and report what it is doing instead of looking hung.
 	EventInitState = "init:state"
-	// Rule-run lifecycle (P6 streaming progress): a build over many rules reports per-rule
+	// Rule-run lifecycle (streaming progress): a build over many rules reports per-rule
 	// movement rather than freezing the UI until it finishes.
 	// Case maintenance (v0.2.0): long, opt-in operations over the whole store — currently the
 	// correlation-key backfill. They report progress for the same reason ingestion does: work
@@ -1122,14 +1122,14 @@ const (
 	// it, on every change, so a page that did not start the pass can show it and offer Stop only
 	// while Stop can do something.
 	EventMaintenanceState = "maintenance:state"
-	// Case sealing (v0.2.0 Phase 8, plan §14.2): the compaction that runs at the end of an
+	// Case sealing (v0.2.0): the compaction that runs at the end of an
 	// ingest. It gets its own channel rather than riding on the ingest events because it is a
 	// distinct step with a distinct meaning — the ingest is over, and what it wrote is being
 	// given a fingerprint — and because it takes over a second on a large case. A silent second
 	// after "complete" is indistinguishable from a hang.
 	EventCaseSealing = "case:sealing"
 	EventCaseSealed  = "case:sealed"
-	// A redaction ran (plan §14.5). It carries the outcome, so every view holding a copy of the
+	// A redaction ran. It carries the outcome, so every view holding a copy of the
 	// event's content can drop it.
 	EventCaseRedacted = "case:redacted"
 
@@ -1139,7 +1139,7 @@ const (
 	EventRulesCancelled = "rules:cancelled"
 )
 
-// What a seal did, carried on case:sealed (plan §15.5).
+// What a seal did, carried on case:sealed.
 //
 // "unchanged" is its own state, not a quiet success: nothing was written since the last seal, so no
 // compaction ran and the fingerprint did not move. A compaction ALWAYS makes a new fingerprint, even
@@ -1194,13 +1194,13 @@ const (
 // MsgRuleRunInProgress guards against two concurrent builds racing on the same graphs.
 const MsgRuleRunInProgress = "a rule run is already in progress"
 
-// --- Application initialization phases (P21) ---
+// --- Application initialization phases ---
 const (
 	InitPhaseStarting     = "starting"
 	InitPhaseInitializing = "initializing"
 	InitPhaseReady        = "ready"
 	InitPhaseFailed       = "failed"
-	// InitPhaseAwaitingSession: the case waits for the analyst at the session step (item 41).
+	// InitPhaseAwaitingSession: the case waits for the analyst at the session step.
 	InitPhaseAwaitingSession = "awaiting_session"
 )
 
@@ -1217,7 +1217,7 @@ const (
 	MsgInitNotReady = "still initializing — please wait"
 )
 
-// --- Ingestion lifecycle states (P8) ---
+// --- Ingestion lifecycle states ---
 //
 // The backend owns this state machine; the frontend only renders what it is told.
 // idle → active → (paused ⇄ active) → stopping → idle.
@@ -1229,7 +1229,7 @@ const (
 )
 
 // ShutdownDrainTimeout bounds how long a clean exit waits for a running ingestion to
-// flush and persist before the process tears down (P8 safe shutdown).
+// flush and persist before the process tears down (safe shutdown).
 const ShutdownDrainTimeout = 5 * time.Second
 
 // --- Error codes (uniform error surfacing) ---
@@ -1242,24 +1242,24 @@ const (
 	ErrCodeInternal    = "internal_error"
 	ErrCodeRule        = "rule_error"
 	// ErrCodeSchema marks a source that is readable but structurally unrecognized — a real
-	// SQLite database that does not hold EVTX data in the expected shape (P17). Distinct
+	// SQLite database that does not hold EVTX data in the expected shape. Distinct
 	// from ErrCodeIO so the UI can tell the user which problem they have.
 	ErrCodeSchema = "schema_error"
 	// ErrCodeBusy marks a call refused because the case lock is held by something that cannot
-	// run beside it (plan §14.5). Nothing was written; the message names what is running.
+	// run beside it. Nothing was written; the message names what is running.
 	ErrCodeBusy = "case_busy"
-	// ErrCodeReadOnly marks a write refused because this session cannot write the case (item 41):
+	// ErrCodeReadOnly marks a write refused because this session cannot write the case:
 	// its signing key is locked, or it was opened for recovery. The message says which, and how.
 	ErrCodeReadOnly = "case_read_only"
 	// ErrCodeSession marks a session step refused: a choice the case does not offer, a passphrase
 	// that did not unlock the key, a key that is not this case's.
 	ErrCodeSession = "session_error"
-	// ErrCodeQuery marks a query the console refused (item 33): an unknown field, a value of the
+	// ErrCodeQuery marks a query the console refused: an unknown field, a value of the
 	// wrong kind, a limit over the cap. The input is at fault, not the case, and the page says so.
 	ErrCodeQuery = "query_error"
 )
 
-// --- Case lock (plan §14.5, item 40) ---
+// --- Case lock ---
 //
 // Everything that writes the case, or a copy of an event's content, holds the case lock shared; a
 // redaction holds it alone. The activity names fill the refusal messages, so they read as a noun
@@ -1290,7 +1290,7 @@ const (
 	MsgCaseBusyRunningMany = "%s and %s are running"
 )
 
-// --- Correlation rules (P2) ---
+// --- Correlation rules ---
 //
 // A rule is a single JSON file ("1 file = 1 rule, 1 rule = 1 graph"). The body is an
 // ordered sequence of event IDs; edges are emitted between consecutive matched events.
@@ -1336,7 +1336,7 @@ const (
 	RuleFormatWidth  = 100
 )
 
-// --- Auto-graphing algorithm types (P3, extended in v0.2.0) ---
+// --- Auto-graphing algorithm types (extended in v0.2.0) ---
 //
 // A rule selects how its events are correlated into edges. AlgoSequence is the default when a
 // rule omits the field, which is what keeps every v1 rule loading unchanged.
@@ -1641,7 +1641,7 @@ const (
 	IntegrityRuleBlocked       = "rule_blocked"
 	IntegrityRuleUnmatched     = "rule_unmatched"
 
-	// Forensic posture (v0.2.0 Phase 8, plan §14.8).
+	// Forensic posture (v0.2.0).
 	//
 	// These differ in kind from every code above them. The others report a case that is
 	// BROKEN; these report what a case can and cannot PROVE, which for an existing case is
@@ -1659,7 +1659,7 @@ const (
 	IntegrityRootExported    = "root_exported"
 	IntegrityForensicsAbsent = "forensics_unavailable"
 
-	// The image against the fingerprint history (plan §15.5). Rolled back is the one fault among
+	// The image against the fingerprint history. Rolled back is the one fault among
 	// them: the image is provably older than one rohy sealed. The rest are states rohy cannot
 	// tell from benign causes, and say so.
 	IntegrityRootsRolledBack        = "roots_rolled_back"
@@ -1668,12 +1668,12 @@ const (
 	IntegrityRootsUnrecordedSeal    = "roots_unrecorded_seal"
 	IntegrityRootsHistoryUnreadable = "roots_history_unreadable"
 
-	// Redaction (plan §14.5, item 40).
+	// Redaction.
 	IntegrityRedactedFindings = "redacted_findings"
 	IntegrityRedactionPending = "redaction_pending"
 	IntegrityRedactionJournal = "redaction_journal"
 
-	// Who signs the case, and this session (plan §14.8 detector 14, item 43, over item 41).
+	// Who signs the case, and this session (detector 14).
 	IntegritySigningUnknown   = "signing_unknown"
 	IntegritySigningRequested = "signing_requested"
 	IntegritySigningStopped   = "signing_stopped"
@@ -1695,7 +1695,7 @@ const (
 	IntegrityLedgerUnverifiable = "ledger_unverifiable"
 	IntegrityLedgerSigned       = "ledger_signed"
 
-	// Checkpoints (detector 17; items 42, 43).
+	// Checkpoints (detector 17).
 	IntegrityCheckpointAbsent      = "checkpoint_absent"
 	IntegrityCheckpointUnconfirmed = "checkpoint_unconfirmed"
 	IntegrityCheckpointBroken      = "checkpoint_chain_broken"
@@ -1707,7 +1707,7 @@ const (
 	IntegrityCheckpointCurrent     = "checkpoint_current"
 )
 
-// A redaction-ledger record's signature, as checked under the keys the case lists (item 43).
+// A redaction-ledger record's signature, as checked under the keys the case lists.
 const (
 	LedgerSigNone       = "none"
 	LedgerSigValid      = "valid"
@@ -1742,7 +1742,7 @@ const (
 	// IntegrityActionSignCase points at "Sign this case…" on the Signing card. Advice, not a button:
 	// signing starts at the next open and cannot reach what is already written.
 	IntegrityActionSignCase = "sign_case"
-	// IntegrityActionPublishCheckpoint publishes a checkpoint from the Anchoring card (item 42): it
+	// IntegrityActionPublishCheckpoint publishes a checkpoint from the Anchoring card: it
 	// seals first if the case has unsealed changes. IntegrityActionRecordReceipt points at the
 	// receipt form there. Both write.
 	IntegrityActionPublishCheckpoint = "publish_checkpoint"
@@ -1772,7 +1772,7 @@ const (
 	MsgIntegrityRedactPending = "%d redaction(s) did not finish. Until they do, content they were removing may still be in the case."
 )
 
-// Forensic-posture messages (plan §14.8).
+// Forensic-posture messages.
 //
 // 🔒 Every one of these describes a STATE and its consequence, and none of them accuses. They
 // also never overstate what the machinery does: the engine can make alteration DETECTABLE to
@@ -1784,7 +1784,7 @@ const (
 	MsgIntegrityNeverCompacted  = "this case has never been compacted, so nothing in it can be proven yet. Every event is recorded but unaccounted for — which is not the same as missing."
 	MsgIntegrityRootsUnreadable = "this case's fingerprint could not be read, so whether it was ever sealed is unknown: %s. Compacting would write a new one over whatever caused this, so find the cause first."
 	MsgIntegrityImageUncovered  = "this case's image predates integrity digests, so there is nothing covering its contents. Compacting rewrites it with one."
-	// Since item 41 every write names its analyst; what an unsigned case lacks is anything that
+	// Since v0.3.0 every write names its analyst; what an unsigned case lacks is anything that
 	// checks the name. The count is of seals, not commits: graphene's log inspection cannot see a
 	// commit's signature, and every seal folds the log into the image anyway.
 	MsgIntegrityUnsignedCommits = "this case does not sign its seals. Writes name the analyst who made them, but that name is the case's own record, which anyone able to change the case can change. Signing cannot be added afterwards to what is already written."
@@ -1796,7 +1796,7 @@ const (
 	// claiming to have confirmed it would be claiming something worth less.
 	MsgIntegrityRootExported = "a copy of this case's fingerprint was taken on %s. rohy cannot tell whether that copy still exists, or whether it is somewhere beyond the reach of anyone able to change this case — which is what makes it worth having."
 
-	// The image against the fingerprint history (plan §15.5). These are the case checked against
+	// The image against the fingerprint history. These are the case checked against
 	// its own record, so they catch an image that is not the latest one rohy sealed — not a
 	// careful forger, who can rewrite the history as easily as the image.
 	MsgIntegrityRootsRolledBack  = "this case's image is an earlier one than the last rohy sealed: it matches the seal recorded on %s, and %d later seal(s) are not in it. Whatever those seals covered is not in this image. A database restored from a backup looks like this."
@@ -1807,7 +1807,7 @@ const (
 	MsgIntegrityRootsHistoryHeld = "the fingerprint history could not be used when the case opened (%s). It was left in place, and rohy is not recording seals this session rather than write over it."
 	MsgIntegrityRootsForked      = "a seal recorded after %s was made from that older image, so the %d seal(s) recorded between them are not in what followed. The case was rolled back and then sealed again — a database restored from a backup and written to looks like this."
 
-	// Who signs the case, and this session (item 43). The seal's own verdict is the custody
+	// Who signs the case, and this session. The seal's own verdict is the custody
 	// report's wording, so the two never disagree.
 	MsgIntegritySigningUnknown   = "whether this case signs its seals is unknown: its analyst register could not be read (%s)."
 	MsgIntegritySigningRequested = "signing was asked for and starts the next time the case is opened with the key. Seals until then are not signed."
@@ -1820,15 +1820,15 @@ const (
 	MsgIntegrityLogChanged       = "this case's log changed after its analyst last closed it — a crash or an edit — and has not been accepted, so this session signs nothing over it."
 	MsgIntegrityLogAccepted      = "this session signs over a log that changed after its analyst last closed the case, accepted with the reason %q. The next seal's signature covers what changed; it does not say who wrote it."
 
-	// The redaction ledger (detector 16). 🔒 graphene's ledger chain does not cover signatures
-	// (plan §15.8), so an unsigned record is judged by the interval it was written in.
+	// The redaction ledger (detector 16). 🔒 graphene's ledger chain does not cover signatures,
+	// so an unsigned record is judged by the interval it was written in.
 	MsgIntegrityLedgerBroken       = "the redaction ledger does not hold together: %s. A removal record was edited, removed or reordered after it was written."
 	MsgIntegrityLedgerBadSig       = "%d removal record(s) carry a signature that does not check out under the keys this case lists."
 	MsgIntegrityLedgerStripped     = "%d removal record(s) written while this case signed its work carry no signature. The ledger's chain does not cover signatures, so a signature removed afterwards looks exactly like this."
 	MsgIntegrityLedgerUnverifiable = "%d removal record(s) were written while this case did not sign, so who made them rests on the case's own record. Their chain holds, which shows none was edited on its own; it cannot show the whole ledger was not rewritten."
 	MsgIntegrityLedgerSigned       = "all %d removal record(s) are signed by keys this case lists. The list is part of the case, so compare those keys' fingerprints with ones you kept."
 
-	// Checkpoints (detector 17; items 42, 43).
+	// Checkpoints (detector 17).
 	MsgIntegrityCheckpointAbsent      = "no checkpoint of this case has been published outside it. Until one is, anyone able to rewrite this case's files can rewrite its whole history — the seals, the removal records and the audit log — so that every check here still passes. A fingerprint you keep elsewhere covers the seal, not the rest."
 	MsgIntegrityCheckpointUnconfirmed = "checkpoint %d, made %s, has no receipt recorded, so nothing shows its digest reached somewhere outside the case. A checkpoint only the case holds is the case vouching for itself. %s"
 	MsgIntegrityCheckpointLastReceipt = "The last checkpoint with a receipt is %d."
@@ -1856,7 +1856,7 @@ const (
 	MsgIntegrityReceiptsUnread   = "could not read the case's checkpoint receipts: %v"
 )
 
-// Case fingerprint history (plan §14.2).
+// Case fingerprint history.
 const (
 	MsgCustodyNoRoot = "this case has no fingerprint yet: it has never been sealed"
 
@@ -1869,7 +1869,7 @@ const (
 	// the only copy of what it held.
 	MsgCustodyHistoryHeld = "the fingerprint history could not be used and was left in place, so rohy will not write over it: %s"
 
-	// Checkpoint receipts (item 42).
+	// Checkpoint receipts.
 	MsgReceiptsUnusable  = "the checkpoint receipts (%s) could not be used and are left in place, so no receipt is recorded until the file is fixed: %v"
 	MsgReceiptsNewer     = "written by a newer rohy (format %d; this build reads %d)"
 	MsgReceiptRef        = "a receipt's reference must be 1 to %d characters of plain text: what the anchor gave back, such as a token serial, a URL or a page number"
@@ -1881,7 +1881,7 @@ const (
 	MsgReceiptsFull      = "the case holds %d receipts, the most it records"
 )
 
-// Where the case's current image sits against its fingerprint history (plan §15.5).
+// Where the case's current image sits against its fingerprint history.
 //
 // 🔒 Every one of these is the case checking itself against its own record, and the report says
 // so: whoever can rewrite the case folder can write a consistent history too. What the chain
@@ -1920,7 +1920,7 @@ const (
 	FingerprintNotPrevention = "It prevents nothing. It makes a change detectable to someone holding this copy; it cannot stop one."
 )
 
-// --- Event proofs (plan §14.3, item 38) ---
+// --- Event proofs ---
 //
 // An event proof is the file an analyst hands over to show that ONE event was in a sealed case.
 // It carries graphene's inclusion proof, the event's exact stored record and its raw record, and
@@ -1985,7 +1985,7 @@ const (
 	EventProofRecordEmpty = "record_empty"
 )
 
-// Redaction in the engine (plan §14.5, item 40).
+// Redaction in the engine.
 const (
 	MsgRedactBareUnrecorded = "event %d holds no record and the ledger records no redaction of it: damage, not a redaction"
 	MsgRedactIndexSurvived  = "event %d's identity hash still finds it after its record was redacted"
@@ -2061,13 +2061,13 @@ const (
 	RedactionScopeUnknown    = "unknown"
 )
 
-// --- Custody report (#39, plan §14.4) ---
+// --- Custody report ---
 //
 // 🔒 Gaps, never a verdict. No constant here says an event's custody is accounted for: every check
 // rohy can run compares the case against itself, and the report names what each layer did and did
 // not establish rather than adding them up.
 
-// Where the event is, kept apart because each needs a different reading (§14.4, corrected in §15.6).
+// Where the event is, kept apart because each needs a different reading.
 const (
 	CustodyPresenceUnavailable      = "unavailable"
 	CustodyPresenceInSeal           = "in_seal"
@@ -2077,7 +2077,7 @@ const (
 	CustodyPresenceRedacted         = "redacted"
 	CustodyPresenceNotInCase        = "not_in_case"
 	// CustodyPresenceRedactedContent: the event is still in the case, its content removed by a
-	// recorded redaction (item 40). Live, but nothing of what was ingested is left.
+	// recorded redaction. Live, but nothing of what was ingested is left.
 	CustodyPresenceRedactedContent = "redacted_content"
 )
 
@@ -2099,7 +2099,7 @@ const (
 	CustodyEventLayerRedaction = "redaction"
 	CustodyEventLayerHistory   = "history"
 	CustodyEventLayerKept      = "kept_fingerprint"
-	// CustodyEventLayerSigning is rohy's own check of the case's signing (item 41): what the
+	// CustodyEventLayerSigning is rohy's own check of the case's signing: what the
 	// engine does not require — that a case which signs its seals still does, unbroken.
 	CustodyEventLayerSigning = "signing"
 	CustodyRecordRemovals    = "removals"
@@ -2186,7 +2186,7 @@ const (
 	MsgCustodyKeptUnknown             = "The case's image does not descend from the fingerprint you kept, and the case has no record of it. It may belong to another case, or this case's image and history were replaced."
 	MsgCustodyKeptNoImage             = "The case has no fingerprint at all, so its image cannot be the one you kept: the image was replaced, or the fingerprint belongs to another case."
 	MsgCustodyKeptHeld                = "The case's image is not the one whose fingerprint you kept, and the history could not be consulted to say whether it descends from it: %s"
-	// A checkpoint digest given as the kept value (item 42): it is resolved to the seal it names.
+	// A checkpoint digest given as the kept value: it is resolved to the seal it names.
 	MsgCustodyKeptViaCheckpoint    = "The value you kept is the digest of checkpoint %d, which names this seal. The digest pins the seal, so it is checked as if you had kept the seal's fingerprint."
 	MsgCustodyKeptCheckpointOff    = "The value you kept is the digest of checkpoint %d, but the case no longer holds what that checkpoint committed to: %s"
 	MsgCustodyKeptCheckpointUnread = "The value you kept is the digest of checkpoint %d, but what that checkpoint committed to could not be read in full, so it was not checked: %s"
@@ -2211,7 +2211,7 @@ const (
 	CustodyEstablishesKept   = "The case's image is the one whose fingerprint was supplied."
 	CustodyEstablishesSigned = "The case's current seal is signed by a key this case lists. Who holds that key is for whoever compares its fingerprint with one they kept."
 
-	// The signing layer (item 41).
+	// The signing layer.
 	MsgCustodySigningOff        = "This case does not sign its seals, so nothing records who asserted this image."
 	MsgCustodySigningRequested  = "Signing was asked for; it starts the next time the case is opened with the key."
 	MsgCustodySigningUnknown    = "Whether this case signs its seals cannot be told: its analyst register cannot be read (%s)."
@@ -2230,7 +2230,7 @@ const (
 	CustodyNotSourceFile = "It does not establish that the record is what the source file held: rohy recorded no hash of the source file when it was ingested."
 )
 
-// Checking a checkpoint digest the reader holds (item 42, custody.AnchorReport). 🔒 The one check in
+// Checking a checkpoint digest the reader holds (custody.AnchorReport). 🔒 The one check in
 // rohy that does not rest on the case: the digest came from outside it. Even so it says nothing about
 // when the digest was published, or by whom — that is on the anchor it came from.
 const (
@@ -2374,7 +2374,7 @@ var HeatmapGroups = []string{
 
 const MsgHeatmapUnknownGroup = "unknown heatmap grouping %q (expected one of: %s)"
 
-// MsgQueryGroupField refuses a count by a field the store does not count by (item 33).
+// MsgQueryGroupField refuses a count by a field the store does not count by.
 const MsgQueryGroupField = "cannot count events by %q"
 
 // LayoutAbsentLabel names the resource-profile column for events that do not carry the slot
@@ -2522,17 +2522,17 @@ const (
 	EVTXExt           = ".evtx"
 	DialogFilesTitle  = "Select event log file(s)"
 	DialogFolderTitle = "Select a folder containing event logs"
-	// The picker accepts EVTX binaries and SQLite databases holding EVTX data (P17);
+	// The picker accepts EVTX binaries and SQLite databases holding EVTX data;
 	// whether a .db actually aligns with the expected schema is decided on open.
 	DialogEVTXFilterName = "Event logs (*.evtx, *.db)"
 	DialogEVTXFilterGlob = "*.evtx;*.db"
-	// Signing key dialogs (item 41). The key must be kept outside the case's working folder.
+	// Signing key dialogs. The key must be kept outside the case's working folder.
 	DialogKeyCreateTitle = "Save your new signing key — outside the case folder"
 	DialogKeyOpenTitle   = "Choose your signing key"
 	DialogKeyDefaultName = "rohy-signing.key"
 	DialogKeyFilterName  = "rohy signing keys (*.key)"
 	DialogKeyFilterGlob  = "*.key"
-	// Rule import dialogs (P5).
+	// Rule import dialogs.
 	DialogRuleFilesTitle  = "Select rule file(s)"
 	DialogRuleFolderTitle = "Select a folder containing rule files"
 	DialogRuleFilterName  = "rohy correlation rules (*.json)"
@@ -2559,10 +2559,10 @@ const (
 	SourceTypeSingleEVTX = "single_evtx_file"
 	SourceTypeMultiEVTX  = "multiple_evtx_files"
 	SourceTypeLiveSystem = "live_system"
-	// SourceTypeSQLiteDB marks events extracted from a SQLite .db carrying EVTX data (P17).
+	// SourceTypeSQLiteDB marks events extracted from a SQLite .db carrying EVTX data.
 	SourceTypeSQLiteDB = "sqlite_db"
-	// SourceTypeMessageDB marks rows extracted from a provider/message CATALOGUE database
-	// (P22). Those rows describe what an event id means rather than recording that an event
+	// SourceTypeMessageDB marks rows extracted from a provider/message CATALOGUE database.
+	// Those rows describe what an event id means rather than recording that an event
 	// occurred — they carry no timestamp, computer or user — so they are labelled distinctly
 	// and must stay visibly separable from real evidence.
 	SourceTypeMessageDB = "sqlite_message_db"
@@ -2613,7 +2613,7 @@ var identityRecipes = map[string]string{
 	SourceTypeMessageDB:  IdentityRecipeWindows,
 }
 
-// --- SQLite (.db) EVTX source (P17) ---
+// --- SQLite (.db) EVTX source ---
 //
 // rohy reads EVTX data from a SQLite database only when that database matches a KNOWN,
 // DOCUMENTED shape — there is no universal "EVTX in SQLite" standard, so auto-detecting an
@@ -2667,7 +2667,7 @@ var DBColumnAliases = map[string][]string{
 	DBColRawXML:    {"xml", "raw_event", "event_xml", "eventxml", "raw", "message"},
 }
 
-// --- Second .db shape: provider / message catalogue (P22) ---
+// --- Second .db shape: provider / message catalogue ---
 //
 // A two-table schema that maps (provider, event id) → message text. It is a CATALOGUE of
 // what event ids mean, not a log of what happened: there is no timestamp, computer, user or
@@ -2716,7 +2716,7 @@ const DefaultDeduplicationCount = 1
 
 // --- Ingestion pipeline tuning ---
 //
-// These bound peak memory independent of input size (P2-L). ChunkQueueDepth caps
+// These bound peak memory independent of input size. ChunkQueueDepth caps
 // how many parsed-chunk batches may be in flight between the streaming reader and
 // the persistence sink, applying backpressure to the slowest stage; a file ingest,
 // which hands chunks over in file order, may parse ChunkQueueDepth + ParseWorkerCount
@@ -2805,7 +2805,7 @@ const (
 	MsgNoIngestionRunning = "no ingestion is running"
 	MsgNotPaused          = "ingestion is not paused"
 
-	// SQLite (.db) source errors (P17). The distinction matters to the user: "this is not
+	// SQLite (.db) source errors. The distinction matters to the user: "this is not
 	// a database at all" is a different problem from "this is a database, but not one rohy
 	// recognizes as holding EVTX data".
 	MsgDBNotSQLite      = "%q is not a readable SQLite database: %v"
@@ -2841,14 +2841,14 @@ const (
 	LiveRenderBatch   = 64
 	LiveNextTimeoutMs = 1000
 	// LiveQueryAfterRecord selects only events newer than a known position, which is how
-	// continuous capture resumes without re-reading (P7 incremental ingestion).
+	// continuous capture resumes without re-reading (incremental ingestion).
 	LiveQueryAfterRecord = "*[System[EventRecordID>%d]]"
 	// LivePollInterval is how long a drained channel waits before asking for new records
 	// in continuous mode. Short enough to feel live, long enough to stay idle-cheap.
 	LivePollInterval = 2 * time.Second
 )
 
-// --- Live capture bookmarks (P7 incremental ingestion) ---
+// --- Live capture bookmarks (incremental ingestion) ---
 const (
 	// CaptureSubdir holds the per-channel capture positions (rohy-data/capture);
 	// CaptureStateFile is the durable bookmark document inside it.
@@ -2856,7 +2856,7 @@ const (
 	CaptureStateFile = "positions.json"
 
 	// RootsSubdir holds the case-fingerprint history (rohy-data/roots); RootsStateFile is the
-	// document inside it (plan §14.2).
+	// document inside it.
 	//
 	// It lives beside the store rather than inside it for the same reason findings and
 	// annotations do — but the reasoning has an extra edge here. The history is kept internally
@@ -2867,7 +2867,7 @@ const (
 	RootsSubdir    = "roots"
 	RootsStateFile = "roots.json"
 	// ReceiptsFile, beside the fingerprint history, holds what the analyst recorded about where each
-	// checkpoint's digest was published (item 42). 🔒 The case's own record: a receipt in it is only
+	// checkpoint's digest was published. 🔒 The case's own record: a receipt in it is only
 	// a pointer to follow, never a witness.
 	ReceiptsFile       = "receipts.json"
 	ReceiptsDocVersion = 1
@@ -2877,7 +2877,7 @@ const (
 	// ReceiptTimeSlack bounds a receipt's time: not after now, nor before its checkpoint was
 	// captured, by more than this. A guard against a mistyped date, not a check of either clock.
 	ReceiptTimeSlack = 24 * time.Hour
-	// RootsDocVersion guards the document format. 2 (item 41) records who sealed and the seal's
+	// RootsDocVersion guards the document format. 2 records who sealed and the seal's
 	// signature; this build reads 1 as well, and an older build keeps a 2 aside rather than drop
 	// the new fields by writing it back.
 	RootsDocVersion = 2
@@ -2903,9 +2903,9 @@ const (
 	XMLTimeLayoutFallback = "2006-01-02T15:04:05Z07:00"           // RFC3339
 )
 
-// --- Query console (item 33) ---
+// --- Query console ---
 //
-// A structured builder, never an expression language (🔒 plan §13 item 33, risk R8): a subject, a
+// 🔒 A structured builder, never an expression language: a subject, a
 // list of conditions ANDed together, an optional field to count by, and a limit. The vocabulary
 // (backend/query.Describe) is the one statement of it; the page builds itself from that.
 const (

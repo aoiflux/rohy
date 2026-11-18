@@ -318,7 +318,7 @@ func TestSavedRulesSurviveAReopen(t *testing.T) {
 	}
 }
 
-// --- Repairing a file that failed to load (P26) ---
+// --- Repairing a file that failed to load ---
 
 // The repaired rule is written under the id its NAME produces, which is rarely the filename
 // the broken file had. Without retiring the original, the directory would keep reporting it

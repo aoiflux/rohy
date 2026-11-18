@@ -12,7 +12,7 @@ import (
 	"rohy/backend/utils"
 )
 
-// SQLite (.db) ingestion (P17). A .db carrying EVTX data is read by the dbsource package
+// SQLite (.db) ingestion. A .db carrying EVTX data is read by the dbsource package
 // and then joined to the SAME sink as the binary and live readers, so dedup, batching,
 // progress, cancellation, pause/resume and persistence all behave identically regardless of
 // where an event came from.
@@ -98,7 +98,7 @@ func ingestDB(ctx context.Context, opts Options, sink EventSink, reporter Report
 // when present and parseable, is used only to enrich ParsedFields; it never overrides a
 // column, so a stray XML blob cannot quietly rewrite the evidence.
 //
-// Catalogue rows (P22) take a different identity: they carry no timestamp, computer or
+// Catalogue rows take a different identity: they carry no timestamp, computer or
 // user, so the usual hash would make every message for one (provider, event id) collide and
 // silently keep whichever arrived first. They are hashed over what they actually contain —
 // provider, event id and message — so re-importing the same catalogue collapses while two

@@ -1,4 +1,4 @@
-// The query console's pure half (item 33): turn the builder's rows into a spec, check it against the
+// The query console's pure half: turn the builder's rows into a spec, check it against the
 // vocabulary the backend described, and format what comes back.
 //
 // 🔒 The vocabulary comes from QueryAPI.Describe, never from a list kept here, so the page offers

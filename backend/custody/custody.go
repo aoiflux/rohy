@@ -1,5 +1,5 @@
 // Package custody owns the case-fingerprint history: which snapshot roots this case has had, and
-// which of them the analyst has taken a copy of (plan §14.2).
+// which of them the analyst has taken a copy of.
 //
 // # Why a sidecar at all, when the roots are already in the image
 //
@@ -76,7 +76,7 @@ type Record struct {
 	Events       int    `json:"events,omitempty"`
 	AppVersion   string `json:"app_version,omitempty"`
 
-	// Who sealed, and whether the seal is signed (item 41). ActorID is the session's analyst, 0 for
+	// Who sealed, and whether the seal is signed. ActorID is the session's analyst, 0 for
 	// a seal made before analysts were recorded. Attestation is the id of the signature the seal
 	// carries, and KeyID the key that made it; both are empty for an unsigned seal. Recorded by rohy
 	// when the seal ran, so a later image that lost its signature disagrees with its own record.
@@ -166,7 +166,7 @@ func Open(dir string) (*Store, error) {
 }
 
 // OpenDeferred is Open without the move: an unusable document is reported by Damage and HELD in
-// place — every write refused — until Settle moves it aside. A session that cannot write (item 41)
+// place — every write refused — until Settle moves it aside. A session that cannot write
 // never settles, so it leaves the case folder exactly as it found it.
 func OpenDeferred(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -186,7 +186,7 @@ func OpenDeferred(dir string) (*Store, error) {
 		s.holdAside(fmt.Sprintf(consts.MsgCustodyHistoryCorrupt, err))
 		return s, nil
 	}
-	// Every older format reads as this one: version 2 only added who sealed and how (item 41), and
+	// Every older format reads as this one: version 2 only added who sealed and how, and
 	// the next write records the document at the current version. A NEWER format is kept aside — an
 	// older build does the same with this one, which is what bumping the version buys: an older build
 	// never re-writes a history and silently drops the fields it does not know.

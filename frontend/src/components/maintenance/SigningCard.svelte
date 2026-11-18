@@ -1,5 +1,5 @@
 <script>
-  // The case's signing on the Maintenance page (item 41): how this session opened the case, who has
+  // The case's signing on the Maintenance page: how this session opened the case, who has
   // worked on it, the keys it lists, and the two actions — sign this case from its next start, and
   // unlock the key of a case opened read-only.
   //

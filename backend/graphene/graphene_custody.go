@@ -1,6 +1,6 @@
 package graphene
 
-// The engine's custody account for one event, in rohy's shape (plan §14.4).
+// The engine's custody account for one event, in rohy's shape.
 //
 // This file only gathers. What the account means, and how it is worded, is decided in
 // backend/custody, which composes it with what the engine cannot know: whether the event's record
@@ -39,7 +39,7 @@ type CustodyRedaction struct {
 	ActorID uint64
 	Reason  string
 	// Seq is the record's place in the ledger. Signed reports a signature on it, and SignatureValid
-	// that it checked out under the verifier the report was assembled with (item 41).
+	// that it checked out under the verifier the report was assembled with.
 	Seq            uint64
 	KeyID          uint64
 	Signed         bool
@@ -92,7 +92,7 @@ func (s *Store) EventCustody(id uint64) (EventCustody, error) {
 }
 
 // EventCustodyUnder assembles the engine's account for one event, checking signatures under v —
-// the keys the case lists (item 41). v may be nil.
+// the keys the case lists. v may be nil.
 //
 // 🔒 v is the case's own list of keys, so a signature that checks out under it says the image was
 // signed by a key this case names. Whether that key is the analyst's is for whoever compares its

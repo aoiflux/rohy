@@ -8,7 +8,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// Checkpoint cost (item 42). Histories runs on every integrity check and every held-digest check;
+// Checkpoint cost. Histories runs on every integrity check and every held-digest check;
 // a publish runs on a click. Both read every history the checkpoint commits to, which is the audit
 // log and the ledgers, never the events: the size of the case should not move them.
 //

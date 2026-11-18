@@ -1,6 +1,6 @@
 package payload
 
-// Redaction in the cold store (plan §14.5.1, item 40).
+// Redaction in the cold store.
 //
 // The graph's redaction removes an event's record from the graph. It cannot touch this log, which
 // holds the part of the event that actually carries the personal data — the raw record and the

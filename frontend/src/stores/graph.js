@@ -1,6 +1,6 @@
-// Graph store (P5.2). Owns canvas state: nodes (event + world position), edges,
-// viewport (pan/zoom), selection, and layout mode. The rendering/interaction logic is
-// P7; persistence via the graph API is P8. This store is the single source of truth
+// Graph store. Owns canvas state: nodes (event + world position), edges,
+// viewport (pan/zoom), selection, and layout mode. Persistence goes through
+// the graph API. This store is the single source of truth
 // the canvas binds to, preventing canvas/DB divergence.
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
@@ -25,10 +25,10 @@ function initial() {
     viewport: { x: 0, y: 0, zoom: 1 },
     selection: /** @type {number[]} */ ([]),
     layout: LAYOUT.MANUAL,
-    // focus is a one-shot request to centre the canvas on an event node (P14.4). The
+    // focus is a one-shot request to centre the canvas on an event node. The
     // nonce lets the canvas react to repeated focus requests for the same id.
     focus: /** @type {{id:number|null, nonce:number}} */ ({ id: null, nonce: 0 }),
-    // Multiple graphs (P15): the registry list and the active graph id. Nodes/edges/
+    // Multiple graphs: the registry list and the active graph id. Nodes/edges/
     // layout above always belong to the active graph.
     graphs: /** @type {any[]} */ ([]),
     activeGraphId: 0,
@@ -38,7 +38,7 @@ function initial() {
     // without anyone having to remember to clear this.
     mappingFor: /** @type {number|null} */ (null),
     // Ids of items created just now, so the canvas animates an entrance for THOSE only —
-    // not for the constant mount/unmount churn of virtualization (P10 / R-AN1).
+    // not for the constant mount/unmount churn of virtualization.
     fresh: { nodes: /** @type {Set<number>} */ (new Set()), edges: /** @type {Set<number>} */ (new Set()) },
   };
 }
@@ -49,7 +49,7 @@ function create() {
 
   // Nodes and edges that have just been created, so the canvas can animate ONLY those.
   // This matters because the canvas is virtualized: nodes mount and unmount constantly as
-  // you pan, and animating every mount would make panning shimmer (R-AN1). Membership is
+  // you pan, and animating every mount would make panning shimmer. Membership is
   // cleared shortly after, so the animation plays once for a genuinely new item.
   function markFresh(key, id) {
     update((s) => ({ ...s, fresh: { ...s.fresh, [key]: new Set([...s.fresh[key], id]) } }));
@@ -65,7 +65,7 @@ function create() {
 
   // addNode places an event on the canvas. `animate` is false for bulk restores: loading a
   // saved mapping is not "creating" nodes, and animating hundreds of them at once is the
-  // per-node animation cost the canvas is supposed to avoid (R-AN1).
+  // per-node animation cost the canvas is supposed to avoid.
   function addNode(event, x = 0, y = 0, { animate = true } = {}) {
     update((s) => ({ ...s, nodes: { ...s.nodes, [event.id]: { event, x, y } } }));
     if (animate) markFresh('nodes', event.id);
@@ -90,7 +90,7 @@ function create() {
     update((s) => ({ ...s, layout: mode === LAYOUT.AUTO ? LAYOUT.AUTO : LAYOUT.MANUAL }));
   }
   // focusEvent requests the canvas centre on an event's node and selects it. The canvas
-  // performs the actual viewport move once it knows its own dimensions (P14.4).
+  // performs the actual viewport move once it knows its own dimensions.
   function focusEvent(id) {
     update((s) => ({ ...s, selection: [id], focus: { id, nonce: s.focus.nonce + 1 } }));
   }
@@ -122,7 +122,7 @@ function create() {
     }));
   }
 
-  // --- Multiple graphs (P15) ---
+  // --- Multiple graphs ---
 
   // loadGraphs refreshes the registry list + active id from the backend.
   async function loadGraphs() {
@@ -180,7 +180,7 @@ function create() {
   }
 
   // connect persists a manual directed edge (with an optional free-text label) in the
-  // active graph and reflects it locally (P8 flow entry point).
+  // active graph and reflects it locally (flow entry point).
   async function connect(from, to, relationType, label) {
     const rel = await api.createRelation({
       from,
@@ -221,7 +221,7 @@ function create() {
   }
 
   // refreshEvents re-reads every event on the canvas and the active graph's edges, so a redaction
-  // leaves no copy of the content in a card, and no edge a rule made to it (plan §14.5).
+  // leaves no copy of the content in a card, and no edge a rule made to it.
   async function refreshEvents() {
     const ids = Object.keys(get(store).nodes).map(Number);
     if (ids.length > 0) {
@@ -255,7 +255,7 @@ function create() {
   }
 
   // saveLayout persists the active graph's node positions + viewport. The node id set is
-  // the graph's canvas membership, so placed-but-unlinked nodes survive reload (P15).
+  // the graph's canvas membership, so placed-but-unlinked nodes survive reload.
   // It refuses on a canvas that has not loaded; both Save layout and Arrange's Keep come here.
   async function saveLayout() {
     const s = get(store);

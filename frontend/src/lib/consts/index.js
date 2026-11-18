@@ -24,11 +24,11 @@ export const CHANNELS = Object.freeze({
   MAINTENANCE_PROGRESS: 'maintenance:progress',
   MAINTENANCE_COMPLETE: 'maintenance:complete',
   MAINTENANCE_STATE: 'maintenance:state',
-  // Case sealing (plan §14.2): the compaction after an ingest that gives what it wrote a
+  // Case sealing: the compaction after an ingest that gives what it wrote a
   // fingerprint. Its own channel because it is a distinct step that can take seconds.
   CASE_SEALING: 'case:sealing',
   CASE_SEALED: 'case:sealed',
-  // A redaction ran (plan §14.5). Carries its outcome; every view holding the event drops it.
+  // A redaction ran. Carries its outcome; every view holding the event drops it.
   CASE_REDACTED: 'case:redacted',
 });
 
@@ -50,7 +50,7 @@ export const MAX_REDACTION_REASON_BYTES = 2048;
 
 // What a seal did, carried on case:sealed (mirror backend consts.SealState*). UNCHANGED means
 // nothing was written since the last seal, so nothing was compacted and the fingerprint did not
-// move (plan §15.5).
+// move.
 export const SEAL_STATE = Object.freeze({
   SEALED: 'sealed',
   UNCHANGED: 'unchanged',
@@ -59,17 +59,17 @@ export const SEAL_STATE = Object.freeze({
 });
 
 // Application initialization phases (mirror backend consts.InitPhase*). The window opens
-// immediately and the splash reports these while the case store warms up (P21).
+// immediately and the splash reports these while the case store warms up.
 export const INIT_PHASE = Object.freeze({
   STARTING: 'starting',
   INITIALIZING: 'initializing',
   READY: 'ready',
   FAILED: 'failed',
-  // The case waits for the analyst at the session step (item 41).
+  // The case waits for the analyst at the session step.
   AWAITING_SESSION: 'awaiting_session',
 });
 
-// The session step (item 41; mirror backend consts.SessionNeed*, Session*, Evidence*, CaseMode*,
+// The session step (mirror backend consts.SessionNeed*, Session*, Evidence*, CaseMode*,
 // Signing*). The splash asks only what the case needs before it opens.
 export const SESSION_NEED = Object.freeze({
   NONE: 'none',
@@ -121,7 +121,7 @@ export const SOURCE_TYPES = Object.freeze({
 });
 
 // Undated-event policy (mirrors backend consts.Undated*). Events with no timestamp cannot
-// be placed on a timeline, so they are excluded by default — visibly, never silently (P22).
+// be placed on a timeline, so they are excluded by default — visibly, never silently.
 export const UNDATED = Object.freeze({
   EXCLUDE: '',
   INCLUDE: 'include',
@@ -167,13 +167,13 @@ export const ERROR_CODES = Object.freeze({
   CANCELLED: 'cancelled',
   INTERNAL: 'internal_error',
   RULE: 'rule_error',
-  // A readable source that does not hold EVTX data in the expected shape (P17).
+  // A readable source that does not hold EVTX data in the expected shape.
   SCHEMA: 'schema_error',
-  // A query the console refused (item 33): the input is at fault, not the case.
+  // A query the console refused: the input is at fault, not the case.
   QUERY: 'query_error',
-  // Refused because the case lock is held (plan §14.5); the message names what is running.
+  // Refused because the case lock is held; the message names what is running.
   BUSY: 'case_busy',
-  // Refused because this session cannot write the case (item 41); the message says why and how.
+  // Refused because this session cannot write the case; the message says why and how.
   READ_ONLY: 'case_read_only',
   // A session step refused: a choice the case does not offer, a passphrase that did not unlock.
   SESSION: 'session_error',
@@ -415,9 +415,9 @@ export const GRAPH = Object.freeze({
   REPLAY_DURATION_MS: 18000,
   REPLAY_SPEEDS: Object.freeze([0.5, 1, 2, 4]),
   // How many analyst tags a node card shows before it would start crowding the event data
-  // it exists to display (P25).
+  // it exists to display.
   NODE_TAG_LIMIT: 3,
-  // Edge-creation affordance (P18). The old 14px corner dot was the reported pain point:
+  // Edge-creation affordance. The old 14px corner dot was the reported pain point:
   // it demanded pixel-precision. HANDLE_SIZE is the visible target and HANDLE_HIT_PAD
   // extends the *invisible* hit area around it, so the effective target comfortably clears
   // the 44px accessible minimum without a 44px dot dominating the card.
@@ -489,7 +489,7 @@ export const UI = Object.freeze({
   NAV_MAINTENANCE: 'Maintenance',
   NAV_QUERY: 'Query',
 
-  // Timeline page (P24)
+  // Timeline page
   TIMELINE_DATED: 'on the timeline',
   TIMELINE_UNDATED_EXCLUDED: 'event(s) have no timestamp and cannot be placed on a timeline.',
   TIMELINE_SEE_EVENTS: 'See them on Events',
@@ -504,7 +504,7 @@ export const UI = Object.freeze({
   TIMELINE_GROUP_NONE: 'No grouping',
   TIMELINE_GROUP_GRAPH: 'Graph / rule',
   TIMELINE_PLAYHEAD_HINT: 'Drag along the axis to scrub',
-  // Timeline toolbar (P24 UX pass).
+  // Timeline toolbar.
   TIMELINE_MODE_PAN: 'Pan',
   TIMELINE_MODE_SELECT: 'Select',
   TIMELINE_MODE_PAN_HINT: 'Drag to move through time (hold Shift to select a range)',
@@ -518,7 +518,7 @@ export const UI = Object.freeze({
   RELATION_ONE_EVENT: 'event',
   RELATION_MANY_EVENTS: 'events',
 
-  // Correlation rules (P2/P4/P5)
+  // Correlation rules
   RULES_TITLE: 'Correlation rules',
   RULES_SUBTITLE: 'Rules describe an ordered chain of event IDs. Enabled rules are what auto-graphing runs.',
   RULES_EMPTY: 'No rules loaded.',
@@ -541,7 +541,7 @@ export const UI = Object.freeze({
   RULE_ENABLED: 'Rule enabled',
   RULE_DISABLED: 'Rule disabled',
 
-  // Live capture (P7)
+  // Live capture
   LIVE_TITLE: 'Live system capture',
   LIVE_SUBTITLE: 'Stream the Windows event log straight into the case. Capture resumes where it left off.',
   LIVE_CONTINUOUS: 'Keep capturing (continuous)',
@@ -559,7 +559,7 @@ export const UI = Object.freeze({
   LIVE_CAPTURE_STARTED: 'Live capture started',
   LIVE_CAPTURE_STOPPED: 'Live capture stopped',
 
-  // Rule-driven graph building (P6)
+  // Rule-driven graph building
   ACTION_RUN_RULES: 'Run enabled rules',
   ACTION_RUN_RULE: 'Run',
   RULES_SCOPE_FILTER: 'Scope to the current event filter',
@@ -582,7 +582,7 @@ export const UI = Object.freeze({
   STATUSBAR_NO_RULES: 'none active',
   STATUSBAR_NO_RULES_HINT: 'No rules are enabled — auto-graphing will produce nothing.',
 
-  // About (P13)
+  // About
   ACTION_ABOUT: 'About rohy',
   ABOUT_TITLE: 'About',
   ABOUT_VERSION: 'Version',
@@ -610,7 +610,7 @@ export const UI = Object.freeze({
   INGEST_JOB_TOTALS: 'Job total',
   INGEST_STARTING: 'Starting…',
 
-  // Timeline participation (P22/P23)
+  // Timeline participation
   UNDATED_TIMESTAMP: '—',
   UNDATED_INGESTED_SUFFIX: 'row(s) had no timestamp — they are listed on the Events page but cannot appear on a timeline.',
   NO_TIMELINE: 'no timestamp',
@@ -623,7 +623,7 @@ export const UI = Object.freeze({
   DETAIL_CORRELATED_NO: 'No correlations yet',
   LABEL_PARTICIPATION: 'Participation',
 
-  // Startup / initialization (P21)
+  // Startup / initialization
   INIT_STARTING: 'Starting…',
   INIT_READY: 'Ready',
   INIT_FAILED_TITLE: 'Could not start',
@@ -633,7 +633,7 @@ export const UI = Object.freeze({
   EXPORT_DONE: 'Exported',
   EXPORT_PARTIAL: 'Backend unavailable — exported only the loaded page:',
 
-  // Relation-aware QoL (P11)
+  // Relation-aware QoL
   QUICK_FILTERS: 'Quick filters',
   FILTER_HAS_RELATIONS: 'Has relations',
   FILTER_RULE_CORRELATED: 'Rule-correlated',
@@ -657,7 +657,7 @@ export const UI = Object.freeze({
   SHORTCUT_SCRUB: 'Move the playhead (Shift for a bigger step)',
   SHORTCUT_SCRUB_ENDS: 'Playhead to the start / end of the view',
 
-  // Search collapse/expand (P9)
+  // Search collapse/expand
   SEARCH_PANEL_TITLE: 'Search & filters',
   SEARCH_EXPAND: 'Show search and filters',
   SEARCH_COLLAPSE: 'Hide search and filters',
@@ -665,7 +665,7 @@ export const UI = Object.freeze({
   FILTERS_NONE: 'No filters — showing all events',
   FILTERS_ACTIVE_SUFFIX: 'filter(s) active',
 
-  // Rule inspector (P19)
+  // Rule inspector
   RULE_INSPECT_TITLE: 'Rule',
   RULE_INSPECT_HINT: 'Click a rule to inspect its definition.',
   RULE_INSPECT_SOURCE: 'Definition',
@@ -690,7 +690,7 @@ export const UI = Object.freeze({
   VALUE_NO: 'No',
   VALUE_NONE: '—',
 
-  // Rule editor (P26). Two modes over one document: a JSON buffer and a schema-driven form.
+  // Rule editor. Two modes over one document: a JSON buffer and a schema-driven form.
   RULE_EDITOR_TITLE_NEW: 'New rule',
   RULE_EDITOR_TITLE_EDIT: 'Edit rule',
   RULE_EDITOR_TITLE_DUPLICATE: 'Duplicate of',
@@ -899,7 +899,7 @@ export const UI = Object.freeze({
   MARQUEE_HINT: 'Shift+drag on empty space to box-select · Ctrl+A all · Esc clears',
   ACTION_AUTO_LAYOUT: 'Auto-layout',
 
-  // --- Arrange (auto-layout profiles, P29) ---
+  // --- Arrange (auto-layout profiles) ---
   //
   // The wording throughout is built around one fact: node positions are the only thing on this
   // canvas placed by hand, and there is no undo for them. So nothing here says "apply" — it says
@@ -917,7 +917,7 @@ export const UI = Object.freeze({
   ARRANGE_PARTIAL: 'nodes could not be placed — the canvas changed since this was computed.',
   ARRANGE_FAILED: 'Could not arrange this graph:',
 
-  // --- Relationship heatmap (P29) ---
+  // --- Relationship heatmap ---
   //
   // The timeline says when EVENTS happened. This says when the things rohy inferred happened —
   // and, just as importantly, how many of them could not be placed at all.
@@ -937,7 +937,7 @@ export const UI = Object.freeze({
   TIMELINE_PLAYHEAD_OUTSIDE:
     'The playhead is set outside the range shown here — the graph covers events this filter excludes.',
 
-  // --- Maintenance & case integrity (P30) ---
+  // --- Maintenance & case integrity ---
   //
   // 🔒 Every action here is a button. Nothing runs on startup, and nothing repairs as a side
   // effect of checking — so the copy never says a check "fixed" anything.
@@ -1000,12 +1000,12 @@ export const UI = Object.freeze({
     // you would sit in the same folder as the evidence, where anyone able to change one could
     // change the other. Keeping it elsewhere is the entire mechanism.
     retain_root: 'Copy the case fingerprint below and keep it somewhere outside this case folder.',
-    // Advice, not a button (item 43): signing needs a key chosen on the Signing card, starts the
+    // Advice, not a button: signing needs a key chosen on the Signing card, starts the
     // next time the case opens, and cannot reach what is already written.
     sign_case:
       'Use “Sign this case…” on the Signing card above. Signing starts the next time the case ' +
       'opens; what is already written stays unsigned.',
-    // Advice (item 42): only the analyst knows what the place they published to gave back.
+    // Advice: only the analyst knows what the place they published to gave back.
     record_receipt:
       'Record what the place you published the digest to gave back, under “Record a receipt” on ' +
       'the Checkpoints card.',
@@ -1033,7 +1033,7 @@ export const UI = Object.freeze({
     publish: 'Checkpoint recorded and its statement saved. Publish the digest, then record the receipt.',
   }),
 
-  // --- Forensic posture (Phase 8, plan §14) ---
+  // --- Forensic posture ---
   //
   // 🔒 The copy rule for this whole section: say what the case can establish and what it cannot,
   // and never more. The machinery makes alteration DETECTABLE to somebody holding a value kept
@@ -1056,7 +1056,7 @@ export const UI = Object.freeze({
   MAINT_FORENSIC_ROOTS_UNREADABLE:
     'The case fingerprint could not be read, so whether this case was ever sealed is unknown. ' +
     'Sealing again would hide the cause; check the case folder first.',
-  // Since item 41 every write names its analyst; signing is what makes that name checkable. The
+  // Since v0.3.0 every write names its analyst; signing is what makes that name checkable. The
   // three lines follow the session, not the case: a signed case opened read-only signs nothing.
   MAINT_FORENSIC_UNSIGNED:
     'This session does not sign. Each write names the analyst, but that name is the case’s own ' +
@@ -1082,7 +1082,7 @@ export const UI = Object.freeze({
   MAINT_FORENSIC_EXPORTED:
     'A copy was saved. rohy cannot tell whether it still exists, or whether it is somewhere ' +
     'beyond the reach of anyone able to change this case — which is what makes it worth having.',
-  // --- Checkpoints (item 42) ---
+  // --- Checkpoints ---
   //
   // 🔒 rohy ships no anchor. It records a checkpoint and hands over its digest; publishing it, and
   // what comes back, is the analyst's. A receipt is the case's own record — a pointer to follow,
@@ -1166,7 +1166,7 @@ export const UI = Object.freeze({
   MAINT_FAILED: 'That did not work:',
   MAINT_DISMISS: 'Dismiss',
 
-  // --- Query console (item 33) ---
+  // --- Query console ---
   QUERY_INTRO:
     'Ask the case a question: pick events or relations, narrow them with conditions, and list them or count them by a field. Read-only: nothing here changes the case.',
   QUERY_LOADING: 'Reading what the case can be asked…',
@@ -1215,7 +1215,7 @@ export const UI = Object.freeze({
   QUERY_PROBLEM_TIME: (f) => `${f} needs a time like 2026-01-31T09:00:00Z.`,
   QUERY_PROBLEM_RANGE: 'The time range ends before it starts.',
 
-  // --- Annotations (P29) ---
+  // --- Annotations ---
   //
   // The analyst's own marks ON a graph, as distinct from a finding, which is about an EVENT and
   // follows it everywhere. The copy below keeps that distinction visible.
@@ -1244,7 +1244,7 @@ export const UI = Object.freeze({
     'A layer marks up THIS graph. To record something about an event itself — one that should ' +
     'follow it everywhere — use a finding instead.',
 
-  // --- Snapshots (P29) ---
+  // --- Snapshots ---
   //
   // A snapshot records what a graph looked like. A restore says what it can HONESTLY put back —
   // which is why the wording below never says "restore" without saying what to.
@@ -1288,7 +1288,7 @@ export const UI = Object.freeze({
       'quietly skipped.',
   }),
 
-  // --- Replay (P29) ---
+  // --- Replay ---
   //
   // Ordered by when the EVENTS happened, never by when the rule build ran.
   REPLAY_TITLE: 'Replay',
@@ -1313,7 +1313,7 @@ export const UI = Object.freeze({
     step: 'Step in the chain',
   }),
 
-  // --- Clusters (P29) ---
+  // --- Clusters ---
   CLUSTER_TITLE: 'Group',
   CLUSTER_MODE: 'Group by',
   CLUSTER_FIELD: 'Field',
@@ -1349,7 +1349,7 @@ export const UI = Object.freeze({
   GRAPH_EMPTY: 'Add events from the panel to start mapping.',
   GRAPH_CONNECT_HINT: 'Tip: drag from a node’s link handle to another node — or turn on Connect mode to drag from anywhere on a node.',
 
-  // Edge-creation UX (P18)
+  // Edge-creation UX
   ACTION_CONNECT_MODE: 'Connect mode',
   CONNECT_MODE_HINT: 'Connect mode: drag from anywhere on a node onto another to link them. Esc to exit.',
   CONNECT_SHORTCUT_HINT: 'C',
@@ -1400,7 +1400,7 @@ export const UI = Object.freeze({
   STATUS_SEALING: 'Sealing case…',
   SEAL_BAR_HINT: 'Computing the case fingerprint over what was just ingested. On a large case this takes a few seconds.',
 
-  // Pause/resume (P8)
+  // Pause/resume
   ACTION_PAUSE: 'Pause',
   ACTION_RESUME: 'Resume',
   PAUSED_HINT: 'Paused at a consistent point — resuming continues with no gap or duplicate.',
@@ -1437,17 +1437,17 @@ export const UI = Object.freeze({
   LABEL_SOURCE_IDENTIFIER: 'Source file/channel',
   SOURCE_TYPE_ANY: 'Any source',
 
-  // Deduplication (P12)
+  // Deduplication
   DETAIL_OCCURRENCES: 'Occurrences (deduplicated)',
   BADGE_DEDUP_TITLE: 'This event was seen multiple times; identical occurrences are collapsed into one node.',
 
-  // Event source tracking (P13)
+  // Event source tracking
   DETAIL_SOURCE: 'Source',
   DETAIL_SOURCE_TYPE: 'Origin',
   DETAIL_SOURCE_IDENTIFIER: 'From',
   DETAIL_SOURCE_UNKNOWN: 'Unknown (ingested before source tracking)',
 
-  // Relation-aware highlighting (P14)
+  // Relation-aware highlighting
   DETAIL_RELATIONS: 'Relations',
   DETAIL_RELATION_NONE: 'No relations mapped for this event.',
   LABEL_RELATED_EVENTS: 'Related events',
@@ -1455,7 +1455,7 @@ export const UI = Object.freeze({
   RELATION_MANY: 'relations',
   ACTION_SHOW_IN_GRAPH: 'Show in graph',
 
-  // Analyst findings (P25). Everything else in rohy is machine-derived; this is the one
+  // Analyst findings. Everything else in rohy is machine-derived; this is the one
   // layer the analyst authors, so the wording says whose claim it is.
   LABEL_FINDINGS: 'Flagged',
   FINDING_SECTION: 'Your findings',
@@ -1512,7 +1512,7 @@ export const UI = Object.freeze({
   DETAIL_RAW: 'Raw payload (JSON)',
   DETAIL_NONE: 'No parsed fields.',
 
-  // Event proofs (plan §14.3, item 38). The same discipline as the fingerprint copy: say what the
+  // Event proofs. The same discipline as the fingerprint copy: say what the
   // file proves and what it does not, and never let "saved" read as "proven".
   DETAIL_PROOF_TITLE: 'Proof',
   // 🔒 The disclosure is stated as it is, not rounded down. The file carries no other event's
@@ -1578,7 +1578,7 @@ export const UI = Object.freeze({
   }),
   DETAIL_RAW_REDACTED: 'Removed by a redaction. The raw record and parsed fields are no longer in the case.',
 
-  // Redaction (plan §14.5, item 40).
+  // Redaction.
   // 🔒 The copy never says the content is gone from everywhere: it says where rohy removed it from,
   // and names what it cannot reach. And the reason is never prefilled.
   REDACT_TITLE: 'Redact',
@@ -1631,7 +1631,7 @@ export const UI = Object.freeze({
   REDACTED_ON: 'Redacted %d: %r',
   REDACTED_NO_LEDGER: 'Redacted. This case keeps no ledger, so when and why are not recorded.',
 
-  // The session step (item 41). 🔒 The copy never says a signature proves more than it does: a seal
+  // The session step. 🔒 The copy never says a signature proves more than it does: a seal
   // signed by a key this case lists, checked by whoever compares the key's fingerprint with theirs.
   SESSION_TITLE: 'Before the case opens',
   SESSION_NAME_LABEL: 'Your name',
@@ -1689,7 +1689,7 @@ export const UI = Object.freeze({
   SESSION_REASON_TOO_LONG: 'The reason is longer than %d bytes.',
   SESSION_NAME_TOO_LONG: 'A name is at most %d characters.',
 
-  // Signing on the Maintenance page (item 41).
+  // Signing on the Maintenance page.
   MAINT_EXPORT_NOT_RECORDED: 'The fingerprint was handed over, but the export is not recorded in the case:',
   SIGNING_TITLE: 'Signing',
   SIGNING_HINT:
@@ -1729,7 +1729,7 @@ export const UI = Object.freeze({
   REDACT_PENDING_ROW: 'Event %e, started %d: %r',
   REDACT_FINISH: 'Finish',
 
-  // Custody report (plan §14.4, item 39). The layer messages come from Go; these are the frame.
+  // Custody report. The layer messages come from Go; these are the frame.
   // 🔒 Nothing here says custody is accounted for. The report is a list of gaps, and the counts
   // line says what was not established rather than what was.
   CUSTODY_TITLE: 'Custody',
@@ -1780,12 +1780,12 @@ export const UI = Object.freeze({
   CUSTODY_NOT_ESTABLISHES: 'What this does not establish',
 
   RESULT_COUNT: 'events',
-  EVENTS_OF: 'of', // "showing X of N events" (P1)
+  EVENTS_OF: 'of', // "showing X of N events"
   LOADING_MORE: 'Loading more…',
   EXPORT_EMPTY: 'Nothing to export — load events first.',
   ADDED_TO_GRAPH: 'Added to graph.',
 
-  // Multiple graphs (P15)
+  // Multiple graphs
   LABEL_GRAPH: 'Graph',
   ACTION_NEW_GRAPH: 'New',
   ACTION_RENAME_GRAPH: 'Rename',
@@ -1807,11 +1807,11 @@ export const UI = Object.freeze({
 export const EVENTS_LIST = Object.freeze({
   ROW_HEIGHT: 46, // px; fixed-height rows enable windowed virtualization
   OVERSCAN: 8, // rows rendered beyond the viewport on each side
-  PAGE_LIMIT: 500, // rows fetched per page; more are appended on scroll (P1)
+  PAGE_LIMIT: 500, // rows fetched per page; more are appended on scroll
   LOAD_MORE_ROWS: 12, // trigger the next page when within this many rows of the end
 });
 
-// Total selected-bytes above which the dashboard warns before ingesting (P2-L.5).
+// Total selected-bytes above which the dashboard warns before ingesting.
 export const LARGE_DATASET_BYTES = 10 * 1024 * 1024 * 1024; // 10 GiB
 
 // --- Ingestion lifecycle states (frontend-owned UI state machine) ---
@@ -1823,11 +1823,11 @@ export const INGEST_STATE = Object.freeze({
   ERROR: 'error',
 });
 
-// --- Persisted UI preferences (P9) ---
-// Only view state lives here, never case data; SEARCH_OPEN_DEFAULT false is the P9 gate:
+// --- Persisted UI preferences ---
+// Only view state lives here, never case data. With SEARCH_OPEN_DEFAULT false
 // the search panel starts collapsed.
 export const PREFS = Object.freeze({
-  // Bumped for P23: the undated default flipped from exclude to include, and a filter form
+  // Bumped when the undated default flipped from exclude to include, and a filter form
   // persisted under v1 would keep excluding — reading as "my events disappeared". Bumping
   // the key discards the stale form instead of silently applying an obsolete default.
   KEY: 'rohy.prefs.v2',
@@ -1839,7 +1839,7 @@ export const PREFS = Object.freeze({
 // box, so typing does not fire a backend query per character.
 export const PICKER_SEARCH_DEBOUNCE_MS = 250;
 
-// --- Timeline (P24) ---
+// --- Timeline ---
 export const TIMELINE = Object.freeze({
   // How many density buckets to request. Enough for a detailed shape, few enough that the
   // canvas redraw stays trivial at any zoom.
@@ -1859,7 +1859,7 @@ export const TIMELINE = Object.freeze({
   // any zoom rather than becoming uselessly tiny when zoomed in.
   KEY_STEP: 0.02,
   KEY_STEP_COARSE: 0.1,
-  // Size of the pennant marking a flagged event on the top edge (P25).
+  // Size of the pennant marking a flagged event on the top edge.
   FLAG_MARK_SIZE: 7,
   // How many flagged events the timeline will mark individually. Flags are analyst-authored
   // so the real number is small, but the cap keeps one pathological case from drawing
@@ -1908,7 +1908,7 @@ export const MOTION = Object.freeze({
 
 // Backend-authoritative ingestion lifecycle (mirrors backend consts.IngestState*). This is
 // distinct from INGEST_STATE above, which is the view's own derived status: the backend
-// owns pause/resume, so the UI renders what it is told rather than inferring it (P8).
+// owns pause/resume, so the UI renders what it is told rather than inferring it.
 export const INGEST_LIFECYCLE = Object.freeze({
   IDLE: 'idle',
   ACTIVE: 'active',

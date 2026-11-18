@@ -1,4 +1,4 @@
-// Findings store (P25). Holds the analyst's own marks on events — a flag, tags, and a note
+// Findings store. Holds the analyst's own marks on events — a flag, tags, and a note
 // — plus the tag vocabulary already in use in the case.
 //
 // Findings are keyed by an event's hash_normalized, its content identity, NOT by node id.
@@ -19,7 +19,7 @@ function create() {
     // tags is the case's tag vocabulary with usage counts, most used first.
     tags: /** @type {{tag:string,count:number}[]} */ ([]),
     stats: { total: 0, flagged: 0, noted: 0, tagged: 0 },
-    // Reconciliation against the events actually present (P25). null until audited.
+    // Reconciliation against the events actually present. null until audited.
     audit: /** @type {{total:number,live:number,orphans:any[],stale:boolean}|null} */ (null),
     saving: false,
     error: /** @type {string|null} */ (null),

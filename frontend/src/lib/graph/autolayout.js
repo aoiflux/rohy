@@ -1,5 +1,5 @@
 /**
- * Auto-layout preview state (P29).
+ * Auto-layout preview state.
  *
  * The arrangement itself is computed in Go — deterministic, unit-tested, and reusable without a
  * browser. What lives here is the part that is genuinely a UI concern: previewing an arrangement

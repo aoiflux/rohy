@@ -1,5 +1,5 @@
 /**
- * Reading a custody report (plan §14.4, §15.6, item 39).
+ * Reading a custody report.
  *
  * The report is assembled and worded in Go; its messages are shown as Go wrote them, so there is
  * one source for what each layer says. What lives here is how the report becomes something the
@@ -32,7 +32,7 @@ export const CUSTODY_PRESENCE = Object.freeze({
   NO_FINGERPRINT: 'no_fingerprint',
   REMOVED_SINCE_SEAL: 'removed_since_seal',
   REDACTED: 'redacted',
-  // Still in the case, its content removed by a recorded redaction (item 40).
+  // Still in the case, its content removed by a recorded redaction.
   REDACTED_CONTENT: 'redacted_content',
   NOT_IN_CASE: 'not_in_case',
 });

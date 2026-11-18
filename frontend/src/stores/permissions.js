@@ -1,4 +1,4 @@
-// Permissions store (P5.2, closes P1's frontend items). Holds the latest privilege
+// Permissions store. Holds the latest privilege
 // snapshot and the access decision for the protected channels, refreshed on demand.
 // A blocked decision is surfaced through the snackbar.
 import { writable } from 'svelte/store';

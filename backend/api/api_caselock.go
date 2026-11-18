@@ -9,7 +9,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The case lock (plan §14.5, item 40).
+// The case lock.
 //
 // A redaction strips an event's record and then removes every copy rohy made of it. Anything that
 // reads an event and writes something back — a dedup count, a backfill, a rule run copying a value
@@ -32,7 +32,7 @@ import (
 
 // caseLock is a reader–writer lock that knows who holds it, so a refusal can name them.
 //
-// It is also the write gate (item 41). A session that cannot write — a signed case whose key is
+// It is also the write gate. A session that cannot write — a signed case whose key is
 // locked, a case opened for recovery — refuses every write at the one place every write already
 // passes, with the reason and the remedy. shareRead is the same lock without the gate, for the few
 // passes that take it to stay clear of a redaction but write nothing.

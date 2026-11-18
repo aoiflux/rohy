@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { REDACT_STEP, REDACT_STEP_STATE } from '../lib/consts/index.js';
 
-// Redaction through the maintenance store (plan §14.5, item 40): what moves when, so every view
+// Redaction through the maintenance store: what moves when, so every view
 // holding a copy of the event's content knows to drop it.
 
 const done = (entry) => ({

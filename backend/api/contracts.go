@@ -2,7 +2,7 @@
 // frontend calls. Binding methods contain NO business logic — they validate/adapt
 // arguments and delegate to the ingestion (evtx) and persistence (graphene) layers,
 // and they surface progress/errors/lifecycle as Wails runtime events. This file is
-// the executable contract catalog (P0.3): every request/response DTO, the uniform
+// the executable contract catalog: every request/response DTO, the uniform
 // error shape, the event channel set, and the Desktop abstraction live here.
 package api
 
@@ -134,7 +134,7 @@ type IngestRequest struct {
 	Channels   []string `json:"channels"`
 	Idempotent bool     `json:"idempotent"`
 	// Continuous turns a live run into an open-ended capture that keeps streaming new
-	// records until it is stopped, resuming each channel from its durable bookmark (P7).
+	// records until it is stopped, resuming each channel from its durable bookmark.
 	Continuous bool `json:"continuous"`
 }
 
@@ -163,13 +163,13 @@ type EventQuery struct {
 	SourceIdentifier  string `json:"source_identifier"`
 	MinDuplicateCount int    `json:"min_duplicate_count"`
 	// RelationState is the relation-aware quick filter (consts.RelationFilter*): show only
-	// events that have relations, or only those correlated by a rule (P11).
+	// events that have relations, or only those correlated by a rule.
 	RelationState string `json:"relation_state"`
 	// Undated controls whether events with no timestamp are shown (consts.Undated*). They
-	// are excluded by default because they cannot be placed on a timeline (P22).
+	// are excluded by default because they cannot be placed on a timeline.
 	Undated string `json:"undated"`
 	// FindingState narrows to the analyst's own marks (consts.FindingFilter*) and Tag to a
-	// single tag (P25). They are resolved against the findings sidecar into a set of content
+	// single tag. They are resolved against the findings sidecar into a set of content
 	// hashes before the query runs, so the persistence layer never learns what a finding is.
 	FindingState string `json:"finding_state"`
 	Tag          string `json:"tag"`
@@ -206,7 +206,7 @@ type RelationRequest struct {
 	CreatedBy       string  `json:"created_by"`
 }
 
-// GraphRequest creates or renames a named graph (multiple-graphs, P15). ID is ignored
+// GraphRequest creates or renames a named graph (multiple-graphs). ID is ignored
 // on create and required on rename.
 type GraphRequest struct {
 	ID          uint64 `json:"id"`

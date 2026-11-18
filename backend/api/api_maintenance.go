@@ -42,7 +42,7 @@ type MaintenanceAPI struct {
 	integrity IntegrityDeps
 	// desktop is the window, for the key file dialogs. Nil until Start.
 	desktop Desktop
-	// session is the analyst's session (item 41): the case's keys for checking signatures, and the
+	// session is the analyst's session: the case's keys for checking signatures, and the
 	// signing actions the Maintenance page offers. Nil in tests that need neither.
 	session *Session
 }
@@ -213,7 +213,7 @@ func (a *MaintenanceAPI) sealRewritten(hist *custody.Store) (*SealOutcome, error
 
 // begin claims the maintenance lock for a write-side pass. Two passes over one store at once is
 // the thing it exists to prevent. It also shares the case lock, so no pass runs beside a
-// redaction (plan §14.5). The error it returns is already coded for the binding.
+// redaction. The error it returns is already coded for the binding.
 func (a *MaintenanceAPI) begin(pass string) error {
 	return a.beginAs(theCase.share, pass)
 }

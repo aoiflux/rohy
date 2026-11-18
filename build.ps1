@@ -1,4 +1,4 @@
-# rohy release build (P12) — Windows host.
+# rohy release build — Windows host.
 #
 # Builds the app for the CURRENT platform with version metadata stamped into the binary.
 #

@@ -1,4 +1,4 @@
-// Rules store (P5). Holds the merged rule library (built-in + imported), the per-file
+// Rules store. Holds the merged rule library (built-in + imported), the per-file
 // load errors the backend reports, and loading state. Every mutation goes through the API
 // wrapper and refreshes from the backend's answer, so the registry on disk is always the
 // source of truth — the store never guesses what a toggle or delete did.
@@ -12,7 +12,7 @@ function create() {
     errors: /** @type {{path:string,message:string}[]} */ ([]),
     dir: '',
     loading: false,
-    running: false, // a rule-driven graph build is in flight (P6)
+    running: false, // a rule-driven graph build is in flight
     // Per-rule progress while a build runs: { rule, rule_index, rule_total, relations }.
     progress: null,
     error: null,

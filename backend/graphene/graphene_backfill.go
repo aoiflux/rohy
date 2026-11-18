@@ -57,7 +57,7 @@ type CorrelationKeyStatus struct {
 	Total   int `json:"total"`
 	Current int `json:"current"`
 	Stale   int `json:"stale"`
-	// Redacted events have no record to project (plan §14.5). Counted in Total, never as Stale.
+	// Redacted events have no record to project. Counted in Total, never as Stale.
 	Redacted int `json:"redacted"`
 }
 

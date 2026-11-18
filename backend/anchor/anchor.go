@@ -1,5 +1,4 @@
-// Package anchor keeps what the analyst recorded about where each checkpoint's digest was published
-// (plan §14.7, item 42).
+// Package anchor keeps what the analyst recorded about where each checkpoint's digest was published.
 //
 // rohy publishes nothing itself. It hands the analyst a checkpoint's digest; the analyst takes it
 // somewhere the case's rewriter cannot reach — a timestamping authority, opposing counsel, an

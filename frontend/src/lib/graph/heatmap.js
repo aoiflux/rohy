@@ -1,5 +1,5 @@
 /**
- * Reading a relationship heatmap (P29).
+ * Reading a relationship heatmap.
  *
  * The matrix is computed in Go. What lives here is how a cell becomes a colour, and — more
  * importantly — how the summary's counts become a sentence the analyst can trust.

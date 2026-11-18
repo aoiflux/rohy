@@ -1,4 +1,4 @@
-// Replay + playhead state (P29).
+// Replay + playhead state.
 //
 // This store owns ONE thing: an absolute instant, in milliseconds. Both the graph canvas and the
 // timeline read it, and both write it.

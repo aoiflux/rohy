@@ -18,8 +18,8 @@ import (
 // ErrRuleNotFound is returned when enabling/disabling an unknown rule id.
 var ErrRuleNotFound = fmt.Errorf("rule not found")
 
-// Registry loads correlation rules from the user rules directory (P2; the embedded default
-// library merges in at P4), validates them, tracks per-rule enabled state (persisted
+// Registry loads correlation rules from the user rules directory (the embedded default
+// library merges in), validates them, tracks per-rule enabled state (persisted
 // beside the rules), and exposes the valid rules plus the per-file errors for any that
 // failed to load. It is safe for concurrent use.
 type Registry struct {
@@ -182,7 +182,7 @@ func (r *Registry) List() []*Rule {
 }
 
 // Enabled returns only the enabled valid rules (copies) — the set the auto-graphing
-// workflow (P6) actually runs.
+// workflow actually runs.
 func (r *Registry) Enabled() []*Rule {
 	r.mu.Lock()
 	defer r.mu.Unlock()

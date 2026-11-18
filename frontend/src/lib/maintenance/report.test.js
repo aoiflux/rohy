@@ -207,7 +207,7 @@ describe('backfillFraction', () => {
   });
 });
 
-describe('the session behind the forensic card (item 43)', () => {
+describe('the session behind the forensic card', () => {
   it('reads the session, not the case: read-only first, then signed', () => {
     expect(sessionSigning(null)).toBe(null);
     expect(sessionSigning({ signed: true, read_only: 'the key is locked' })).toBe('read_only');

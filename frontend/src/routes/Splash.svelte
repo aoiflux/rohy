@@ -1,5 +1,5 @@
 <script>
-  // Splash screen (P5.1 + P21). Branded load that reports REAL initialization progress.
+  // Splash screen. Branded load that reports REAL initialization progress.
   //
   // It used to advance on a fixed 900 ms timer while the backend had already finished all
   // its work before the window even appeared. Now the window opens immediately, the store
@@ -48,7 +48,7 @@
     <p class="failmsg">{$init.error}</p>
     <Button variant="tonal" onclick={() => init.refresh()}>{UI.ACTION_RETRY_INIT}</Button>
   {:else if awaiting}
-    <!-- The case waits for the analyst (item 41): who they are, and how to open a signed case. -->
+    <!-- The case waits for the analyst: who they are, and how to open a signed case. -->
     <SessionStep />
   {:else}
     <div class="bar"><ProgressBar value={null} /></div>

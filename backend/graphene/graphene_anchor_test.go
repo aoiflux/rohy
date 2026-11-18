@@ -16,7 +16,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// Checkpoints (item 42): what rohy records, and what it reads back to check one.
+// Checkpoints: what rohy records, and what it reads back to check one.
 
 func publishOne(t *testing.T, s *Store) Checkpoint {
 	t.Helper()

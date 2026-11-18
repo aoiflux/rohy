@@ -12,8 +12,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The integrity report's signing, ledger and checkpoint postures, end to end through a real session
-// (plan §14.8, item 43).
+// The integrity report's signing, ledger and checkpoint postures, end to end through a real session.
 
 func (c *sessionCase) check() caseintegrity.Report {
 	c.t.Helper()

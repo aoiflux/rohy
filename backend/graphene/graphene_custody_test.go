@@ -39,7 +39,7 @@ func gapLayers(c EventCustody) ([]string, bool) {
 	return out, fatal
 }
 
-// 🔒 The states §14.4 says rohy must not flatten, plus the one it missed: an event deleted since the
+// 🔒 The states rohy must not flatten, plus one easily missed: an event deleted since the
 // seal is no longer live but is still in the sealed image, until the next seal drops it.
 func TestEventCustodyKeepsEveryPresenceStateApart(t *testing.T) {
 	late := time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC)
@@ -188,7 +188,7 @@ func TestRohyNamesTheEngineLayersAsTheEngineDoes(t *testing.T) {
 }
 
 // 🔒 Pins exactly what the engine reports for a case opened the way rohy opens an unsigned one: the
-// audit log on (item 41), no retention, no roles, no signer. A graphene upgrade that adds, drops or
+// audit log on, no retention, no roles, no signer. A graphene upgrade that adds, drops or
 // hardens a gap fails here, so the report's copy is revisited rather than quietly describing a
 // different engine. Before the first seal the audit log is empty, so it is still a gap; each seal
 // records a compaction in it.

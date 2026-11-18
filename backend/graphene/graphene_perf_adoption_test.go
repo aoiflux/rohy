@@ -21,7 +21,7 @@ import (
 //
 // Under graphene v0.4 a declaration was runtime state, absorbed again at every open: ~8 s at 100k
 // events, and rohy declared nothing. v0.10 keeps it in graphene.schema and the image, and the
-// trade reversed: open 1.04×, narrow range 17× faster (§9).
+// trade reversed: open 1.04×, narrow range 17× faster.
 func TestOnlyTheTimestampIsDeclaredOrdered(t *testing.T) {
 	s, dir := attributedStore(t)
 	oneEvent(t, s, "a")
@@ -147,7 +147,7 @@ func TestUndatedEventsExcludedFromTimeRange(t *testing.T) {
 	}
 
 	// Both are reachable when the undated policy asks for them — an undated event is
-	// still an event, it just is not timeline evidence (P22).
+	// still an event, it just is not timeline evidence.
 	all, err := s.QueryEvents(EventFilter{Undated: consts.UndatedInclude})
 	if err != nil {
 		t.Fatal(err)
@@ -379,7 +379,7 @@ func TestIncrementDedupCountsBatched(t *testing.T) {
 	}
 }
 
-// --- Duplicate identity policy (§26) ---
+// --- Duplicate identity policy ---
 //
 // Identity decides what counts as "the same occurrence", so these pin the rule itself
 // rather than any one code path that applies it.

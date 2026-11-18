@@ -11,7 +11,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Signing, ledger and checkpoint postures (plan §14.8, detectors 14, 16 and 17; item 43).
+// Signing, ledger and checkpoint postures (detectors 14, 16 and 17).
 //
 // Like the rest of the posture checks these are mostly consequences of how a case was written, not
 // faults. The tests below pin three things: a posture rohy could not read is reported as unknown,
@@ -65,7 +65,7 @@ func TestAnUnsignedCaseSaysHowManySealsAreUnsignedAndOffersSigning(t *testing.T)
 	}
 }
 
-// 🔒 The copy no longer claims nothing can be attributed: since item 41 every write names the
+// 🔒 The copy no longer claims nothing can be attributed: since v0.3.0 every write names the
 // analyst. What it must still say is that the name is the case's own record.
 func TestTheUnsignedMessageDoesNotClaimWritesAreUnattributed(t *testing.T) {
 	d, _ := posture()

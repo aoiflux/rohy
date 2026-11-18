@@ -1,4 +1,4 @@
-// Case-maintenance state (P30).
+// Case-maintenance state.
 //
 // One store for the whole Maintenance view: the correlation-key status, the last integrity
 // report, and whichever pass is currently running.
@@ -24,7 +24,7 @@ const empty = () => ({
   /** @type {any|null} the last integrity report. */
   report: null,
   /**
-   * @type {any|null} the case's forensic posture (§14) — what it can and cannot establish.
+   * @type {any|null} the case's forensic posture — what it can and cannot establish.
    *
    * Null means "not read yet", which is deliberately distinct from a posture whose `available`
    * is false. The first is a question nobody has asked; the second is an answer.
@@ -56,12 +56,12 @@ const empty = () => ({
    *  Counted on failure too: a seal whose fingerprint could not be RECORDED still compacted, so the
    *  image moved either way. */
   seals: 0,
-  /** How many redactions this store has run or finished (plan §14.5). A view holding a copy of an
+  /** How many redactions this store has run or finished. A view holding a copy of an
    *  event's content — the drawer, a canvas card — drops it when this moves. */
   redactions: 0,
   /** @type {any[]|null} redactions that did not finish; null until read. */
   pending: null,
-  /** @type {any|null} the case's checkpoints and their receipts (item 42); null until read. */
+  /** @type {any|null} the case's checkpoints and their receipts; null until read. */
   checkpoints: null,
   /** @type {any|null} what the last publish did: its statement, the seal it ran, its gaps. */
   published: null,
@@ -233,7 +233,7 @@ function create() {
     update((s) => ({ ...s, running: 'export', error: '' }));
     try {
       const doc = await api.exportCaseFingerprint();
-      // A read-only session hands the value over and records nothing (item 41); say so.
+      // A read-only session hands the value over and records nothing; say so.
       const note = doc && doc.not_recorded ? `${UI.MAINT_EXPORT_NOT_RECORDED} ${doc.not_recorded}` : '';
       update((s) => ({ ...s, running: '', lastResult: 'export', error: note }));
       await loadForensics();
@@ -256,7 +256,7 @@ function create() {
     }
   }
 
-  /** publishCheckpoint seals if needed, records a checkpoint and saves its statement (item 42).
+  /** publishCheckpoint seals if needed, records a checkpoint and saves its statement.
    *
    *  🔒 The statement is saved here, wherever the publish was started, and the digest stays on the
    *  page whether or not the save worked: a checkpoint the case holds and the analyst never received

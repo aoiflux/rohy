@@ -45,7 +45,7 @@ func withRoots(snapshot string) *fakeForensics {
 	return f
 }
 
-// Forensic posture detectors (plan §14.8).
+// Forensic posture detectors.
 //
 // These live in their own file because they answer a different question from every other detector
 // in this package. The rest ask "is this case broken"; these ask "what can this case prove", and
@@ -314,7 +314,7 @@ func TestUnsignedCommitsIsAWarningWithNoAction(t *testing.T) {
 }
 
 // A signed case does not carry the unsigned warning. Guards against the finding becoming
-// unconditional noise once §14.6 lands.
+// unconditional noise now that a case can be signed.
 func TestSignedCaseDoesNotReportUnsignedCommits(t *testing.T) {
 	f := compactedAndClean()
 	f.status.Signed, f.status.RequireSigned = true, true
@@ -325,7 +325,7 @@ func TestSignedCaseDoesNotReportUnsignedCommits(t *testing.T) {
 	}
 }
 
-// --- the exported / not-exported split (plan §14.2) ---
+// --- the exported / not-exported split ---
 
 // 🔒 A fingerprint whose copy WAS taken flips the caveat to informational — and the message still
 // says what rohy cannot see. This is the one satisfied state in the whole feature, and it stays INFO
@@ -408,7 +408,7 @@ func TestNoFingerprintStillProducesTheCaveat(t *testing.T) {
 	}
 }
 
-// --- the image against the fingerprint history (plan §15.5) ---
+// --- the image against the fingerprint history ---
 
 func chainRun(c ChainCheck) (Report, *fakeRoots) {
 	roots := &fakeRoots{chain: c}

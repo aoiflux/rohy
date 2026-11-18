@@ -1,6 +1,6 @@
 package custody
 
-// Checking a checkpoint digest the reader holds (plan §14.7, item 42).
+// Checking a checkpoint digest the reader holds.
 //
 // 🔒 The one check rohy runs that does not rest on the case: the digest came from outside it. The
 // digest pins every head the checkpoint recorded, and each head pins the entries before it, so a

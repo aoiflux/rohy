@@ -18,7 +18,7 @@ func TestOnlyIngestible(t *testing.T) {
 }
 
 func TestOnlyIngestibleAcceptsSQLiteDatabases(t *testing.T) {
-	// A .db carrying EVTX data is ingestible (P17); whether its schema actually aligns is
+	// A .db carrying EVTX data is ingestible; whether its schema actually aligns is
 	// decided when it is opened, so the picker must not filter it out here.
 	got := onlyIngestible([]string{"case.db", "logs.EVTX", "notes.txt", "archive.zip", "other.DB"})
 	if len(got) != 3 {

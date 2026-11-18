@@ -16,7 +16,7 @@
     if ($rules.list.length === 0) rules.load();
   });
 
-  // A session that cannot write is marked on every page (item 41): nothing will save, and the
+  // A session that cannot write is marked on every page: nothing will save, and the
   // reason and the remedy are one click away on the Maintenance page.
   let asked = false;
   $effect(() => {

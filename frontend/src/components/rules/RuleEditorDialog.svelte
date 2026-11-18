@@ -1,5 +1,5 @@
 <script>
-  // The rule editor shell (P26): mode switch, the two panels, the shared error rail, and the
+  // The rule editor shell: mode switch, the two panels, the shared error rail, and the
   // save path.
   //
   // Both modes edit ONE document — the JSON text — so switching is a change of view, not a

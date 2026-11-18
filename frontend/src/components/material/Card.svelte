@@ -1,6 +1,6 @@
 <script>
   // Material surface card — a presentational container. The shared card system used
-  // by both the event views and graph nodes (P5.4). `elevation` selects a
+  // by both the event views and graph nodes. `elevation` selects a
   // token-defined shadow. For a clickable card, wrap the content in a Button/ListItem
   // rather than making the surface itself interactive.
   let { elevation = 1, padded = true, children } = $props();

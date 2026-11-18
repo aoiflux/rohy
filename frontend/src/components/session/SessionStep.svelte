@@ -1,5 +1,5 @@
 <script>
-  // The session step (item 41): what the case needs from the analyst before it opens.
+  // The session step: what the case needs from the analyst before it opens.
   //
   // It asks only what the backend says the case needs — a name on a first run; for a signed case,
   // how to open it. 🔒 The passphrase lives in this component only until the request is sent, and

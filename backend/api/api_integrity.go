@@ -21,7 +21,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 )
 
-// Case-integrity binding (P30).
+// Case-integrity binding.
 //
 // It hangs off MaintenanceAPI rather than becoming a tenth bound struct, because it is exactly
 // what that binding is for: opt-in work over the whole case, proportional to its size, that the
@@ -33,16 +33,16 @@ type IntegrityDeps struct {
 	Findings *findings.Store
 	Graphs   *graphreg.Store
 	Rules    *rules.Registry
-	// Roots is the case-fingerprint history (plan §14.2). Without it the retained-root caveat is
+	// Roots is the case-fingerprint history. Without it the retained-root caveat is
 	// reported unconditionally, which is the safe direction.
 	Roots     *custody.Store
 	LayoutDir string
-	// Journal is the redaction journal (plan §14.5). The same one the ingest binding suppresses
+	// Journal is the redaction journal. The same one the ingest binding suppresses
 	// with (AttachRedactionJournal); without it the redaction checks are not run.
 	Journal *redaction.Journal
 	// Snapshots holds the snapshot documents a redaction scrubs.
 	Snapshots *snapshot.Store
-	// Receipts is what the analyst recorded about where each checkpoint's digest went (item 42).
+	// Receipts is what the analyst recorded about where each checkpoint's digest went.
 	Receipts *anchor.Store
 }
 
@@ -85,7 +85,7 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps, session *Session) caseintegr
 		out.Events = a.store
 		// The posture checks read the same store through a narrower interface. Attached
 		// separately so a Deps assembled without it reports the posture as unknown rather than
-		// as fine (plan §14.8). The binding rather than the store, so a deep check verifies the
+		// as fine. The binding rather than the store, so a deep check verifies the
 		// image under the maintenance lock, as the button does (VerifyImage).
 		out.Forensics = a
 		a.readPosture(&out, d, session)
@@ -124,7 +124,7 @@ func (a *MaintenanceAPI) buildDeps(d IntegrityDeps, session *Session) caseintegr
 	return out
 }
 
-// readPosture reads who signs the case, the redaction ledger and the checkpoints (item 43). Under
+// readPosture reads who signs the case, the redaction ledger and the checkpoints. Under
 // sealMu, so no seal lands between the register, the image and the ledger they are compared with;
 // the reads are short, unlike the deep checks, which run without it.
 //
@@ -139,7 +139,7 @@ func (a *MaintenanceAPI) readPosture(out *caseintegrity.Deps, d IntegrityDeps, s
 	if session != nil {
 		out.Signing, ring = session.integrityPosture(d.Roots, notes)
 	}
-	// Every history is read once, for the ledger's signatures and for the checkpoints (item 42).
+	// Every history is read once, for the ledger's signatures and for the checkpoints.
 	h, err := a.store.Histories()
 	if err != nil {
 		out.LedgerErr, out.CheckpointErr = err, err
@@ -217,7 +217,7 @@ func (a *MaintenanceAPI) RepairRelationIndex() (int, error) {
 	return n, nil
 }
 
-// --- Forensic posture (plan §14) ---
+// --- Forensic posture ---
 
 // ForensicStatus reports what this case can and cannot establish about its own contents.
 //
@@ -336,12 +336,12 @@ type EventProofExport struct {
 	// 🔒 When it has not, the recipient has no root to check against, and the UI must say so: a
 	// proof checkable only against a value inside the case proves nothing.
 	FingerprintExported bool `json:"fingerprint_exported"`
-	// AuditGap is set when the export could not be recorded in the audit log (item 41). The proof is
+	// AuditGap is set when the export could not be recorded in the audit log. The proof is
 	// the same either way.
 	AuditGap string `json:"audit_gap,omitempty"`
 }
 
-// ExportEventProof builds the proof document for one event (plan §14.3).
+// ExportEventProof builds the proof document for one event.
 //
 // It does not take the maintenance lock: it writes nothing, and a backfill that rewrites the event
 // meanwhile is reported as changed_since_seal rather than raced — the document is built from a
@@ -365,7 +365,7 @@ func (a *MaintenanceAPI) ExportEventProof(id uint64) (EventProofExport, error) {
 	if hist != nil {
 		out.FingerprintExported = hist.Exported(p.Snapshot)
 	}
-	// The export is recorded in the audit log (item 41): which event, against which seal.
+	// The export is recorded in the audit log: which event, against which seal.
 	if err := recordAction(a.store, consts.AuditActionProofExported,
 		fmt.Sprintf("proof exported: event %d against seal %s", id, p.Snapshot)); err != nil {
 		out.AuditGap = fmt.Sprintf(consts.MsgSessionAuditGap, err)
@@ -373,9 +373,9 @@ func (a *MaintenanceAPI) ExportEventProof(id uint64) (EventProofExport, error) {
 	return out, nil
 }
 
-// EventCustody is the custody report for one event (plan §14.4, §15.6): gaps, never a verdict.
+// EventCustody is the custody report for one event: gaps, never a verdict.
 //
-// kept is a fingerprint the analyst kept outside the case, a checkpoint digest (item 42), or empty. 🔒 It is the caller's, always:
+// kept is a fingerprint the analyst kept outside the case, a checkpoint digest, or empty. 🔒 It is the caller's, always:
 // the UI never fills it from the case, because a check against the case's own copy proves nothing.
 //
 // It takes no maintenance lock: it writes nothing. It takes sealMu, so no seal lands between the
@@ -395,7 +395,7 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 	defer sealMu.Unlock()
 
 	in := custody.ReportInput{Event: id, Kept: k, NoHistory: hist == nil}
-	// Signatures are checked under the keys the case lists (item 41); with no session, unchecked.
+	// Signatures are checked under the keys the case lists; with no session, unchecked.
 	ring := session.Keyring()
 	eng, err := a.store.EventCustodyUnder(id, ring)
 	if errors.Is(err, graphene.ErrForensicsUnavailable) {
@@ -409,7 +409,7 @@ func (a *MaintenanceAPI) EventCustody(id uint64, kept string) (custody.Report, e
 	if in.Current, err = a.store.SnapshotRoots(); err != nil {
 		return custody.Report{}, AsError(consts.ErrCodePersistence, err)
 	}
-	// A kept checkpoint digest is checked as the seal it names (item 42).
+	// A kept checkpoint digest is checked as the seal it names.
 	if k != "" {
 		h, err := a.store.Histories()
 		if err != nil {

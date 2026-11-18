@@ -1,4 +1,4 @@
-// Package graphreg is the registry of named graphs in a case (multiple-graphs, P15).
+// Package graphreg is the registry of named graphs in a case (multiple-graphs).
 // It owns only graph metadata (id, name, description, timestamps) and which graph is
 // active, persisted as a JSON sidecar. Relations (scoped by graph_id) and per-graph
 // canvas layout live in the graphene store and the layout package respectively; this
@@ -27,7 +27,7 @@ var ErrLastGraph = errors.New("cannot delete the last remaining graph")
 var ErrNotFound = errors.New("graph not found")
 
 // Graph is the metadata of one named graph. RuleID binds a graph to the correlation rule
-// that produces it (P6, "one rule = one graph"); it is empty for manually created graphs
+// that produces it ("one rule = one graph"); it is empty for manually created graphs
 // and survives renaming the graph, so a rule rebuild always finds its own graph.
 type Graph struct {
 	ID          uint64    `json:"id"`
@@ -195,7 +195,7 @@ func (s *Store) Create(name, description string, now time.Time) (*Graph, error) 
 
 // EnsureForRule returns the graph bound to ruleID, creating it if it does not exist yet.
 // Unlike Create it deliberately does NOT change the active graph: a rule run populates
-// graphs in the background and must never hijack the one the user is looking at (P6).
+// graphs in the background and must never hijack the one the user is looking at.
 // Binding is by rule id, so renaming a rule's graph never orphans it; a pre-existing
 // unbound graph with the same name is adopted once, which keeps a re-run idempotent for
 // graphs created before rule binding existed.

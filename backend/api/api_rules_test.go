@@ -197,7 +197,7 @@ func TestRulesAPIReload(t *testing.T) {
 	}
 }
 
-// --- Rule editor bindings (P26) ---
+// --- Rule editor bindings ---
 
 func TestRulesAPIExposesTheSchema(t *testing.T) {
 	api := newTestRulesAPI(t, nil)

@@ -1,5 +1,5 @@
 <script>
-  // Event detail drawer (P6.2). Shows all EVTX metadata fields, both integrity hashes,
+  // Event detail drawer. Shows all EVTX metadata fields, both integrity hashes,
   // the flattened parsed fields, and the raw JSON payload, plus the "Add to Graph"
   // action. Slides in from the right over a scrim.
   import { UI, SOURCE_TYPE_LABEL, RELATION_LABEL } from '../../lib/consts/index.js';
@@ -79,7 +79,7 @@
     shown && shown.source_type ? SOURCE_TYPE_LABEL[shown.source_type] || shown.source_type : UI.DETAIL_SOURCE_UNKNOWN,
   );
 
-  // Timeline / correlation participation (P23), stated explicitly rather than left to be
+  // Timeline / correlation participation, stated explicitly rather than left to be
   // inferred from an empty timestamp field.
   const onTimeline = $derived(!!(shown && shown.timestamp && new Date(shown.timestamp).getTime() > 0));
   const correlated = $derived(!!(relation && relation.count));
@@ -104,7 +104,7 @@
       : [],
   );
 
-  // Event proof (plan §14.3). The outcome belongs to the event it was asked about: moving to another
+  // Event proof. The outcome belongs to the event it was asked about: moving to another
   // event clears it, and a response arriving after the analyst moved on is dropped — a "saved"
   // shown beside the wrong event would be a false statement about evidence.
   let proof = $state(/** @type {import('../../lib/maintenance/proof.js').ProofOutcome|null} */ (null));
@@ -157,7 +157,7 @@
     await saveProof();
   }
 
-  // Custody report (plan §14.4). It belongs to the event AND the image it was made against: moving
+  // Custody report. It belongs to the event AND the image it was made against: moving
   // to another event drops it, and so does any seal, because the seal replaced that image. A
   // response that arrives after either is dropped too — the generation says which request is
   // still the current one.

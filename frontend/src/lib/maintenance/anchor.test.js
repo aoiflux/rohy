@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ANCHOR_CHECK, anchorCheckView, checkTone, latest, receiptTime } from './anchor.js';
 import { UI } from '../consts/index.js';
 
-describe('checkpoints (item 42)', () => {
+describe('checkpoints', () => {
   it('never draws an answer as ok, and draws one it does not know as a warning', () => {
     for (const s of Object.values(ANCHOR_CHECK)) {
       expect(checkTone(s)).not.toBe('ok');

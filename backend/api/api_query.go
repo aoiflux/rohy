@@ -8,7 +8,7 @@ import (
 	"rohy/backend/query"
 )
 
-// QueryAPI is the read-only query console's binding (plan §4.7, item 33). It adapts arguments to
+// QueryAPI is the read-only query console's binding. It adapts arguments to
 // backend/query and holds no logic of its own.
 //
 // 🔒 It holds query.Reader, the read-only slice of the store, never *graphene.Store: a write is out

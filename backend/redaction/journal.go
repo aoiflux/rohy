@@ -1,4 +1,4 @@
-// Package redaction removes an event's content from a case, attributably (plan §14.5, item 40).
+// Package redaction removes an event's content from a case, attributably.
 //
 // This file is the journal: one entry per redaction, kept beside the case in
 // rohy-data/redactions/journal.json. It has two duties.

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Correlation-key backfill cost (plan §11.2, PERFORMANCE.md §21).
+// Correlation-key backfill cost (PERFORMANCE.md §21).
 //
 // WHAT THIS DECIDES. The backfill is opt-in, never a startup step, and the reason given in
 // graphene_backfill.go is that its work is proportional to the whole store and pays a cold-store

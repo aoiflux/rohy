@@ -18,7 +18,7 @@ type EventFilter struct {
 	Provider   string
 	Channel    string
 	User       string
-	Computer   string // indexed equality on the computer property (the query console, item 33)
+	Computer   string // indexed equality on the computer property (the query console)
 	TimeFrom   *time.Time
 	TimeTo     *time.Time
 	Search     string
@@ -29,15 +29,15 @@ type EventFilter struct {
 	MinDuplicateCount int
 	// RelationState narrows to events by their relation provenance (consts.RelationFilter*).
 	// It is resolved from the edge index once per query rather than per event, so it costs
-	// one edge scan regardless of how many events match (P11).
+	// one edge scan regardless of how many events match.
 	RelationState string
 	// Undated controls whether events WITHOUT a timestamp appear (consts.Undated*). The
 	// default excludes them: an event with no time cannot be placed on a timeline, so it is
-	// not timeline evidence and would otherwise pile up at the epoch ahead of real records
-	// (P22). The exclusion is always surfaced in the UI, never silent.
+	// not timeline evidence and would otherwise pile up at the epoch ahead of real records.
+	// The exclusion is always surfaced in the UI, never silent.
 	Undated string
 	// HashIn / HashNotIn narrow to events whose hash_normalized is (or is not) in a set. They
-	// are how the analyst-findings filters reach the query layer (P25) without this package
+	// are how the analyst-findings filters reach the query layer without this package
 	// knowing what a finding is: the caller resolves its own concepts to content hashes, and
 	// graphene only matches hashes.
 	//
@@ -305,14 +305,14 @@ func (s *Store) GetRelations() ([]*Relation, error) {
 }
 
 // EventAdjacency summarizes an event's incident relations for relation-aware
-// highlighting (P14): the number of relations, their distinct types, and the distinct
+// highlighting: the number of relations, their distinct types, and the distinct
 // neighbor event ids. It is intentionally compact so the whole visible window can be
 // summarized in one call.
 type EventAdjacency struct {
 	Count      int      `json:"count"`
 	Types      []string `json:"types"`
 	RelatedIDs []uint64 `json:"related_ids"`
-	// Provenance split (P11): how many of the relations were produced by a correlation
+	// Provenance split: how many of the relations were produced by a correlation
 	// rule versus mapped by hand. The UI badges these differently, because "the tool
 	// inferred this" and "an analyst asserted this" are very different claims about
 	// evidence and must never look the same.
@@ -362,7 +362,7 @@ func (s *Store) RelationsAdjacency(ids []uint64) (map[uint64]*EventAdjacency, er
 	return out, nil
 }
 
-// RelationsByGraph returns the relations belonging to one named graph (P15), using
+// RelationsByGraph returns the relations belonging to one named graph, using
 // the graph_id edge index so a graph loads without scanning every relation.
 func (s *Store) RelationsByGraph(graphID uint64) ([]*Relation, error) {
 	g, err := s.graph()

@@ -1,4 +1,4 @@
-// How a failed backend call carries its error code across the Wails boundary (item 33).
+// How a failed backend call carries its error code across the Wails boundary.
 //
 // The backend's MarshalError (backend/api/api_errors.go) describes every failure as {code, message}.
 // The Wails runtime rejects the call with an Error whose .cause is that object. call() in index.js

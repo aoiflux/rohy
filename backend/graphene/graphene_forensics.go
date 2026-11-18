@@ -1,6 +1,6 @@
 package graphene
 
-// Forensic integrity: what this case can establish about its own contents (§14).
+// Forensic integrity: what this case can establish about its own contents.
 //
 // 🔒 This file exists here, in the only package that opens the database, because the machinery
 // hangs off the engine's disk store and is reached through the graph — the same reason every
@@ -277,7 +277,7 @@ func (s *Store) SnapshotRoots() (*SnapshotRoots, error) {
 // It exists because a compaction ALWAYS produces a new fingerprint. The new image names the old
 // one as its predecessor and that link is bound into the root, so even a compaction that changed
 // nothing moves the value an analyst exported. The automatic seals (after an ingest, on close) ask
-// this first so a fingerprint stays put until the case actually changes (plan §15.5).
+// this first so a fingerprint stays put until the case actually changes.
 //
 // 🔒 It errs towards sealing. Any record in the write-ahead log, or any record held in the delta
 // layer, counts as a change — including writes that turn out to be no-ops — because the cost of a
@@ -385,7 +385,7 @@ func (s *Store) ForensicStatus() ForensicStatus {
 		Audit:           opts.Audit,
 		Retention:       false,
 		RetentionReason: consts.MsgRetentionOff,
-		// Always on for a disk case (diskOptions, item 40).
+		// Always on for a disk case (diskOptions).
 		Redaction: true,
 		Mode:      p.Mode,
 		Actor:     p.Actor,
@@ -504,7 +504,7 @@ type EventProof struct {
 	RawHashed bool
 }
 
-// ProveEvent builds the proof document for one event (plan §14.3).
+// ProveEvent builds the proof document for one event.
 //
 // The document carries graphene's inclusion proof, the event's stored record exactly as the case
 // holds it, and its raw record from the payload store — what a recipient needs to check the event's

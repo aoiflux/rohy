@@ -53,7 +53,7 @@ func (a *EventsAPI) PickEVTXFolder() ([]string, error) {
 }
 
 // TotalSize returns the combined byte size of the given files, so the UI can warn
-// before ingesting an extremely large dataset (P2-L.5). Unreadable paths contribute 0.
+// before ingesting an extremely large dataset. Unreadable paths contribute 0.
 func (a *EventsAPI) TotalSize(paths []string) int64 {
 	return sumFileSizes(paths)
 }
@@ -69,7 +69,7 @@ func sumFileSizes(paths []string) int64 {
 }
 
 // isIngestible reports whether name is a source rohy can ingest: an .evtx binary log or a
-// .db SQLite database carrying EVTX data (P17). Matching is case-insensitive. A .db is
+// .db SQLite database carrying EVTX data. Matching is case-insensitive. A .db is
 // accepted here on extension alone — whether it actually holds a recognized EVTX schema is
 // decided when it is opened, so the user gets a precise reason rather than a silent filter.
 func isIngestible(name string) bool {

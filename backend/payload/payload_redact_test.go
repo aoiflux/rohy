@@ -12,7 +12,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The payload tombstone (plan §14.5.1, item 40): a record overwritten in place, same length, so
+// The payload tombstone: a record overwritten in place, same length, so
 // the content is gone and every other reference still points at what it pointed at before.
 
 const secret = "S-1-5-21-alice-the-personal-data"

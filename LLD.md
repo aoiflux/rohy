@@ -37,9 +37,6 @@ section below.
 
 ### Conventions used here
 
-- `P4`, `P17`, `R-V1` in source comments are **phase** and **rule** identifiers
-  from the project's build plan. You will see them in code comments. They are
-  historical markers, not something you need to look up.
 - File references look like [backend/graphene/schema.go](backend/graphene/schema.go)
   and are clickable.
 - Diagrams are Mermaid and render inline on GitHub.
@@ -2228,7 +2225,7 @@ outside the routed content so an ingest stays visible across navigation.
 | `MaintenanceAPI` | opt-in work over the whole case: the case check and its fixes, backfill (it seals what it rewrote and returns a `BackfillOutcome`: the pass's result plus `sealed` and `seal_error`), compaction, seals and the image check, proofs and custody, redaction, signing, checkpoints, cancel |
 | `SnapshotAPI`    | named graph snapshots: take, list, preview and apply a restore, delete      |
 | `AnnotateAPI`    | the analyst's layers and annotations on a graph                             |
-| `QueryAPI`       | the read-only query console: `Describe` and `Run`, nothing else (#33)       |
+| `QueryAPI`       | the read-only query console: `Describe` and `Run`, nothing else       |
 
 `MaintenanceAPI` is separate from `SystemAPI` rather than folded into it because the two
 are different concerns: `SystemAPI` reports how the **application** is doing and never
@@ -2280,7 +2277,7 @@ A stable `code` lets the frontend branch on the *kind* of failure — a refused
 note is the caller's input being wrong, not the disk failing, and the two deserve
 different messages.
 
-**How a returned error crosses (#33).** Without help, Wails sends only `err.Error()`.
+**How a returned error crosses.** Without help, Wails sends only `err.Error()`.
 `api.MarshalError` is the app's `MarshalError` option (`main.go`).
 - It returns the JSON **bytes** of the `ErrorEvent`. The runtime rejects the call with an `Error`
   whose `.cause` is that object, decoded.
@@ -2540,7 +2537,7 @@ seal), `redacted`, then `in_seal`, `written_since_seal`, `no_fingerprint`. An id
 hold is never described by the state of the seal.
 
 The event's layers are the seal, its stored record against the sealed one, its raw record, a
-removal when one is recorded, the history of seals (#37), and the fingerprint the analyst kept.
+removal when one is recorded, the history of seals, and the fingerprint the analyst kept.
 graphene's store-wide layers (signature, commit history, audit log, role grants, removal ledger)
 read the same for every event, so they are grouped as case records. In this build they are all
 "not recorded": rohy opens cases without them (§14.6).
@@ -2656,14 +2653,14 @@ The invariants, each a test:
 - **No secret reaches the log.** Passphrases cross one struct argument; the key bindings recover
   their own panics; `api.SafeLogHandler` withholds the arguments and result Wails logs for every call.
 
-**What the integrity report says about it (#43).** `caseintegrity` reads three more values, gathered
+**What the integrity report says about it.** `caseintegrity` reads three more values, gathered
 by `MaintenanceAPI.readPosture` under `sealMu`:
 
 | Dep | From | Detector |
 |---|---|---|
 | `Signing *SigningPosture` | the session's notes (gaps, the log it did or did not accept), the register, `custody.SealCounts`, `custody.SealVerdict` | 14, and the session's own posture |
 | `Ledger *graphene.LedgerState` | `Store.LedgerState(keyring)`: the keyless chain check, then each signature under the bound keys | 16 |
-| `Checkpoints *caseintegrity.Anchoring` | `Store.Histories` (each history read once), the receipts, the analyst's profile (#42) | 17 |
+| `Checkpoints *caseintegrity.Anchoring` | `Store.Histories` (each history read once), the receipts, the analyst's profile | 17 |
 
 - **Lock order is the session's lock, then `sealMu`.** `Begin` and `Close` take them in that order,
   so `readPosture` reads the session's notes before it takes `sealMu`.
@@ -2673,7 +2670,7 @@ by `MaintenanceAPI.readPosture` under `sealMu`:
   and the ledger's signatures are `unchecked`, not failing.
 - **A read-only session's report carries no write action** (`withholdWrites`).
 
-### 18.6 Checkpoints: the digest out, the receipt in (#42)
+### 18.6 Checkpoints: the digest out, the receipt in
 
 rohy ships no anchor. `MaintenanceAPI.PublishCheckpoint` records a checkpoint through graphene's
 `PublishCheckpoint` with a **hand-off** anchor that publishes nothing, and returns a statement whose

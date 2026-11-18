@@ -7,7 +7,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// Case sealing at the ingest boundary (plan §14.2).
+// Case sealing at the ingest boundary.
 //
 // The single number these tests defend: compaction costs ~1.3 s and 566 MB on a 100k case after
 // adding only 500 events, because it rewrites the whole image regardless of how little was added

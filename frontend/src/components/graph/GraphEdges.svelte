@@ -113,7 +113,7 @@
   {#if tempEdge}
     <!-- The in-progress link reads its own state: dashed and thin while it has no target,
          solid and heavier once it has snapped to one — so "will this land?" is answered
-         before the pointer is released (P18.3). -->
+         before the pointer is released. -->
     <path
       class="temp"
       class:valid={tempEdge.valid}

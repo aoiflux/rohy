@@ -8,7 +8,7 @@ import (
 	"rohy/backend/payload"
 )
 
-// Reading an event whose cold record a redaction removed (plan §14.5.1, item 40).
+// Reading an event whose cold record a redaction removed.
 
 // tombstoneOf erases event id's payload record in place, as a redaction does, naming owner.
 func tombstoneOf(t *testing.T, s *Store, id, owner uint64) {

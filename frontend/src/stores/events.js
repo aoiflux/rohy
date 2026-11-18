@@ -1,7 +1,7 @@
-// Events store (P5.2 + P1). Holds the currently-loaded event rows, the accurate total of
+// Events store. Holds the currently-loaded event rows, the accurate total of
 // matching events, the active forensic filter, and loading flags. Events load
 // progressively: an initial page + a total count, then more pages appended as the user
-// scrolls (P1 progressive loading), so the loaded count grows toward the true total and
+// scrolls (progressive loading), so the loaded count grows toward the true total and
 // the user never perceives events as missing. All reads go through the API wrapper.
 import { writable, get } from 'svelte/store';
 import * as api from '../lib/api/index.js';
@@ -15,7 +15,7 @@ export function emptyFilter() {
 }
 
 // initialFilter restores the query the user last ran, so a filtered view survives both
-// navigation and a restart (P9). It is read here — at store construction — rather than in
+// navigation and a restart. It is read here — at store construction — rather than in
 // the filter bar, so the very first load already reflects it and there is no flash of
 // unfiltered results while a component mounts.
 function initialFilter() {
@@ -29,9 +29,9 @@ function initialFilter() {
 function create() {
   const store = writable({
     list: /** @type {any[]} */ ([]),
-    total: 0, // accurate total matching the active filter (P1)
+    total: 0, // accurate total matching the active filter
     // How many events match the filter but are hidden for having no timestamp. Tracked so
-    // the view can SAY they are excluded rather than quietly dropping them (P22).
+    // the view can SAY they are excluded rather than quietly dropping them.
     undatedHidden: 0,
     filter: initialFilter(),
     loading: false, // fresh (first-page) load

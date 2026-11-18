@@ -22,8 +22,8 @@ import (
 type EventsAPI struct {
 	store     *graphene.Store
 	positions evtx.PositionStore
-	// findings resolves the analyst-findings filters into content hashes before a query runs
-	// (P25). It may be nil in tests that do not exercise those filters.
+	// findings resolves the analyst-findings filters into content hashes before a query runs.
+	// It may be nil in tests that do not exercise those filters.
 	findings *findings.Store
 	// sealHistory records the fingerprint each post-ingest seal produces (AttachSealHistory). Nil
 	// in tests that do not look at the history; the seal still runs.
@@ -37,10 +37,10 @@ type EventsAPI struct {
 	desktop Desktop
 	cancel  context.CancelFunc
 	running bool
-	// Live-capture session state, mirrored for the capture indicator (P7).
+	// Live-capture session state, mirrored for the capture indicator.
 	liveChannels   []string
 	liveContinuous bool
-	// Ingestion lifecycle (P8). state is backend-authoritative — the frontend renders it
+	// Ingestion lifecycle. state is backend-authoritative — the frontend renders it
 	// rather than inferring it. gate pauses the running pipeline; done is closed when the
 	// run goroutine exits, so shutdown can wait for a clean flush.
 	state string
@@ -195,7 +195,7 @@ func (a *EventsAPI) IsIngesting() bool {
 // and lifecycle flow through Wails events (see the contract catalog). It returns a
 // validation error synchronously if the request is malformed, a job is already
 // running, or required privileges are missing. Permissions are refreshed here so a
-// stale grant can never start a blocked live read (P1/P4).
+// stale grant can never start a blocked live read.
 func (a *EventsAPI) StartIngest(req IngestRequest) error {
 	a.mu.Lock()
 
@@ -207,7 +207,7 @@ func (a *EventsAPI) StartIngest(req IngestRequest) error {
 		a.mu.Unlock()
 		return err
 	}
-	// Refused here, not only inside the job, so the analyst is told at once (plan §14.5).
+	// Refused here, not only inside the job, so the analyst is told at once.
 	if a.suppress != nil {
 		if err := a.suppress.Err(); err != nil {
 			a.mu.Unlock()
@@ -224,7 +224,7 @@ func (a *EventsAPI) StartIngest(req IngestRequest) error {
 		}
 	}
 
-	// Held until the job ends, not until this call returns: the job writes long after (plan §14.5).
+	// Held until the job ends, not until this call returns: the job writes long after.
 	release, err := theCase.share(ingestActivity(req))
 	if err != nil {
 		a.mu.Unlock()
@@ -332,7 +332,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 		close(done)
 	}()
 
-	// Sealing is DEFERRED, and registered second on purpose (plan §14.2).
+	// Sealing is DEFERRED, and registered second on purpose.
 	//
 	// Defers run last-in-first-out, so this one runs BEFORE the cleanup above it: the case is
 	// sealed, and only then is the run marked idle and `done` closed. That ordering matters —
@@ -347,7 +347,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 	defer a.sealCase(emitter)
 
 	// Recorded in the audit log after everything the request wrote and before the seal, which the
-	// engine records itself (item 41). Counts only: the audit log is never redacted.
+	// engine records itself. Counts only: the audit log is never redacted.
 	var tally ingestTally
 	defer a.auditIngest(emitter, req.Source, &tally)
 
@@ -399,7 +399,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 			if err != nil && ctx.Err() == nil {
 				// A .db that is a real database with an unrecognized structure is a
 				// user-actionable schema problem, not an I/O failure — code it as such so
-				// the UI can say which of the two actually happened (P17).
+				// the UI can say which of the two actually happened.
 				code := consts.ErrCodeIO
 				if evtx.IsDBSchemaError(err) {
 					code = consts.ErrCodeSchema
@@ -416,7 +416,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 			SourceIdentifier: strings.Join(req.Channels, consts.SourceIdentifierSeparator),
 			Idempotent:       req.Idempotent,
 			// Continuous capture resumes each channel from its durable bookmark and keeps
-			// streaming until cancelled (P7).
+			// streaming until cancelled.
 			Continuous: req.Continuous,
 			Positions:  a.positions,
 			Gate:       gate,
@@ -430,7 +430,7 @@ func (a *EventsAPI) runIngestion(ctx context.Context, req IngestRequest, gate *e
 	}
 }
 
-// sealCase compacts the store once the whole ingest request is over (plan §14.2).
+// sealCase compacts the store once the whole ingest request is over.
 //
 // WHY THIS EXISTS. Compaction is what computes the snapshot roots, and until it runs nothing in the
 // case can be proven — every event just ingested is recorded but unaccounted for. rohy used to
@@ -477,7 +477,7 @@ func (a *EventsAPI) sealCase(emitter Emitter) {
 }
 
 // filterFor builds the persistence-layer filter for a query, including resolving the
-// analyst-findings filters (P25) into the content-hash sets graphene matches on. Every read
+// analyst-findings filters into the content-hash sets graphene matches on. Every read
 // path goes through it so the events list, the count, and the timeline can never disagree
 // about what the same query means.
 func (a *EventsAPI) filterFor(q EventQuery) (graphene.EventFilter, error) {
@@ -557,7 +557,7 @@ func (a *EventsAPI) CountEvents(q EventQuery) (int, error) {
 	return n, nil
 }
 
-// Timeline summarizes the filtered event set over time for the timeline page (P24): the
+// Timeline summarizes the filtered event set over time for the timeline page: the
 // time extent, how many events are dated vs undated, and a density histogram.
 //
 // It returns COUNTS, not events. A case with hundreds of thousands of records cannot ship
@@ -602,7 +602,7 @@ func (a *EventsAPI) GetEvent(id uint64) (*EventDetail, error) {
 //
 // graphene.Event keeps RawXML and ParsedFields out of its JSON on purpose, because that JSON is
 // also the node record and the cold fields must never be persisted there. So the binding carries
-// them explicitly. 🔒 Found during item 40: returning *graphene.Event directly meant the drawer
+// them explicitly. 🔒 Found while adding redaction: returning *graphene.Event directly meant the drawer
 // never received the raw record or the parsed fields at all.
 type EventDetail struct {
 	*graphene.Event
@@ -612,7 +612,7 @@ type EventDetail struct {
 	// is not read as an event that never had them.
 	PayloadRedacted bool `json:"payload_redacted"`
 	// Redaction is the ledger's record of the redaction that removed this event's content, when
-	// Redacted is set (plan §14.5).
+	// Redacted is set.
 	Redaction *graphene.RedactionRecord `json:"redaction,omitempty"`
 }
 

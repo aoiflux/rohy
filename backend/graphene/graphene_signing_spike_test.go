@@ -1,6 +1,6 @@
 package graphene
 
-// Phase 0 spikes for #41 (plan §14.6). Each test pins an upstream behaviour the design depends on,
+// Spikes for signing. Each test pins an upstream behaviour the design depends on,
 // so a graphene upgrade that changes it fails here rather than silently changing what rohy claims.
 
 import (
@@ -60,7 +60,7 @@ func TestSpikeAWriteWithoutTheKeyReplaysUnderRequiredSignatures(t *testing.T) {
 
 	g, err = graphene.OpenWithOptions(dir, strict)
 	if err != nil {
-		t.Fatalf("strict open refused the log: %v (upstream now rejects bare records; revisit §14.6)", err)
+		t.Fatalf("strict open refused the log: %v (upstream now rejects bare records; revisit signing)", err)
 	}
 	defer g.Close()
 	n, err := g.GetNode(forged)
@@ -150,7 +150,7 @@ func TestSpikeAnUnattestedImageOpensUnderAVerifier(t *testing.T) {
 	strict.VerifyOnOpen = true
 	g, err = graphene.OpenWithOptions(dir, strict)
 	if err != nil {
-		t.Fatalf("strict open refused an unattested image: %v (upstream now requires one; revisit §14.6)", err)
+		t.Fatalf("strict open refused an unattested image: %v (upstream now requires one; revisit signing)", err)
 	}
 	g.Close()
 }

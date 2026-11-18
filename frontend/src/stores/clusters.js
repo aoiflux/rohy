@@ -1,4 +1,4 @@
-// Cluster view state (P29).
+// Cluster view state.
 //
 // Grouping is computed in Go; what this store holds is how the canvas is currently LOOKING at
 // that grouping — which mode, which clusters are collapsed, whether outlines are drawn at all.

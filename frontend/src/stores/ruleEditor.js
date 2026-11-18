@@ -1,4 +1,4 @@
-// Rule editor session state (P26).
+// Rule editor session state.
 //
 // One editor is open at a time, holding one document that both modes project. This store
 // owns that document, its undo history, and the validation results — and it is the only

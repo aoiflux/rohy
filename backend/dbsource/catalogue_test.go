@@ -7,7 +7,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// catalogueDB builds a database in the provider/message catalogue shape (P22).
+// catalogueDB builds a database in the provider/message catalogue shape.
 func catalogueDB(t *testing.T, name string, extra ...string) string {
 	t.Helper()
 	stmts := []string{
@@ -164,7 +164,7 @@ func TestNeitherSchemaNamesBothShapes(t *testing.T) {
 }
 
 func TestNearMissEventsSchemaStillNamesMissingColumns(t *testing.T) {
-	// Adding a second schema must not blunt the P17 diagnostic: a file that clearly meant
+	// Adding a second schema must not blunt the events-table diagnostic: a file that clearly meant
 	// to be an events database should still be told exactly which columns are absent.
 	path := makeDB(t, "partial.db", `CREATE TABLE events (event_id TEXT, timestamp TEXT)`)
 	_, err := Open(path)

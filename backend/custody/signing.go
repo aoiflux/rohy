@@ -8,7 +8,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// SigningInput is what the case records about its own signing (item 41), for the report's signing
+// SigningInput is what the case records about its own signing, for the report's signing
 // layer. Gathered by the API from the analyst register; decided here.
 type SigningInput struct {
 	// State is the register's signing state (consts.Signing*). Empty when the register cannot be
@@ -67,7 +67,7 @@ func signingLayer(in SigningInput, e graphene.EventCustody) Layer {
 }
 
 // SealVerdict is the signing layer's verdict on the case's current seal alone, for the integrity
-// report (item 43): the same rules an event's report applies, so the two never disagree. State is
+// report: the same rules an event's report applies, so the two never disagree. State is
 // consts.CustodyEstablished, CustodyNotEstablished or CustodyBroken.
 func SealVerdict(in SigningInput) (state, message string) {
 	in.RedactionInSigned = false

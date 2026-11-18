@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { emptyForm, formToFilter, activeFilterCount, filterSummary } from './filter.js';
 import { FINDING_FILTERS, UNDATED } from './consts/index.js';
 
-describe('finding filters in the query form (P25)', () => {
+describe('finding filters in the query form', () => {
   it('starts unfiltered, so a fresh case shows the whole inventory', () => {
     const f = formToFilter(emptyForm());
     expect(f.finding_state).toBe('');

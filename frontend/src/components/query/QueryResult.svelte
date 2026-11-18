@@ -1,5 +1,5 @@
 <script>
-  // One query's answer (item 33): its status lines, then a row table or a count table.
+  // One query's answer: its status lines, then a row table or a count table.
   //
   // The status lines come first and are never optional. A list that stops at the limit, a count
   // that left the undated events out, a case that moved during the read: each changes what the

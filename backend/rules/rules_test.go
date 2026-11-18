@@ -259,7 +259,7 @@ func TestRegistryBuiltinToggleAndPersist(t *testing.T) {
 	}
 }
 
-// TestHighVolumeBuiltinsCarryABreadthCaveat pins the Phase 5 forensic-review finding: a
+// TestHighVolumeBuiltinsCarryABreadthCaveat pins a forensic-review finding: a
 // rule anchored on a high-volume event pairs it with almost anything that follows on a busy
 // host, so its description must name that anchor and say the pairing is broad. If a later
 // copy-edit strips the honesty, this fails and the description is re-reviewed rather than

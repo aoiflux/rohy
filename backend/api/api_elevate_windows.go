@@ -14,8 +14,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// RelaunchAsAdmin restarts rohy elevated via the UAC "runas" verb (closing the
-// P1 elevation path), preserving the working directory so the cwd-based case DB stays
+// RelaunchAsAdmin restarts rohy elevated via the UAC "runas" verb, preserving the
+// working directory so the cwd-based case DB stays
 // consistent. It then quits the current unelevated instance. If already elevated it is
 // a no-op; if the user dismisses the UAC prompt the current instance keeps running and
 // the (ERROR_CANCELLED) error is returned for the UI to surface.

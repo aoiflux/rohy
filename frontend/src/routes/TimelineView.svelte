@@ -1,11 +1,11 @@
 <script>
-  // Timeline page (P24). Chronological shape of the filtered event set, with zoom, pan and
+  // Timeline page. Chronological shape of the filtered event set, with zoom, pan and
   // range selection, plus the list of events inside the visible window.
   //
   // Division of labour: the BACKEND returns a density histogram (counts, not events), so
   // the picture is cheap at any dataset size; individual events are fetched only for the
   // window actually in view. Undated events cannot appear here at all — that is stated on
-  // the page with a route to them, rather than being silently absent (P23).
+  // the page with a route to them, rather than being silently absent.
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { theme } from '../stores/theme.js';
@@ -46,7 +46,7 @@
   let loading = $state(false);
   let windowEvents = $state(/** @type {any[]} */ ([]));
   let hover = $state(/** @type {any} */ (null));
-  // The playhead is SHARED with the graph canvas's replay (P29), and the shared value is an
+  // The playhead is SHARED with the graph canvas's replay, and the shared value is an
   // absolute instant rather than a fraction. The two views measure different spans — this one
   // the filtered event set, the canvas the active graph — so a shared fraction would have them
   // pointing at different moments while appearing to agree. Each converts at its own edge.
@@ -93,7 +93,7 @@
     return lanes.map((l) => ({ ...l, key: names.get(l.key) || l.key }));
   });
 
-  // --- Relationship heatmap (P29) ---
+  // --- Relationship heatmap ---
   //
   // The histogram below says when EVENTS happened; this says when the things rohy INFERRED
   // happened. It is off by default: an analyst who has not run any rules has nothing to see, and
@@ -275,7 +275,7 @@
       .catch(() => (markEvents = []));
   });
 
-  // Flagged events, marked across the whole extent (P25). This is the analyst's own map of
+  // Flagged events, marked across the whole extent. This is the analyst's own map of
   // the case: where the things they decided mattered actually fall in time. It is fetched
   // once for the extent rather than per view window, so panning does not re-query — the set
   // is bounded by how much a person has flagged, not by case size.
@@ -339,7 +339,7 @@
   }
 
   // Graph → timeline: when another view focuses an event, select and reveal it here, so
-  // selection flows BOTH ways rather than only outward (P24.4).
+  // selection flows BOTH ways rather than only outward.
   let lastFocusNonce = 0;
   $effect(() => {
     const f = $graph.focus;
@@ -414,7 +414,7 @@
   }
 
   // A swept range becomes a real filter on the shared events model, so the timeline and the
-  // events page always mean the same thing by "filtered" (R-TL4).
+  // events page always mean the same thing by "filtered".
   function applyRange(r) {
     const from = fracToTime(r.start);
     const to = fracToTime(r.end);

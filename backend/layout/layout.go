@@ -19,7 +19,7 @@ import (
 	"rohy/backend/durable"
 )
 
-// layoutFileFor returns the per-graph layout filename (multiple-graphs, P15). Each graph
+// layoutFileFor returns the per-graph layout filename (multiple-graphs). Each graph
 // owns its own node positions + viewport; the node id set doubles as canvas membership.
 func layoutFileFor(graphID uint64) string {
 	return fmt.Sprintf("canvas-%d.json", graphID)

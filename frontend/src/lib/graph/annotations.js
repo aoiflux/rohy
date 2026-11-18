@@ -1,5 +1,5 @@
 /**
- * Placing annotations on the canvas (P29).
+ * Placing annotations on the canvas.
  *
  * The document is stored in Go. What lives here is the arithmetic that turns an anchor into a
  * position, and the rules about what may be drawn at all.

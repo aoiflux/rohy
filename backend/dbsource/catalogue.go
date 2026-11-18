@@ -8,7 +8,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The provider/message catalogue schema (P22):
+// The provider/message catalogue schema:
 //
 //	messages  ( id, event_id, provider_id, message )
 //	providers ( id, name )

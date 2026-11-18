@@ -1,5 +1,5 @@
 /**
- * Drawing clusters on the canvas: the outline, and the collapse (P29).
+ * Drawing clusters on the canvas: the outline, and the collapse.
  *
  * The grouping itself is computed in Go — union-find components, rules, correlation slots. What
  * lives here is purely how a group is DRAWN: the convex hull around its cards, and the mapping

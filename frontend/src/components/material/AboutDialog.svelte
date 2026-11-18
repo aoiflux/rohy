@@ -1,5 +1,5 @@
 <script>
-  // About surface (P13). Shows the build identity read from the backend's version package —
+  // About surface. Shows the build identity read from the backend's version package —
   // the same values the release build stamps — so what the user sees is what was actually
   // built rather than a number typed into the UI that can drift.
   import { aboutOpen } from '../../stores/about.js';

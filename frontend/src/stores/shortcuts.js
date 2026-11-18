@@ -1,4 +1,4 @@
-// Shared open-state for the keyboard-shortcut reference (P11).
+// Shared open-state for the keyboard-shortcut reference.
 //
 // The dialog and the `?` key handler live in ONE component mounted at the app root, while
 // the visible "?" button lives wherever a view wants to advertise it. Routing both through

@@ -122,7 +122,7 @@ func TestGateSurvivesConcurrentPauseResume(t *testing.T) {
 }
 
 func TestPauseFlushesAndBookmarksBeforeBlocking(t *testing.T) {
-	// The P8 guarantee: pausing leaves the store at a consistent point — the in-flight
+	// The pause guarantee: pausing leaves the store at a consistent point — the in-flight
 	// batch is written and its capture position persisted BEFORE the pipeline idles.
 	j := &writeJournal{}
 	positions := &journalPositions{journal: j}

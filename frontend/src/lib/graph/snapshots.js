@@ -1,5 +1,5 @@
 /**
- * Reading a restore plan (P29).
+ * Reading a restore plan.
  *
  * The plan is computed in Go. What lives here is how it becomes a sentence, and which parts of it
  * an analyst is being asked to agree to.

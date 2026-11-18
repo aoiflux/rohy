@@ -1,7 +1,7 @@
-// Package query is the read-only query console (plan §4.7, item 33): a structured builder over
+// Package query is the read-only query console: a structured builder over
 // the case's events and relations, with counts by field.
 //
-// 🔒 No expression language (risk R8). A query is a subject, conditions ANDed together, an optional
+// 🔒 No expression language. A query is a subject, conditions ANDed together, an optional
 // field to count by, and a limit — data, never code — and every part of it is checked against the
 // vocabulary below before anything is read.
 //

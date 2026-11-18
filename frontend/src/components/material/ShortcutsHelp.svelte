@@ -1,5 +1,5 @@
 <script>
-  // Keyboard shortcut reference (P11). Mounted once at the app root: it owns the `?` key,
+  // Keyboard shortcut reference. Mounted once at the app root: it owns the `?` key,
   // handles global navigation, and renders the documented map.
   //
   // The list is generated from lib/shortcuts.js — the same module the handlers read — so

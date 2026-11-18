@@ -42,7 +42,7 @@ type App struct {
 	// Default graph once the window is up rather than before it appears.
 	store    *graphene.Store
 	registry *graphreg.Store
-	// session is who is working and how the case opened (item 41).
+	// session is who is working and how the case opened.
 	session *api.Session
 
 	Events   *api.EventsAPI
@@ -59,7 +59,7 @@ type App struct {
 	Snapshots *api.SnapshotAPI
 	// Annotate owns the analyst's own marks on a graph — layers, note pins, regions, arrows.
 	Annotate *api.AnnotateAPI
-	// Query is the read-only console (item 33). It holds the store as query.Reader, so it can read
+	// Query is the read-only console. It holds the store as query.Reader, so it can read
 	// the case and nothing else.
 	Query *api.QueryAPI
 }
@@ -76,7 +76,7 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The store opens once the session has fixed how (item 41): graphene takes the signer and the
+	// The store opens once the session has fixed how: graphene takes the signer and the
 	// analyst at open. Until then a call that needs it waits.
 	store := graphene.OpenAwaitingSession(dir)
 
@@ -193,7 +193,7 @@ func (a *App) initialize() {
 		api.AwaitExit(a.handoffPID, consts.HandoffWait)
 	}
 
-	// The session step (item 41). A case with nothing to ask — a known analyst, never signed —
+	// The session step. A case with nothing to ask — a known analyst, never signed —
 	// starts as it always did; otherwise the splash shows the step and this waits for the answer.
 	if v := a.session.Status(); v.Need == consts.SessionNeedNone {
 		if _, err := a.session.Begin(api.SessionRequest{}); err != nil {
@@ -239,7 +239,7 @@ func (a *App) initialize() {
 // capture position. Draining before closing is what keeps a live capture's bookmark honest across
 // an app close — otherwise the next session would re-read from a stale position.
 //
-// The seal is skipped when nothing was written since the last one (plan §15.5). A compaction
+// The seal is skipped when nothing was written since the last one. A compaction
 // always makes a new fingerprint, so compacting an unchanged case on every close made the
 // fingerprint an analyst had just exported stale by the next launch. There is no window left
 // to report a failure in, so it is not reported; the next open replays the log either way.
@@ -341,13 +341,13 @@ func annotationsDir(dbDir string) string {
 // Beside the store like every other sidecar, and with one thing worth being explicit about: this
 // copy is for CHAINING one image's fingerprint to the last, which is a check the case can run on
 // itself. It is not the external copy that makes a fingerprint worth anything — a value that never
-// left this folder establishes nothing against anyone able to rewrite the folder. See §14.2.
+// left this folder establishes nothing against anyone able to rewrite the folder.
 func rootsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.RootsSubdir)
 }
 
 // redactionsDir returns the redaction journal's directory (<cwd>/rohy-data/redactions). Beside the
-// store, and kept with the case: it lists what must not be ingested again (plan §14.5).
+// store, and kept with the case: it lists what must not be ingested again.
 func redactionsDir(dbDir string) string {
 	return filepath.Join(filepath.Dir(dbDir), consts.RedactionsSubdir)
 }

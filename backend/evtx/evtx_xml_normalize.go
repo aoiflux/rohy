@@ -67,7 +67,7 @@ func normalizeXML(raw string) (*graphene.Event, error) {
 }
 
 // normalizeXMLRecord is normalizeXML plus the event's EventRecordID — the per-channel
-// position continuous capture bookmarks against (P7). A missing or unparseable record id
+// position continuous capture bookmarks against. A missing or unparseable record id
 // yields 0, which simply means "this event does not advance the bookmark" rather than
 // failing an otherwise-valid event.
 func normalizeXMLRecord(raw string) (*graphene.Event, uint64, error) {

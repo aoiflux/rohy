@@ -4,7 +4,7 @@ import EventDetail from '../../components/events/EventDetail.svelte';
 import { PROOF_STATE, proofOutcome, proofFailure } from './proof.js';
 import { UI } from '../consts/index.js';
 
-// Event proofs in the UI (plan §14.3, item 38).
+// Event proofs in the UI.
 //
 // As with the fingerprint copy, the risk here is a false statement about evidence: a "saved" that
 // reads as "proven", a proof with no retained fingerprint presented as useful, or a damaged record

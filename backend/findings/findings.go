@@ -1,5 +1,5 @@
 // Package findings holds the analyst's own judgements about events: a flag, tags, and a
-// note (P25). Everything else in rohy is machine-derived — events come from EVTX, edges
+// note. Everything else in rohy is machine-derived — events come from EVTX, edges
 // come from rules, layout comes from an algorithm — and this is the one layer that is
 // authored by a person.
 //
@@ -143,7 +143,7 @@ func (s *Store) persist() error {
 }
 
 // ScrubDescriptors replaces the descriptor of each finding keyed by one of keys with replacement,
-// and returns the keys it changed (plan §14.5). A descriptor is a copy rohy made of an event's
+// and returns the keys it changed. A descriptor is a copy rohy made of an event's
 // content, so a redaction removes it; the flag, tags and note are the analyst's own words and are
 // left for the analyst.
 //

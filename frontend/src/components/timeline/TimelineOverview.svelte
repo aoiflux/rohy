@@ -1,5 +1,5 @@
 <script>
-  // Overview minimap for the timeline (P24 UX pass).
+  // Overview minimap for the timeline.
   //
   // The main chart shows the visible WINDOW; zoom in and you lose all sense of where that
   // window sits in the whole case. This strip always shows the FULL extent — the same

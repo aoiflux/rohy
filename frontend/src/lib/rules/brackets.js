@@ -1,4 +1,4 @@
-// Bracket pairs and the keystrokes that keep them balanced, for the raw editor (plan §7.6).
+// Bracket pairs and the keystrokes that keep them balanced, for the raw editor.
 //
 // Its own scanner rather than the highlighter's tokenizer: the tokenizer stops at the first
 // thing that is not JSON, and a half-typed buffer is the normal state of an editor, so every

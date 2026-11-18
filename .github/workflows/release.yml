@@ -1,4 +1,4 @@
-# rohy release pipeline (Phase 16).
+# rohy release pipeline.
 #
 # Produces all six platform/architecture artefacts from ONE orchestrated run, plus a single
 # checksum manifest covering them. Triggered by pushing a version tag; the workflow only

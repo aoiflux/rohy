@@ -16,7 +16,7 @@ import (
 	"rohy/backend/payload"
 )
 
-// The redaction journal (plan §14.5, item 40).
+// The redaction journal.
 //
 // The journal carries two duties, and each fails in its own way. As the record of a redaction in
 // progress it must be on disk before anything is destroyed, or a crash loses the only copy of

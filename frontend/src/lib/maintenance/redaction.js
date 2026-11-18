@@ -1,5 +1,5 @@
 /**
- * Reading a redaction (plan §14.5, item 40).
+ * Reading a redaction.
  *
  * What a redaction does is decided and done in Go. What lives here is how its preview and its
  * outcome become something the drawer can lay out.

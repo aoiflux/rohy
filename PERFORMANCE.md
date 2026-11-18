@@ -1210,7 +1210,7 @@ go test ./backend/graphene/ -run XXX -bench 'InsertShape|SealShape' -benchtime 2
 go test ./backend/keyfile/  -run XXX -bench Unlock -benchtime 10x -count 3
 ```
 
-## 19. Checkpoints: what a publish and a check cost (item 42)
+## 19. Checkpoints: what a publish and a check cost
 
 A checkpoint commits to the head of every history except the events themselves: the image root,
 its attestation, the audit log, the removal and grant ledgers. Reading them once is what both an
@@ -1232,7 +1232,7 @@ A publish on a case with unsealed changes seals first, and then costs what a sea
 go test ./backend/graphene/ -run XXX -bench 'Histories|PublishCheckpoint' -benchtime 20x
 ```
 
-## 20. The integration path: ordering, the build's memory, repair (item 34)
+## 20. The integration path: ordering, the build's memory, repair
 
 **Writing chunks in file order cost nothing measurable.** A file ingest now hands its chunks to
 the sink in file order through a bounded window (LLD §7.1). `TestBoundedMemoryStreaming` measured
@@ -1293,9 +1293,9 @@ go test ./backend/graphene/ -run XXX -bench RepairRelationIndexHealthy -benchtim
 go run ./tools/profile -events 100000 && go tool pprof -top profiles/cpu-build-100000.pprof
 ```
 
-## 21. Layout, the heatmap and the backfill: the last three benchmarks (item 36)
+## 21. Layout, the heatmap and the backfill: three benchmarks
 
-The plan listed three benchmarks with a claim each (plan §11.2). All three are now written, on the
+Three claims about cost each got a benchmark. All three are written on the
 disk backend, and each asserts that the work was done (every node placed, every relation counted,
 every event projected) so an early return cannot pass for a fast one. Ryzen 9 5980HS throughout.
 

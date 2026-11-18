@@ -77,7 +77,7 @@ type Event struct {
 	CorrKeys       []string `json:"ck,omitempty"`
 	CorrKeyVersion int      `json:"ckv,omitempty"`
 
-	// Redacted says a redaction removed this event's content (plan §14.5): the node is all that is
+	// Redacted says a redaction removed this event's content: the node is all that is
 	// left. Set on read, never stored — omitted from an ordinary record, so encoding one is
 	// byte-for-byte what it was, and refused by toNode, so a redacted event is never written back.
 	Redacted bool `json:"redacted,omitempty"`
@@ -212,7 +212,7 @@ type Relation struct {
 	ID              uint64    `json:"id"`
 	From            uint64    `json:"from"`
 	To              uint64    `json:"to"`
-	GraphID         uint64    `json:"graph_id"` // the named graph this relation belongs to (P15)
+	GraphID         uint64    `json:"graph_id"` // the named graph this relation belongs to
 	RelationType    string    `json:"relation_type"`
 	Label           string    `json:"relation_label"`
 	ConfidenceScore float64   `json:"confidence_score"`

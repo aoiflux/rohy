@@ -16,7 +16,7 @@ import (
 	"rohy/backend/utils"
 )
 
-// The custody report through the binding, over real disk cases (plan §14.4, §15.6).
+// The custody report through the binding, over real disk cases.
 
 // boundEvent is an event whose raw record is covered by its stored record, as every normalizer
 // writes it.

@@ -1,5 +1,5 @@
 // Package capture owns the durable position bookmarks for continuous live event-log
-// capture (P7). Each channel's last durably-persisted EventRecordID is recorded here, so
+// capture. Each channel's last durably-persisted EventRecordID is recorded here, so
 // restarting a capture resumes exactly where it left off instead of re-reading the channel
 // from the beginning.
 //

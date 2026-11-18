@@ -1,6 +1,6 @@
-// Package autograph is rohy's auto-graphing engine (P3). Given a correlation rule and a
+// Package autograph is rohy's auto-graphing engine. Given a correlation rule and a
 // set of events, it deterministically produces the relations (edges) the rule implies —
-// returned UNPERSISTED, so the caller (the P6 workflow) owns graph scoping, timestamps,
+// returned UNPERSISTED, so the caller (the graph-build workflow) owns graph scoping, timestamps,
 // and persistence. Algorithm types are pluggable behind the Algorithm interface; only
 // sequence correlation ships in v1, with field-correlation and temporal-window reserved
 // as future registered types. This package sits above rules + graphene and never writes

@@ -8,7 +8,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// 🔒 Found during item 40: graphene.Event keeps its cold fields out of its JSON — that JSON is the
+// 🔒 Found while adding redaction: graphene.Event keeps its cold fields out of its JSON — that JSON is the
 // node record too — so returning it straight from the binding meant the drawer never received the
 // raw record or the parsed fields. The drawer reads them from exactly these keys.
 func TestGetEventCarriesTheRawRecordAndParsedFields(t *testing.T) {

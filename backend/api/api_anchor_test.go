@@ -17,7 +17,7 @@ import (
 	"rohy/backend/custody"
 )
 
-// Checkpoints end to end through a real session (plan §14.7, item 42).
+// Checkpoints end to end through a real session.
 
 func (c *sessionCase) maintenance() *MaintenanceAPI {
 	c.t.Helper()

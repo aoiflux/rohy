@@ -9,7 +9,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Detector 17 over published checkpoints, receipts and the tripwires (item 42).
+// Detector 17 over published checkpoints, receipts and the tripwires.
 
 func checkpoint(seq uint64) graphene.Checkpoint {
 	return graphene.Checkpoint{

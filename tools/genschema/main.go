@@ -1,5 +1,5 @@
 // Command genschema emits a JSON Schema for the rohy rule format, derived from
-// rules.Describe() (P31).
+// rules.Describe().
 //
 // 🔒 It is GENERATED, never hand-written, and that is the whole point. A hand-maintained schema
 // is a third statement of the rule format — after the Go validator and the guided editor — and

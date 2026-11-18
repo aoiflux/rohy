@@ -16,7 +16,7 @@ import (
 	"rohy/backend/version"
 )
 
-// Checkpoints: the digest out, the receipt in (plan §14.7, item 42). They hang off MaintenanceAPI with
+// Checkpoints: the digest out, the receipt in. They hang off MaintenanceAPI with
 // the rest of the forensic posture.
 //
 // 🔒 rohy ships no anchor. PublishCheckpoint records a checkpoint and hands its digest to the
@@ -320,7 +320,7 @@ func (a *MaintenanceAPI) CheckCheckpoint(digest string) (custody.AnchorCheck, er
 }
 
 // keptCheckpoint resolves a kept value that is a checkpoint digest to the seal the checkpoint names
-// (the event drawer, item 42). It returns nil for a value no checkpoint carries, which the custody
+// (the event drawer). It returns nil for a value no checkpoint carries, which the custody
 // report then reads as a seal fingerprint. Called under sealMu.
 func keptCheckpoint(h *graphene.Histories, kept string) (string, *custody.KeptCheckpoint) {
 	k, state, detail := h.Find(kept)

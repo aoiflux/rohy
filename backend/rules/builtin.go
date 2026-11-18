@@ -9,7 +9,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// builtinFS carries the curated default correlation rules (P4), compiled into the binary
+// builtinFS carries the curated default correlation rules, compiled into the binary
 // so a fresh install has a working library with no files to ship alongside it. The path is
 // a literal because //go:embed cannot reference a constant; it mirrors consts.RuleBuiltinDir.
 //
@@ -56,8 +56,8 @@ func Builtins() ([]*Rule, []LoadError) {
 		}
 		seen[id] = name
 		// Path stays empty: a builtin has no on-disk file, which is also what marks it
-		// undeletable in the rules UI (P5). File records which embedded file it came from,
-		// so the inspector can read its source back (P19).
+		// undeletable in the rules UI. File records which embedded file it came from,
+		// so the inspector can read its source back.
 		out = append(out, toRule(spec, consts.RuleSourceBuiltin, "", name, false))
 	}
 	return out, errs

@@ -15,7 +15,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 )
 
-// The engine's half of a redaction (plan §14.5, item 40): the primitives the redaction package
+// The engine's half of a redaction: the primitives the redaction package
 // composes, and the guards that keep a redacted event redacted.
 
 const why = "erasure request 2026-11-04"

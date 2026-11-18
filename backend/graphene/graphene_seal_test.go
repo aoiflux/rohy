@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Whether a case has anything to seal (plan §14.2, §15.5).
+// Whether a case has anything to seal.
 //
 // Every compaction writes a new fingerprint, even when nothing changed, because the new image names
 // the old one as its predecessor and that link is part of the root. So the automatic seals — after

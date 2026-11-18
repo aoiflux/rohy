@@ -14,7 +14,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Sealing and the Maintenance forensic actions over a real disk case (plan §14.2, §15.5).
+// Sealing and the Maintenance forensic actions over a real disk case.
 //
 // The in-memory backend has no image, so almost none of this can be seen there — which is why
 // these tests open a disk store, and why one of them pins what the in-memory answer is.
@@ -222,7 +222,7 @@ func TestForensicStatusSaysWhatTheCaseCanProve(t *testing.T) {
 		t.Errorf("sealed status = %+v, want compacted with the case's fingerprint", st)
 	}
 	if st.VerifyOnOpen {
-		t.Error("verification on open is reported on; it is off by default permanently (§14.2)")
+		t.Error("verification on open is reported on; it is off by default permanently")
 	}
 }
 
@@ -271,7 +271,7 @@ func TestVerifyImageMatchesOnAnUntouchedSealedCase(t *testing.T) {
 
 // Both whole-store actions take the maintenance lock, so neither runs beside a backfill or each
 // other — 449 MB of verification churn beside a compaction would make both slower and the analyst
-// unable to tell which pass is responsible (§14.2).
+// unable to tell which pass is responsible.
 func TestWholeStoreActionsRefuseWhileAnotherPassRuns(t *testing.T) {
 	store, _, maint := forensicCase(t)
 	if err := maint.begin(consts.MaintenancePassBackfill); err != nil {

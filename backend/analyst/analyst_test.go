@@ -352,7 +352,7 @@ func FuzzDecodeProfile(f *testing.F) {
 	})
 }
 
-// The last checkpoint published of each case is kept outside it (item 42), one per case, and read
+// The last checkpoint published of each case is kept outside it, one per case, and read
 // back strictly.
 func TestTheProfileKeepsTheLastCheckpointPublishedPerCase(t *testing.T) {
 	dir := t.TempDir()

@@ -1,4 +1,4 @@
-// The query console's state (item 33): the vocabulary the backend described, the query being
+// The query console's state: the vocabulary the backend described, the query being
 // built, and the last answer.
 //
 // 🔒 Nothing runs on its own except reading the vocabulary, which reads nothing from the case. A

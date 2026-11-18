@@ -11,7 +11,7 @@ import (
 )
 
 // RuleSource is a rule's file exactly as authored, plus enough provenance for the inspector
-// to say where it came from (P19).
+// to say where it came from.
 type RuleSource struct {
 	ID     string `json:"id"`
 	Origin string `json:"origin"` // consts.RuleSource* — builtin or user

@@ -48,7 +48,7 @@
   const stale = $derived($maintenance.status?.stale ?? 0);
   const forensics = $derived($maintenance.forensics);
   const image = $derived($maintenance.image);
-  // A session that cannot write is not offered a button it would refuse (item 43).
+  // A session that cannot write is not offered a button it would refuse.
   const noWrites = $derived(writesRefused(forensics));
   const signingNow = $derived(sessionSigning(forensics));
   const SIGNING_LINE = {
@@ -179,12 +179,12 @@
     {/if}
   </section>
 
-  <!-- Who is working, how the case opened, and its keys (item 41). Above what the case can prove:
+  <!-- Who is working, how the case opened, and its keys. Above what the case can prove:
        a read-only session is the first thing to know before reading anything below it. -->
   <SigningCard />
 
   <!--
-    What the case can prove (§14). Placed ABOVE the integrity report deliberately: it qualifies
+    What the case can prove. Placed ABOVE the integrity report deliberately: it qualifies
     everything below it. A report that says "no problems found" about a case that cannot establish
     its own contents have not changed is saying much less than it appears to, and a reader who
     meets the qualification after the verdict has already drawn a conclusion.
@@ -240,12 +240,12 @@
     {/if}
   </section>
 
-  <!-- Checkpoints outside the case (item 42): the one record whose digest leaves the case. -->
+  <!-- Checkpoints outside the case: the one record whose digest leaves the case. -->
   {#if forensics?.available}
     <AnchoringCard {busy} {noWrites} />
   {/if}
 
-  <!-- Unfinished redactions (plan §14.5). Shown whenever there are any, before a check is run:
+  <!-- Unfinished redactions. Shown whenever there are any, before a check is run:
        until they finish, content they were removing may still be in the case. -->
   {#if $maintenance.pending && $maintenance.pending.length > 0}
     <section class="card">

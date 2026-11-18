@@ -8,11 +8,10 @@ import (
 	"rohy/backend/rules"
 )
 
-// RulesAPI is the Wails binding over the correlation-rule registry (P2). It exposes the
+// RulesAPI is the Wails binding over the correlation-rule registry. It exposes the
 // loaded rules and their per-file errors, and lets the frontend toggle a rule on/off or
 // rescan the user rules directory. Rule parsing/validation and enabled-state persistence
 // live entirely in the rules package; this struct only adapts them to the binding layer.
-// Import/delete of user rules arrives at P5; the embedded default library at P4.
 type RulesAPI struct {
 	registry *rules.Registry
 	mu       sync.Mutex
@@ -131,7 +130,7 @@ func (a *RulesAPI) RulesDir() string {
 	return a.registry.Dir()
 }
 
-// RuleSource returns a rule's file exactly as authored, for the rule inspector (P19). It is
+// RuleSource returns a rule's file exactly as authored, for the rule inspector. It is
 // the raw file rather than a re-serialization of the parsed rule, so what the user sees is
 // what is actually on disk — including any field this build does not interpret.
 func (a *RulesAPI) RuleSource(id string) (rules.RuleSource, error) {
@@ -142,7 +141,7 @@ func (a *RulesAPI) RuleSource(id string) (rules.RuleSource, error) {
 	return src, nil
 }
 
-// --- Rule editor (P26) ---
+// --- Rule editor ---
 //
 // The four bindings below are what let the application author a rule rather than only
 // import one. They share a principle: the editor asks the backend the same questions the

@@ -1,4 +1,4 @@
-// API wrapper layer (P5.3). The ONLY module that talks to the Wails backend.
+// API wrapper layer. The ONLY module that talks to the Wails backend.
 // Components and stores call these functions; they never touch the runtime directly.
 // Each calls a bound method by its full name, <Go package path>.<Struct>.<Method>, and
 // returns a Promise. backend/api's TestEveryMethodTheFrontendCallsIsBound holds every
@@ -43,7 +43,7 @@ export function isBackendAvailable() {
 export function startIngest(req) {
   return call(EVENTS, 'StartIngest', req);
 }
-/** Live-capture session state + durable per-channel positions (P7).
+/** Live-capture session state + durable per-channel positions.
  * @returns {Promise<{active:boolean, continuous:boolean, channels:string[], positions:Record<string,number>}>} */
 export function captureStatus() {
   return call(EVENTS, 'CaptureStatus');
@@ -59,7 +59,7 @@ export function cancelIngestion() {
 export function isIngesting() {
   return call(EVENTS, 'IsIngesting');
 }
-/** Backend-authoritative ingestion lifecycle (P8). @returns {Promise<string>} */
+/** Backend-authoritative ingestion lifecycle. @returns {Promise<string>} */
 export function ingestState() {
   return call(EVENTS, 'IngestState');
 }
@@ -84,7 +84,7 @@ export function relaunchAsAdmin() {
 export function queryEvents(query) {
   return call(EVENTS, 'QueryEvents', query);
 }
-/** Total events matching a filter, ignoring paging (P1 accurate counts). @param {object} query */
+/** Total events matching a filter, ignoring paging (accurate counts). @param {object} query */
 export function countEvents(query) {
   return call(EVENTS, 'CountEvents', query);
 }
@@ -92,7 +92,7 @@ export function getEvent(id) {
   return call(EVENTS, 'GetEvent', id);
 }
 /**
- * Timeline shape for the filtered set (P24): extent, dated/undated counts, and a density
+ * Timeline shape for the filtered set: extent, dated/undated counts, and a density
  * histogram. Returns COUNTS, not events — the page draws density and fetches individual
  * events only for the range in view.
  * @param {object} query @param {number} buckets @param {string} groupBy lane grouping ('' = none)
@@ -125,7 +125,7 @@ export function getEvents(ids) {
 export function getRelations() {
   return call(GRAPH, 'GetRelations');
 }
-/** Relations scoped to one graph (P15). @param {number} graphId */
+/** Relations scoped to one graph. @param {number} graphId */
 export function getGraphRelations(graphId) {
   return call(GRAPH, 'GetGraphRelations', graphId);
 }
@@ -170,7 +170,7 @@ export function loadLayout(graphId) {
   return call(GRAPH, 'LoadLayout', graphId);
 }
 
-// --- Auto-layout (P29). Computing is not applying: ComputeLayout returns positions and writes
+// --- Auto-layout. Computing is not applying: ComputeLayout returns positions and writes
 // nothing, so a profile can be previewed and abandoned without costing hand placement, which has
 // no undo. Persisting is still saveLayout, made only when the analyst keeps the arrangement.
 
@@ -199,7 +199,7 @@ export function clusterModes() {
   return call(GRAPH, 'ClusterModes');
 }
 
-// --- Relationship heatmap (P29). WHEN the things rohy inferred happened, by kind. Pass from/to
+// --- Relationship heatmap. WHEN the things rohy inferred happened, by kind. Pass from/to
 // to pin the window to the timeline's own view, so the strip and the histogram beneath it share
 // an axis exactly rather than approximately.
 
@@ -215,7 +215,7 @@ export function heatmapGroups() {
   return call(GRAPH, 'HeatmapGroups');
 }
 
-// --- Snapshots (P29). A snapshot records what a graph LOOKED LIKE; a restore says what it can
+// --- Snapshots. A snapshot records what a graph LOOKED LIKE; a restore says what it can
 // honestly put back. Preview and apply are separate calls because nothing restores silently: the
 // analyst sees the plan — re-applied, offered, unresolvable — before anything is written.
 
@@ -243,7 +243,7 @@ export function applyRestore(req) {
   return call(SNAPSHOTS, 'ApplyRestore', req);
 }
 
-// --- Annotation layers (P29). The analyst's own marks ON a graph. Anchors are event content
+// --- Annotation layers. The analyst's own marks ON a graph. Anchors are event content
 // hashes, resolved to live node ids by the backend on every read — never cached, because the
 // whole reason they are hash-anchored is that node ids move.
 
@@ -276,7 +276,7 @@ export function deleteAnnotation(graphId, id) {
   return call(ANNOTATE, 'DeleteAnnotation', graphId, id);
 }
 
-// --- Graph management (multiple graphs, P15) ---
+// --- Graph management (multiple graphs) ---
 
 export function listGraphs() {
   return call(GRAPH, 'ListGraphs');
@@ -299,7 +299,7 @@ export function deleteGraph(id) {
   return call(GRAPH, 'DeleteGraph', id);
 }
 
-// --- Rules API (correlation rules, P2/P4/P5) ---
+// --- Rules API (correlation rules) ---
 
 /** @returns {Promise<{rules:object[], errors:{path:string,message:string}[]}>} */
 export function listRules() {
@@ -341,14 +341,14 @@ export function deleteRule(id) {
 export function rulesDir() {
   return call(RULES, 'RulesDir');
 }
-/** A rule's file exactly as authored, for the inspector (P19).
+/** A rule's file exactly as authored, for the inspector.
  * @param {string} id
  * @returns {Promise<{id:string, origin:string, file:string, path?:string, source:string}>} */
 export function ruleSource(id) {
   return call(RULES, 'RuleSource', id);
 }
 
-// --- Rule editor (P26) ---
+// --- Rule editor ---
 //
 // The editor asks the backend the same questions the loader answers rather than
 // re-implementing the rule format here. lib/rules/ holds a fast local mirror for
@@ -409,7 +409,7 @@ export function saveRule(req) {
   return call(RULES, 'SaveRule', { id: '', source: '', replace_path: '', ...req });
 }
 
-// --- Rule-driven graph building (P6) ---
+// --- Rule-driven graph building ---
 
 /**
  * Applies rules to the event set: one rule = one graph. An empty rule_ids runs every
@@ -489,7 +489,7 @@ export function maintenanceState() {
   return call(MAINTENANCE, 'MaintenanceState');
 }
 
-// --- Case integrity (P30). Reads and reports; the fixes are separate, explicit calls. Nothing
+// --- Case integrity. Reads and reports; the fixes are separate, explicit calls. Nothing
 // here runs on startup, and nothing repairs as a side effect of checking.
 
 /** Runs the case checks. `deep` adds the index verification, which is proportional to the whole
@@ -510,7 +510,7 @@ export function rebuildIndexes() {
   return call(MAINTENANCE, 'RebuildIndexes');
 }
 
-// --- Forensic posture (Phase 8, plan §14) ---
+// --- Forensic posture ---
 //
 // What this case can and cannot ESTABLISH about its own contents, as distinct from whether it is
 // broken. For an existing case the answer is mostly a consequence of when it was written.
@@ -579,7 +579,7 @@ export function exportCaseFingerprint() {
 }
 
 /**
- * Builds the proof document for one event (plan §14.3), or says why it cannot be built yet.
+ * Builds the proof document for one event, or says why it cannot be built yet.
  *
  * `document` is the exact text to save: Go verified those bytes against `snapshot` before returning
  * them, so the caller writes it out untouched. `snapshot` is the fingerprint a recipient needs — of
@@ -594,7 +594,7 @@ export function exportEventProof(id) {
 }
 
 /**
- * The custody report for one event (plan §14.4): gaps, never a verdict. kept is a fingerprint the
+ * The custody report for one event: gaps, never a verdict. kept is a fingerprint the
  * analyst kept outside the case, or '' — never one read from the case.
  * @param {number} id
  * @param {string} kept
@@ -603,7 +603,7 @@ export function eventCustody(id, kept) {
   return call(MAINTENANCE, 'EventCustody', id, kept);
 }
 
-// --- Checkpoints (plan §14.7, item 42) ---
+// --- Checkpoints ---
 
 /** The case's checkpoints, oldest first, each with the receipts the case records for it. Cheap. */
 export function checkpoints() {
@@ -643,7 +643,7 @@ export function checkCheckpoint(digest) {
   return call(MAINTENANCE, 'CheckCheckpoint', digest);
 }
 
-// --- Redaction (plan §14.5) ---
+// --- Redaction ---
 
 /** What redacting an event would remove and keep. Writes nothing. @param {number} id */
 export function previewRedaction(id) {
@@ -674,7 +674,7 @@ export function isRunningRules() {
   return call(BUILD, 'IsRunningRules');
 }
 
-// --- Analyst findings (P25) ---
+// --- Analyst findings ---
 //
 // Findings are keyed by an event's hash_normalized — its content identity — not by its node
 // id. Node ids are assignment-order, so a re-ingest would move an analyst's note onto a
@@ -728,7 +728,7 @@ export function auditFindings() {
   return call(FINDINGS, 'AuditFindings');
 }
 
-// --- System / initialization (P21) ---
+// --- System / initialization ---
 
 /**
  * Current initialization state. Polled once on mount so a view that starts AFTER
@@ -740,7 +740,7 @@ export function initStatus() {
   return call(SYSTEM, 'InitStatus');
 }
 
-/** What the session step shows (item 41). Never holds secret material. */
+/** What the session step shows. Never holds secret material. */
 export function sessionStatus() {
   return call(SYSTEM, 'SessionStatus');
 }
@@ -777,7 +777,7 @@ export function requestSigning(req) {
   return call(MAINTENANCE, 'RequestSigning', req);
 }
 
-/** Build identity for the About surface (P13).
+/** Build identity for the About surface.
  * @returns {Promise<{name:string, version:string, commit:string, date:string, development:boolean}>} */
 export function version() {
   return call(SYSTEM, 'Version');
@@ -796,7 +796,7 @@ export function on(channel, handler) {
   return Events.On(channel, (event) => handler(event.data));
 }
 
-// --- Query console (item 33): read-only, structured, no expression language ---
+// --- Query console: read-only, structured, no expression language ---
 
 /** describeQuery returns what a query may say: subjects, fields, operators, columns and caps. */
 export function describeQuery() {

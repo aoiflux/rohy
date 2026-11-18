@@ -1,6 +1,6 @@
 package custody
 
-// The custody report for one event (plan §14.4, §15.6).
+// The custody report for one event.
 //
 // 🔒 GAPS, NEVER A VERDICT. Each layer says what it established and what it did not, and the report
 // never adds them up into "custody accounted for". Every check rohy can run compares the case
@@ -84,10 +84,10 @@ type ReportInput struct {
 	Kept         string
 	KeptKnown    bool
 	KeptAncestor bool
-	// KeptVia is set when the value kept was a checkpoint digest (item 42): Kept is then the seal the
+	// KeptVia is set when the value kept was a checkpoint digest: Kept is then the seal the
 	// checkpoint names, found through a chain that checks.
 	KeptVia *KeptCheckpoint
-	// Signing is what the case records about its signing (item 41). Nil leaves the signing layer
+	// Signing is what the case records about its signing. Nil leaves the signing layer
 	// out, for a caller with no analyst register.
 	Signing *SigningInput
 }

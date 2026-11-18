@@ -9,7 +9,7 @@ import (
 	"rohy/backend/redaction"
 )
 
-// FindingsAPI is the Wails binding over the analyst findings sidecar (P25). It carries no
+// FindingsAPI is the Wails binding over the analyst findings sidecar. It carries no
 // logic of its own: normalization, validation, and persistence live in the findings package,
 // and this struct only adapts them to the binding layer and stamps the clock.
 //
@@ -28,7 +28,7 @@ type FindingsAPI struct {
 }
 
 // AttachFindingsRedactions gives the findings binding the redaction journal, so a finding written
-// on a redacted event keeps no descriptor (plan §14.5). A package function for the reason
+// on a redacted event keeps no descriptor. A package function for the reason
 // AttachSealHistory is one.
 func AttachFindingsRedactions(f *FindingsAPI, j *redaction.Journal) *FindingsAPI {
 	// 🔒 Never a nil *Journal inside the interface.

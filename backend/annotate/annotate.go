@@ -1,5 +1,5 @@
 // Package annotate holds the analyst's own marks on a graph: notes pinned to events, regions
-// drawn around parts of the canvas, and arrows between two points, organised into layers (P29).
+// drawn around parts of the canvas, and arrows between two points, organised into layers.
 //
 // It follows the findings precedent exactly — a JSON sidecar beside the case, plain and readable,
 // hash-keyed where it attaches to an event — for the same reason: this is authored, not derived,

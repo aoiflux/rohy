@@ -1,4 +1,4 @@
-// The session as the shell shows it (item 41): whether this session can write, and why not.
+// The session as the shell shows it: whether this session can write, and why not.
 //
 // Refreshed once the case is open and after anything that can change it (unlocking the key), so
 // the status bar's read-only mark and the Maintenance page agree.

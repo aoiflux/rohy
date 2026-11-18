@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { render } from 'svelte/server';
 import { CHANNELS, SEAL_STATE, UI } from '../lib/consts/index.js';
 
-// The seal after an ingest (plan §14.2, §15.5).
+// The seal after an ingest.
 //
 // The ingest's last file completes, and then the case is compacted — over a second on a large case.
 // Before the bar listened for it, that second was silence after "complete", which reads as a hang.

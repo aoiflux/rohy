@@ -1,6 +1,6 @@
 package graphene
 
-// Checkpoints: the one record whose digest leaves the case (plan §14.7, item 42).
+// Checkpoints: the one record whose digest leaves the case.
 //
 // A checkpoint binds the head of every history the case keeps into one digest: the image, its
 // attestation, the audit log, the removal ledger, the grant ledger. The analyst publishes the digest
@@ -269,7 +269,7 @@ func (h *Histories) Chain() []Checkpoint {
 	return out
 }
 
-// ChainState is the chain's count, newest capture and whole-chain check (item 43).
+// ChainState is the chain's count, newest capture and whole-chain check.
 func (h *Histories) ChainState() CheckpointState { return h.chainState }
 
 // Unread names each history that could not be read in full, with why.
@@ -443,7 +443,7 @@ func (h *Histories) LedgerState(v store.Verifier) (LedgerState, error) {
 	return ledgerStateOf(h.ledger, v), nil
 }
 
-// readCheckpointChain reads the chain in dir and checks it, reporting a torn tail (item 43).
+// readCheckpointChain reads the chain in dir and checks it, reporting a torn tail.
 func readCheckpointChain(dir string) ([]disk.Checkpoint, CheckpointState, error) {
 	chain, err := disk.ReadCheckpoints(dir)
 	if err != nil {

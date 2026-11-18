@@ -1,5 +1,5 @@
 <script>
-  // Rules management view (P5). Lists the merged rule library — embedded defaults plus
+  // Rules management view. Lists the merged rule library — embedded defaults plus
   // imported user rules — with per-rule enable/disable, a source badge, the event-ID
   // sequence rendered with its optional connection labels, delete for imported rules
   // (built-ins are protected), import controls, and the per-file load errors the backend
@@ -191,7 +191,7 @@
     else if (id === 'inspect') inspect(rule);
   }
 
-  // --- Rule inspector (P19) ---
+  // --- Rule inspector ---
 
   let inspected = $state(/** @type {any} */ (null));
   let inspectedSource = $state(/** @type {any} */ (null));
@@ -202,7 +202,7 @@
     inspectedSource = null;
     inspectLoading = true;
     // Load the graph list too, so the inspector can offer a jump to the graph this rule
-    // has already produced (P6 binds graphs to rules by id).
+    // has already produced (binds graphs to rules by id).
     graph.loadGraphs();
     inspectedSource = await rules.source(rule.id);
     inspectLoading = false;
@@ -255,7 +255,7 @@
   });
   let scoped = $state(false);
 
-  // --- Rule editor (P26) ---
+  // --- Rule editor ---
 
   // Editing is only ever offered on a rule that can actually be written to. A built-in lives
   // in the binary, so the equivalent action there is a duplicate: the copy takes a new name
@@ -309,7 +309,7 @@
     }
     const truncated = outcomes.some((o) => o.truncated);
     // Undated events cannot take part in time-ordered correlation. Saying so keeps a run
-    // that appears to have "missed" events explicable rather than arbitrary (P23.5).
+    // that appears to have "missed" events explicable rather than arbitrary.
     // What the run could NOT see. These change how the match count should be read, so they
     // travel with it rather than being left for somebody to go looking for.
     const noKeys = outcomes.reduce((n, o) => n + (o.skipped_no_keys || 0), 0);
@@ -912,7 +912,7 @@
     word-break: break-all;
   }
 
-  /* --- Rule inspector (P19) --- */
+  /* --- Rule inspector --- */
   .inspect h3 {
     font-family: var(--font-sans);
     font-size: 0.8rem;

@@ -15,7 +15,7 @@ import (
 )
 
 // GraphAPI is the Wails binding for graph reads, manual edge creation, per-graph canvas
-// layout persistence, and graph management (multiple-graphs, P15). Like EventsAPI it is
+// layout persistence, and graph management (multiple-graphs). Like EventsAPI it is
 // a thin delegate over the persistence layers.
 type GraphAPI struct {
 	store    *graphene.Store
@@ -147,7 +147,7 @@ func (a *GraphAPI) activeGraphID(requested uint64) uint64 {
 	return consts.DefaultGraphID
 }
 
-// --- Graph management (P15) ---
+// --- Graph management ---
 
 // ListGraphs returns all named graphs in the case.
 func (a *GraphAPI) ListGraphs() ([]*graphreg.Graph, error) {
@@ -294,7 +294,7 @@ func (a *GraphAPI) RelationsOf(eventID uint64) ([]*graphene.Relation, error) {
 
 // RelationsAdjacency returns relation summaries for a set of events — how many
 // relations each has, their types, and neighbor ids — for relation-aware highlighting
-// in the table view (P14). One call covers the whole loaded window.
+// in the table view. One call covers the whole loaded window.
 func (a *GraphAPI) RelationsAdjacency(ids []uint64) (map[uint64]*graphene.EventAdjacency, error) {
 	adj, err := a.store.RelationsAdjacency(ids)
 	if err != nil {
@@ -303,7 +303,7 @@ func (a *GraphAPI) RelationsAdjacency(ids []uint64) (map[uint64]*graphene.EventA
 	return adj, nil
 }
 
-// GetGraphRelations returns the relations belonging to one graph (P15). Loading a
+// GetGraphRelations returns the relations belonging to one graph. Loading a
 // mapping uses this so each graph restores only its own edges.
 func (a *GraphAPI) GetGraphRelations(graphID uint64) ([]*graphene.Relation, error) {
 	rels, err := a.store.RelationsByGraph(a.activeGraphID(graphID))

@@ -1,4 +1,4 @@
-// Package version is the single source of truth for what build this is (P13).
+// Package version is the single source of truth for what build this is.
 //
 // 🔒 There is no version number in this file, and there is none anywhere else in the source
 // tree or in the build scripts. The release version is stated in exactly one place — README.md —
@@ -14,7 +14,7 @@
 // number it has no basis for.
 //
 // Everything that shows a version — the About dialog, the window title, `rohyctl version` —
-// reads from here, so the surfaces cannot drift apart (R-V1).
+// reads from here, so the surfaces cannot drift apart.
 package version
 
 // Unversioned is what Current reports when no version was injected. It is deliberately a word

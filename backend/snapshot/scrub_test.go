@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Scrubbing the copies a redaction removes from snapshots (plan §14.5, item 40).
+// Scrubbing the copies a redaction removes from snapshots.
 
 const mark = "(redacted event)"
 

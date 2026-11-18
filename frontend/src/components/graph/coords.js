@@ -1,4 +1,4 @@
-// Viewport / coordinate model for the graph canvas (P7.1). Node positions are stored
+// Viewport / coordinate model for the graph canvas. Node positions are stored
 // in WORLD space (stable, layout-independent). The viewport maps world→screen with a
 // pan offset (screen px) and a uniform zoom:
 //
@@ -49,7 +49,7 @@ export function nodeCenterScreen(node, viewport) {
 
 // centerOn returns a viewport (keeping the current zoom) that places a node's centre at
 // the middle of a width×height canvas — used to auto-focus the canvas on an event
-// selected elsewhere (P14.4 cross-view focus).
+// selected elsewhere (cross-view focus).
 export function centerOn(node, viewport, width, height) {
   const cx = node.x + GRAPH.NODE_WIDTH / 2;
   const cy = node.y + GRAPH.NODE_HEIGHT / 2;

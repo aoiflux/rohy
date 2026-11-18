@@ -7,11 +7,11 @@ import (
 	"rohy/backend/consts"
 )
 
-// Relationship heatmap cost (plan §11.2, PERFORMANCE.md §21).
+// Relationship heatmap cost (PERFORMANCE.md §21).
 //
 // WHAT THIS DECIDES. RelationHeatmap places each relation at its later endpoint's time, and to
 // find those times it scans every event's sort view once (matchingRows) rather than looking each
-// endpoint up. The plan's claim is that it therefore "reuses the timeline path's cost profile".
+// endpoint up. The claim is that it therefore "reuses the timeline path's cost profile".
 // The claim needs the two measured side by side on the same store: the timeline is the baseline,
 // and the heatmap should cost about one timeline plus reading its relations — whatever the graph.
 //

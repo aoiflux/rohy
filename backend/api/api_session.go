@@ -1,6 +1,6 @@
 package api
 
-// The session (plan §14.6, item 41): who is working, and how the case opens.
+// The session: who is working, and how the case opens.
 //
 // graphene takes the signer, the verifier and the actor at OPEN, so everything that decides them
 // happens before the store opens, at the session step. What the step reads, it reads without opening
@@ -793,7 +793,7 @@ func (s *Session) integrityNotes() caseintegrity.SigningPosture {
 }
 
 // integrityPosture is what the integrity report says about who signs the case and what this session
-// did about it (item 43), with the keys to check the redaction ledger under. The keys are nil when the
+// did about it, with the keys to check the redaction ledger under. The keys are nil when the
 // register cannot be read, so the ledger's signatures are left unchecked rather than failing; a case
 // with no register yet has no keys, so any signature in it is by a key the case does not list.
 //

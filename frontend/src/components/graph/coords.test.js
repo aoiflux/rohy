@@ -38,7 +38,7 @@ describe('viewport coordinate model', () => {
     expect(zoomAround({ x: 0, y: 0, zoom: 1 }, 999, 0, 0).zoom).toBe(GRAPH.ZOOM_MAX);
   });
 
-  it('centerOn puts the node centre at the canvas centre (P14.4 focus)', () => {
+  it('centerOn puts the node centre at the canvas centre (focus)', () => {
     const vp = { x: 999, y: 999, zoom: 1.5 };
     const node = { x: 400, y: 250 };
     const W = 1000;
@@ -54,7 +54,7 @@ describe('viewport coordinate model', () => {
   });
 });
 
-describe('canvas virtualization (P9.1)', () => {
+describe('canvas virtualization', () => {
   const vp = { x: 0, y: 0, zoom: 1 };
   const W = 1000;
   const H = 700;

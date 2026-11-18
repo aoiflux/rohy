@@ -24,7 +24,7 @@ describe('navigation shortcuts', () => {
     expect(matchNavRoute(key({ key: '2' }))).toBeNull();
   });
 
-  it('ignores Ctrl/Cmd+digit, which belong to the browser/OS (R-QL1)', () => {
+  it('ignores Ctrl/Cmd+digit, which belong to the browser/OS', () => {
     expect(matchNavRoute(key({ key: '2', ctrlKey: true }))).toBeNull();
     expect(matchNavRoute(key({ key: '2', metaKey: true }))).toBeNull();
     // Even with Alt also held, a Ctrl/Cmd combo is not ours to take.

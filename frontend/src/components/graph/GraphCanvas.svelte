@@ -1,9 +1,9 @@
 <script>
-  // The graph canvas (P7). Owns the interaction state machine — idle → pan / drag /
+  // The graph canvas. Owns the interaction state machine — idle → pan / drag /
   // connect / context-menu — and renders a virtualized window of Material node cards
   // plus an SVG edge layer inside a single pan/zoom world transform. Connecting two
   // nodes opens a dialog to name the link (free-text label) and pick its type; the
-  // edge is persisted via the backend (P7.4/P8), never local-only.
+  // edge is persisted via the backend, never local-only.
   import { graph, LAYOUT } from '../../stores/graph.js';
   import { selection as sel, highlightedEdges, inspectRelation } from '../../stores/selection.js';
   import { relationsOfSelection, stepRelation } from '../../lib/graph/relations.js';
@@ -51,7 +51,7 @@
   let connectFrom = $state(/** @type {number|null} */ (null));
   let connectTarget = $state(/** @type {number|null} */ (null));
   let cursorWorld = $state({ x: 0, y: 0 });
-  // Connect mode (P18): while on, dragging from ANYWHERE on a node starts a link, so no
+  // Connect mode: while on, dragging from ANYWHERE on a node starts a link, so no
   // handle has to be hit at all. Node dragging is suspended for the duration.
   let connectMode = $state(false);
   // Marquee box-select, in SCREEN space (it is an overlay, not world content, so it must
@@ -70,7 +70,7 @@
   const nodeList = $derived(Object.values($graph.nodes));
   const selection = $derived(new Set($graph.selection));
 
-  // --- Clustering (P29) ---
+  // --- Clustering ---
   //
   // Folding a group is done entirely by REMAPPING what the existing layers are handed: the
   // members drop out of the node list, one card takes their place, and every edge that crossed
@@ -82,7 +82,7 @@
   const memberOf = $derived(memberIndex($clusters.list, folded));
   const clusterCards = $derived(proxyCards($clusters.list, folded, $graph.nodes, clusterGeom));
 
-  // --- Replay (P29) ---
+  // --- Replay ---
   //
   // Like folding, replay is a FILTER over what is drawn — nothing is removed from the graph.
   // `null` means replay is off and everything draws; a Set means only these are on screen yet.
@@ -131,7 +131,7 @@
 
   // The live preview follows the cursor, but LOCKS ON to a snapped target's centre so the
   // user can see the link has committed before releasing — the feedback half of forgiving
-  // targeting (P18.3).
+  // targeting.
   const tempEdge = $derived.by(() => {
     if (mode !== MODE.CONNECT || connectFrom === null) return null;
     const n = $graph.nodes[connectFrom];
@@ -142,7 +142,7 @@
     return { from, to, valid: connectTarget !== null };
   });
 
-  // Cross-view auto-focus (P14.4): when another view requests focus on an event, centre
+  // Cross-view auto-focus: when another view requests focus on an event, centre
   // the canvas on its node. Guarded by the nonce so it fires once per request, and
   // deferred until the node exists and the canvas has measured its size.
   let lastFocusNonce = 0;
@@ -203,8 +203,8 @@
 
   // Snap-to-target: an exact hit wins, otherwise the NEAREST node within the snap radius.
   // This is what makes a release that is merely close still link to the intended node
-  // instead of being silently discarded (P18.3). Only the virtualized visible set is
-  // considered, so the cost does not grow with the size of the graph (R-CX2).
+  // instead of being silently discarded. Only the virtualized visible set is
+  // considered, so the cost does not grow with the size of the graph.
   function hitNodeSnapped(world, excludeId) {
     const exact = hitNode(world);
     if (exact !== null && exact !== excludeId) return exact;
@@ -277,7 +277,7 @@
       return;
     }
 
-    // Keyboard connect path (P18.4): with exactly two nodes selected, Enter links them —
+    // Keyboard connect path: with exactly two nodes selected, Enter links them —
     // source first, target second, matching the drag direction. Dragging is not the only
     // way to assert a relationship, and it should not be the only way to record one.
     if (e.key === 'Enter' && $graph.selection.length === 2) {

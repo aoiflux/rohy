@@ -1,5 +1,5 @@
 <script>
-  // Analyst findings editor (P25) — the flag, tags, and note for one event, shown inside the
+  // Analyst findings editor — the flag, tags, and note for one event, shown inside the
   // event detail drawer.
   //
   // This is the only surface in rohy where the user AUTHORS data rather than reading what was

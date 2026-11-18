@@ -10,7 +10,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The two reads the query console (item 33) is built on: counts per field over the same match the
+// The two reads the query console is built on: counts per field over the same match the
 // list uses, and a relation scan that uses the index where it can and visits in id order.
 
 // backends runs fn on the in-memory and the disk store, which differ where the console cares: the

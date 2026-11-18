@@ -1,6 +1,6 @@
 <script>
-  // Events / Forensics view (P6.1 + P6.3). Filter bar → virtualized chronological
-  // timeline → export, with a detail drawer (P6.2) and an Add-to-Graph action. All
+  // Events / Forensics view. Filter bar → virtualized chronological
+  // timeline → export, with a detail drawer and an Add-to-Graph action. All
   // reads go through the events store; export is client-side over the loaded page.
   import { onMount } from 'svelte';
   import { theme } from '../stores/theme.js';
@@ -25,7 +25,7 @@
   import { reveal, afterDelay } from '../lib/motion.js';
 
   let active = $state(/** @type {any} */ (null));
-  // Relation-aware highlighting (P14): adjacency summary for the loaded window, and the
+  // Relation-aware highlighting: adjacency summary for the loaded window, and the
   // currently selected event whose related rows are highlighted (persists after the
   // detail drawer closes so the highlight stays visible in the table).
   let adjacency = $state(/** @type {Record<number,{count:number,types:string[],related_ids:number[]}>} */ ({}));
@@ -100,7 +100,7 @@
 
   // Tooltip: "3 relations · Temporal, Correlation · 2 by rule, 1 by hand".
   // The provenance split matters: "the tool inferred this" and "an analyst asserted this"
-  // are different claims about the evidence and must be distinguishable at a glance (P11).
+  // are different claims about the evidence and must be distinguishable at a glance.
   function relationTitle(adj) {
     if (!adj) return '';
     const word = adj.count === 1 ? UI.RELATION_ONE : UI.RELATION_MANY;
@@ -122,7 +122,7 @@
     if (ev) selectRow(ev);
   }
 
-  // P14.4 cross-view auto-focus: ensure the event is on the canvas, request focus, and
+  // Cross-view auto-focus: ensure the event is on the canvas, request focus, and
   // navigate to the graph where the canvas centres on it.
   function showInGraph(ev) {
     if (!$graph.nodes[ev.id]) {
@@ -184,7 +184,7 @@
     }
   }
 
-  // Timeline participation (P23). The events page is the complete inventory, so undated
+  // Timeline participation. The events page is the complete inventory, so undated
   // events are listed like any other; what changes is that each row SAYS whether it can
   // appear on a timeline. Nothing here is hidden or dimmed.
   function onTimeline(ev) {
@@ -338,7 +338,7 @@
 />
 
 <style>
-  /* Undated rows are NOT degraded (P23): same weight and size as any other row. The label
+  /* Undated rows are NOT degraded: same weight and size as any other row. The label
      states the fact; it does not dim or shrink the record. */
   .notime {
     font-family: var(--font-sans);
@@ -413,7 +413,7 @@
   .erow:hover {
     background: var(--color-surface-variant);
   }
-  /* Selected event and its related events (relation-aware highlighting, P14). */
+  /* Selected event and its related events (relation-aware highlighting). */
   .erow.related {
     background: color-mix(in srgb, var(--color-accent) 16%, transparent);
     box-shadow: inset 3px 0 0 var(--color-accent);
@@ -456,7 +456,7 @@
     padding: 1px 5px;
     line-height: 1.4;
   }
-  /* Analyst marks (P25). Accent-coloured because that is what authored data looks like
+  /* Analyst marks. Accent-coloured because that is what authored data looks like
      throughout the app; a derived relation badge stays visually separate. */
   .flag,
   .note {

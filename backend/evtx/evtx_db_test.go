@@ -212,7 +212,7 @@ func TestIngestNonDatabaseFileIsNotASchemaError(t *testing.T) {
 }
 
 func TestIngestMessageCatalogue(t *testing.T) {
-	// The P22 shape: descriptions of what event ids mean, with no timestamps at all.
+	// The catalogue shape: descriptions of what event ids mean, with no timestamps at all.
 	path := buildDB(t, "catalogue.db",
 		`CREATE TABLE messages  ( id INTEGER NOT NULL, event_id INTEGER NOT NULL,
 		                          provider_id INTEGER NOT NULL, message TEXT )`,

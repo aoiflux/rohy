@@ -1,5 +1,5 @@
 <script>
-  // The read-only query console (item 33).
+  // The read-only query console.
   //
   // 🔒 A structured builder and nothing more: a subject, conditions ANDed together, an optional
   // field to count by, a limit. Every control is built from QueryAPI.Describe, so the page cannot

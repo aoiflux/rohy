@@ -1,5 +1,5 @@
 <script>
-  // Checkpoints on the Maintenance page (item 42): publish one, record what came back, and check the
+  // Checkpoints on the Maintenance page: publish one, record what came back, and check the
   // case against a digest you hold.
   //
   // 🔒 rohy ships no anchor. This card records a checkpoint and hands over its digest; the analyst

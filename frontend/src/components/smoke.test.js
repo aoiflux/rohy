@@ -556,7 +556,7 @@ describe('routes / MaintenanceView', () => {
   });
 });
 
-// The query console (item 33). The view renders before its vocabulary has loaded (onMount does
+// The query console. The view renders before its vocabulary has loaded (onMount does
 // not run here); the result table gets every shape a result can take.
 const QUERY_VOCAB = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../backend/query/testdata/vocabulary-golden.json', import.meta.url)), 'utf8'),

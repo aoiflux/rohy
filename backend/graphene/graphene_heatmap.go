@@ -11,7 +11,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The relationship heatmap (P29).
+// The relationship heatmap.
 //
 // The timeline answers "when did events happen". This answers the next question: "when did the
 // things rohy INFERRED happen, and what kind were they" — relation counts per (time bucket ×

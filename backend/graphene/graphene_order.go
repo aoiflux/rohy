@@ -38,16 +38,16 @@ type eventSortView struct {
 	Timestamp          time.Time `json:"timestamp"`
 	SourceIdentifier   string    `json:"source_identifier"`
 	DeduplicationCount int       `json:"deduplication_count"`
-	// Lane fields for the timeline's grouping (P24). These are short scalars, so decoding
+	// Lane fields for the timeline's grouping. These are short scalars, so decoding
 	// them costs almost nothing — unlike RawXML and ParsedFields, which stay excluded.
 	Provider string `json:"provider"`
 	Channel  string `json:"channel"`
 	User     string `json:"user"`
 	Computer string `json:"computer"`
-	// HashNormalized is the event's content identity, which the findings filters match on
-	// (P25). Also a short scalar.
+	// HashNormalized is the event's content identity, which the findings filters match on.
+	// Also a short scalar.
 	HashNormalized string `json:"hash_normalized"`
-	// EventID and SourceType complete the fields the query console counts by (item 33). Short
+	// EventID and SourceType complete the fields the query console counts by. Short
 	// scalars again, so the console's counts come from the same pass the list is ordered from.
 	EventID    string `json:"event_id"`
 	SourceType string `json:"source_type"`
@@ -261,7 +261,7 @@ func (s *Store) computeOrder(f EventFilter) ([]uint64, error) {
 
 	// Chronological, tie-broken by id so paging is stable and never skips or duplicates.
 	//
-	// Undated events are sorted to the END regardless of direction (P23). They have no
+	// Undated events are sorted to the END regardless of direction. They have no
 	// chronological position at all, so letting the zero time order them would park them at
 	// "1970" — ahead of every real record when ascending — which reads as a date rather than
 	// as the absence of one.

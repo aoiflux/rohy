@@ -1,9 +1,9 @@
-// Keyboard shortcut map (P11).
+// Keyboard shortcut map.
 //
 // This is the SINGLE source of truth: the global handler and the help dialog both read it,
 // so a shortcut can never work while the documentation claims otherwise (or vice versa).
 //
-// Binding choices avoid OS/browser clashes (R-QL1): navigation uses Alt+digit, which
+// Binding choices avoid OS/browser clashes: navigation uses Alt+digit, which
 // Windows and WebView2 leave alone, rather than Ctrl+digit (browser tabs) or bare letters
 // (which would fire while typing). Bare letters are used only inside the canvas, and only
 // when focus is not in a field.
@@ -79,7 +79,7 @@ export const SHORTCUTS = Object.freeze([
   { keys: 'Enter', label: UI.SHORTCUT_CONNECT_SELECTED, scope: SHORTCUT_SCOPE.GRAPH },
   { keys: '← →', label: UI.SHORTCUT_SCRUB, scope: SHORTCUT_SCOPE.TIMELINE },
   { keys: 'Home / End', label: UI.SHORTCUT_SCRUB_ENDS, scope: SHORTCUT_SCOPE.TIMELINE },
-  // Rule editor (P26). All modified keys: the editor is full of text fields, so a bare
+  // Rule editor. All modified keys: the editor is full of text fields, so a bare
   // letter here would fire while somebody is typing an event ID or a description.
   { keys: 'Ctrl+S', label: UI.RULE_EDITOR_SAVE, scope: SHORTCUT_SCOPE.EDITOR },
   { keys: 'Ctrl+Z', label: UI.SHORTCUT_UNDO, scope: SHORTCUT_SCOPE.EDITOR },

@@ -11,7 +11,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Placing the case's current image against its history of seals (plan §15.5).
+// Placing the case's current image against its history of seals.
 //
 // Every root here is real: a disk case compacted repeatedly, so the chain is checked against what
 // graphene actually binds, not against strings shaped like it.

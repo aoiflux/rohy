@@ -10,7 +10,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// The custody report for one event (plan §14.4, §15.6), against literals: what each layer says for
+// The custody report for one event, against literals: what each layer says for
 // each state, and the rules no state may break.
 
 const (
@@ -316,7 +316,7 @@ func combos() []ReportInput {
 	return out
 }
 
-// 🔒 §14.4: the unanchored form can never read as complete. Whatever else holds, a report made
+// 🔒 The unanchored form can never read as complete. Whatever else holds, a report made
 // against the case alone says its kept-fingerprint layer is not established, and says why.
 func TestTheCaseOnlyFormNeverEstablishesTheKeptLayer(t *testing.T) {
 	for _, in := range combos() {
@@ -644,7 +644,7 @@ func TestDescendsDoesNotCrossAFork(t *testing.T) {
 	}
 }
 
-// A checkpoint digest kept outside the case is checked as the seal it names (item 42), once the case
+// A checkpoint digest kept outside the case is checked as the seal it names, once the case
 // is shown to still hold what the checkpoint committed to.
 func TestAKeptCheckpointDigestIsCheckedAsItsSeal(t *testing.T) {
 	in := sealedInput()

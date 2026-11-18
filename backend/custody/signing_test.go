@@ -67,7 +67,7 @@ func TestARedactionInASignedIntervalMustBeSigned(t *testing.T) {
 			t.Errorf("%+v: %s %v", red, l.State, l.Notes)
 		}
 	}
-	// Outside a signed interval, an unsigned removal is what every removal before #41 is.
+	// Outside a signed interval, an unsigned removal is what every removal before v0.3.0 is.
 	in.RedactionInSigned = false
 	if l := signingLayer(in, graphene.EventCustody{Redacted: &graphene.CustodyRedaction{}}); l.State != consts.CustodyEstablished {
 		t.Errorf("an unsigned removal from before signing broke the layer: %s", l.State)
@@ -89,7 +89,7 @@ func TestASignedSealIsListedAmongWhatTheReportEstablishes(t *testing.T) {
 }
 
 // The integrity report's seal verdict is the signing layer's, and an event's redaction never leaks
-// into it (item 43).
+// into it.
 func TestTheSealVerdictIsTheSigningLayersWithoutAnEvent(t *testing.T) {
 	good := &graphene.SealSignature{ID: sealB, Prev: sealA, Verified: true}
 	in := signedIn(good, sealB)

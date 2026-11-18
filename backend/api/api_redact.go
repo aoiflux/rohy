@@ -11,7 +11,7 @@ import (
 	"rohy/backend/redaction"
 )
 
-// Redacting an event (plan §14.5, item 40).
+// Redacting an event.
 //
 // A redaction removes an event's content from everywhere rohy put it, records that it did, when
 // and why, and keeps it from coming back. The steps and their order live in the redaction package;

@@ -1,5 +1,5 @@
 /**
- * Reading an event-proof result (plan §14.3, item 38).
+ * Reading an event-proof result.
  *
  * The proof is built and checked in Go. What lives here is how its answer becomes something an
  * analyst can act on: a saved file and the fingerprint it needs, or the reason there is no file

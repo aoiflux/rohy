@@ -40,7 +40,7 @@ const (
 // channel is read by its own goroutine so a busy channel never blocks a quiet one; they
 // all feed the single bounded result channel, which is what preserves backpressure.
 //
-// In continuous mode (P7) a drained channel does not finish: it waits and re-queries for
+// In continuous mode a drained channel does not finish: it waits and re-queries for
 // records newer than the last one it saw, so the run only ends when it is cancelled.
 func ingestLive(ctx context.Context, opts Options, sink EventSink, reporter Reporter) (Summary, error) {
 	reporter.Started(consts.SourceLive, 0)

@@ -1,5 +1,5 @@
 <script>
-  // Dashboard (P5.1). Home surface: ingest an EVTX file with live progress, view
+  // Dashboard. Home surface: ingest an EVTX file with live progress, view
   // store stats, toggle theme, and preview ingested events. Everything flows through
   // the stores and the API wrapper — no direct binding calls, no async blocking.
   import { onMount } from 'svelte';
@@ -98,7 +98,7 @@
   }
   const eta = $derived(etaSeconds($ingestion));
 
-  // Pause/resume state comes from the backend (P8) — never inferred from progress.
+  // Pause/resume state comes from the backend — never inferred from progress.
   const paused = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.PAUSED);
   const stopping = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.STOPPING);
   const canPause = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.ACTIVE);
@@ -167,7 +167,7 @@
     }
   }
 
-  // --- Live system capture (P7) ---
+  // --- Live system capture ---
 
   let liveChannels = $state(/** @type {string[]} */ ([]));
   let continuous = $state(true);
@@ -250,7 +250,7 @@
   <span class="stat">{UI.LABEL_EVENTS}: <b>{fmt(stats.events)}</b></span>
   <span class="stat">{UI.LABEL_RELATIONS}: <b>{fmt(stats.relations)}</b></span>
   <!-- The analyst's own tally, kept visually apart from the two derived counts beside it
-       (P25): how much of this case a person has actually judged. -->
+      : how much of this case a person has actually judged. -->
   {#if $findings.stats.total > 0}
     <!-- Counts the findings that still resolve to an event in this case. Reporting the raw
          sidecar total would claim work the case cannot show. -->
@@ -544,7 +544,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* --- Live capture (P7) --- */
+  /* --- Live capture --- */
   .livehead {
     display: flex;
     align-items: center;

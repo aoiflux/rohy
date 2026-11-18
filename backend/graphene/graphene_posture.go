@@ -1,7 +1,7 @@
 package graphene
 
-// What the case's own histories say about who signed them, read for the integrity report (plan
-// §14.8, detectors 16 and 17; item 43).
+// What the case's own histories say about who signed them, read for the integrity report
+// (detectors 16 and 17).
 //
 // This file only reads and checks. What a state means, and how it is worded, is decided in
 // backend/caseintegrity.

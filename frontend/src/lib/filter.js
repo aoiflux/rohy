@@ -2,7 +2,7 @@
 // numbers as text) and the backend filter contract (RFC3339 bounds, integers). It lives here
 // rather than inside FilterBar because the events store also needs it — a query restored
 // from a previous session has to become a real filter before the first load, without the
-// component having mounted yet (P9 persistence).
+// component having mounted yet (persistence).
 
 import { EVENTS_LIST, UNDATED } from './consts/index.js';
 
@@ -19,12 +19,12 @@ export function emptyForm() {
     source_type: '',
     source_identifier: '',
     min_occurrences: '',
-    relation_state: '', // relation-aware quick filter (P11); '' = no filter
-    // Analyst-findings filters (P25); '' = no filter.
+    relation_state: '', // relation-aware quick filter; '' = no filter
+    // Analyst-findings filters; '' = no filter.
     finding_state: '',
     tag: '',
-    // Timeline participation (P23). The EVENTS page is the complete inventory, so it
-    // includes undated events by default; excluding them is the TIMELINE's job (P24),
+    // Timeline participation. The EVENTS page is the complete inventory, so it
+    // includes undated events by default; excluding them is the TIMELINE's job,
     // where it is a statement of fact rather than data being hidden.
     undated: UNDATED.INCLUDE,
     descending: true,
@@ -55,7 +55,7 @@ export function formToFilter(form) {
     relation_state: f.relation_state || '',
     finding_state: f.finding_state || '',
     tag: (f.tag || '').trim(),
-    // Default to including undated events: the events list is the complete inventory (P23).
+    // Default to including undated events: the events list is the complete inventory.
     undated: f.undated === undefined ? UNDATED.INCLUDE : f.undated,
     descending: !!f.descending,
     offset: 0,
@@ -90,7 +90,7 @@ export function activeFilterCount(form) {
 
 /**
  * A short human summary of what is filtered, for the collapsed header — so collapsing the
- * panel never hides the fact that the view is filtered (the discoverability risk, R-SC1).
+ * panel never hides the fact that the view is filtered (the discoverability risk).
  * @param {object} form
  * @param {Record<string,string>} labels field key → display label
  */

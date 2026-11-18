@@ -103,7 +103,7 @@ func TestATransactionUpdateKeepsARelationsEndpoints(t *testing.T) {
 	}
 }
 
-// A redaction records the session's analyst in graphene's ledger (item 40 left it 0).
+// A redaction records the session's analyst in graphene's ledger (before v0.3.0 it was 0).
 func TestARedactionRecordsTheSessionsAnalyst(t *testing.T) {
 	s, _ := attributedStore(t)
 	id := oneEvent(t, s, "a")

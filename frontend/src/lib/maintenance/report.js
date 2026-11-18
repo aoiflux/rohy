@@ -1,5 +1,5 @@
 /**
- * Reading a case-integrity report (P30).
+ * Reading a case-integrity report.
  *
  * The checks run in Go. What lives here is how their findings become something an analyst can
  * act on: grouped by how much they matter, each with the one button that fixes it.
@@ -22,17 +22,17 @@ export const ACTION = Object.freeze({
   REBUILD: 'rebuild_indexes',
   INGEST: 'ingest',
   REVIEW: 'review',
-  // Forensic posture (§14). COMPACT and VERIFY_IMAGE are things the app does; RETAIN_ROOT is not
+  // Forensic posture. COMPACT and VERIFY_IMAGE are things the app does; RETAIN_ROOT is not
   // — keeping a value outside the case is by definition something rohy cannot do for you, and
   // that is the whole point of it rather than a limitation.
   COMPACT: 'compact',
   VERIFY_IMAGE: 'verify_image',
   RETAIN_ROOT: 'retain_root',
-  // Runs the steps an unfinished redaction did not complete (plan §14.5).
+  // Runs the steps an unfinished redaction did not complete.
   FINISH_REDACTION: 'finish_redaction',
-  // Points at "Sign this case…" on the Signing card (item 43). Advice: it needs a key chosen there.
+  // Points at "Sign this case…" on the Signing card. Advice: it needs a key chosen there.
   SIGN_CASE: 'sign_case',
-  // Checkpoints (item 42). Publishing is a button: it seals first if needed, records a checkpoint
+  // Checkpoints. Publishing is a button: it seals first if needed, records a checkpoint
   // and saves its statement. Recording a receipt is advice: only the analyst knows what came back.
   PUBLISH_CHECKPOINT: 'publish_checkpoint',
   RECORD_RECEIPT: 'record_receipt',
@@ -178,8 +178,8 @@ export function backfillFraction(progress) {
 }
 
 /**
- * sessionSigning says what the forensic card's signing line is about: this session, not the case
- * (item 41). A signed case opened read-only signs nothing, and must not read as signing.
+ * sessionSigning says what the forensic card's signing line is about: this session, not the case.
+ * A signed case opened read-only signs nothing, and must not read as signing.
  * @param {{signed?:boolean, read_only?:string}|null} forensics
  * @returns {'read_only'|'signed'|'unsigned'|null}
  */
@@ -191,7 +191,7 @@ export function sessionSigning(forensics) {
 
 /**
  * writesRefused reports whether this session would refuse an action that writes, so the page can
- * disable those buttons rather than offer one that is refused (item 43).
+ * disable those buttons rather than offer one that is refused.
  * @param {{read_only?:string}|null} forensics
  */
 export function writesRefused(forensics) {

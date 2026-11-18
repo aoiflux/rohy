@@ -1,4 +1,4 @@
-// Package analyst records who works on a case (plan §14.6, item 41).
+// Package analyst records who works on a case.
 //
 // Two records, kept in two places on purpose.
 //

@@ -18,7 +18,7 @@
     // entering: this node was JUST added to the graph (not merely re-rendered by
     // virtualization), so it earns a one-off entrance.
     entering = false,
-    // finding: the analyst's own annotation for this event, if any (P25). Rendered as a
+    // finding: the analyst's own annotation for this event, if any. Rendered as a
     // distinct accent mark so an authored judgement never looks like a derived property of
     // the node.
     finding = null,
@@ -47,7 +47,7 @@
   style="left: {node.x}px; top: {node.y}px; width: {GRAPH.NODE_WIDTH}px; height: {GRAPH.NODE_HEIGHT}px; border-color: var(--{borderToken})"
 >
   {#if node.event.redacted}
-    <!-- Redacted (plan §14.5): the node is all that is left, so nothing else is drawn. -->
+    <!-- Redacted: the node is all that is left, so nothing else is drawn. -->
     <div class="head"><span class="eid redacted">{UI.REDACTED_BADGE}</span></div>
   {:else}
   <div class="head">
@@ -218,7 +218,7 @@
      does not have to land on the circle itself. This is what removes the pixel-precision
      the old corner dot demanded.
      The pad grows outward, above and below — but NOT inward (left: 0), so it cannot eat
-     into the card body and steal drags from it (R-CX1). */
+     into the card body and steal drags from it. */
   .handle::before {
     content: '';
     position: absolute;

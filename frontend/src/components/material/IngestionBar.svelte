@@ -20,7 +20,7 @@
 
   const running = $derived($ingestion.state === INGEST_STATE.RUNNING);
   // The seal follows the last file. The bar stays up through it, so "complete" followed by
-  // seconds of nothing never reads as a hang (plan §14.2).
+  // seconds of nothing never reads as a hang.
   const sealing = $derived($ingestion.sealing && !running);
   const paused = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.PAUSED);
   const stopping = $derived($ingestion.lifecycle === INGEST_LIFECYCLE.STOPPING);

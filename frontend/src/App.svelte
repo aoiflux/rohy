@@ -1,6 +1,6 @@
 <script>
   // Root shell: applies the theme once, renders the active route, and hosts the
-  // central snackbar. Routing is a lookup in the route table (P5.1) — see routes/views.js
+  // central snackbar. Routing is a lookup in the route table — see routes/views.js
   // for why it is a table rather than the {#if} chain it started as.
   import { onMount } from 'svelte';
   import { theme } from './stores/theme.js';
@@ -38,7 +38,7 @@
         route-level dialogs would anchor to this div instead of the viewport;
       · the keyframes end at the element's normal resting state with no `forwards` fill, so
         if the animation never runs or is interrupted the UI is still fully visible and
-        clickable — this app has a history of a transition wrapper leaving dead UI (R-AN2).
+        clickable — this app has a history of a transition wrapper leaving dead UI.
     The key block just restarts the animation on each route change; the route components
     already mount/unmount on their own, so it changes nothing structurally.
   -->

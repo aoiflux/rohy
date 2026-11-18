@@ -16,7 +16,7 @@ import (
 	"rohy/backend/snapshot"
 )
 
-// Planning and running a redaction (plan §14.5, item 40), against fakes so that every step can be
+// Planning and running a redaction, against fakes so that every step can be
 // made to fail.
 
 // --- planning ---

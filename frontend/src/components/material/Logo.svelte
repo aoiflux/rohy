@@ -1,5 +1,5 @@
 <script>
-  // rohy mark (P15): a magnifier whose lens contains a small correlation graph — the two
+  // rohy mark: a magnifier whose lens contains a small correlation graph — the two
   // halves of what the app does, examine and connect.
   //
   // Inline SVG rather than an asset file, deliberately: it inherits the theme tokens, so

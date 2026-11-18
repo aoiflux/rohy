@@ -7,7 +7,7 @@ import (
 	"rohy/backend/version"
 )
 
-// SystemAPI reports application initialization state (P21).
+// SystemAPI reports application initialization state.
 //
 // Opening the case store replays a write-ahead log and loads the graph, which on a large
 // case is the slowest thing the app does. Doing that before the window exists means the
@@ -17,7 +17,7 @@ import (
 // The state is exposed BOTH as events and as a pollable snapshot: a view that mounts after
 // initialization already finished would otherwise miss the event and wait forever.
 type SystemAPI struct {
-	// session is the analyst's session, whose step the splash shows (item 41).
+	// session is the analyst's session, whose step the splash shows.
 	session *Session
 	mu      sync.Mutex
 	emitter Emitter
@@ -97,7 +97,7 @@ func (a *SystemAPI) InitStatus() InitState {
 	return a.state
 }
 
-// Version returns the running build's identity for the About surface (P13). It reads the
+// Version returns the running build's identity for the About surface. It reads the
 // same package the release build stamps, so what the UI shows is what was actually built.
 func (a *SystemAPI) Version() version.Info {
 	return version.Current(consts.AppDisplayName)

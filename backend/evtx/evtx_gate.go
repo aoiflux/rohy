@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// Gate is the pause control for a running ingestion (P8). The API layer owns one per run
+// Gate is the pause control for a running ingestion. The API layer owns one per run
 // and flips it; the pipeline consults it at batch boundaries.
 //
 // Pausing does not abandon work: the sink finishes the batch it is on, flushes it, and

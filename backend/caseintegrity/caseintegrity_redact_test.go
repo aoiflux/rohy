@@ -9,7 +9,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The checks after a redaction (plan §14.5, item 40). A redaction removes on purpose what the
+// The checks after a redaction. A redaction removes on purpose what the
 // checks would otherwise read as damage, waste, or work to do.
 
 func redactedHash(h string) bool { return h == "hash-redacted" }

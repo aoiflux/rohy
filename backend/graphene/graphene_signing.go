@@ -1,6 +1,6 @@
 package graphene
 
-// Signing and attribution (plan §14.6, item 41).
+// Signing and attribution.
 //
 // graphene takes the signer, the verifier and the actor as OPEN-time options, so a case's mode is
 // fixed by the session that opens it (OpenAwaitingSession, BeginSession). What signing establishes
@@ -128,14 +128,14 @@ func (p Posture) validate() error {
 
 // diskOptions renders the posture as engine options.
 //
-// The redaction ledger is always on (item 40). It is not a posture an analyst chooses: without it
+// The redaction ledger is always on. It is not a posture an analyst chooses: without it
 // the engine refuses every attributed removal, and the only removal left is the unattributed
 // DeleteNode. Turning it on creates an empty ledger file and changes nothing else about how a case
 // loads — an absent ledger and an empty one read the same everywhere the engine reads one.
 // TestAnExistingCaseOpensUnchangedWithTheLedger pins that a case written without the ledger loads to
 // the same roots with it.
 //
-// The audit log is on too (item 41), for the same reason: it creates an empty file, and every seal,
+// The audit log is on too, for the same reason: it creates an empty file, and every seal,
 // redaction and rohy action after that is recorded. Retention stays off: a retained log segment keeps
 // the records a redaction removed (TestSpikeRetentionKeepsWhatARedactionRemoved).
 //

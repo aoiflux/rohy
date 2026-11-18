@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rohy release build (P12) — Linux / macOS host. Mirrors build.ps1.
+# rohy release build — Linux / macOS host. Mirrors build.ps1.
 #
 # The same two guarantees as the Windows script:
 #   1. frontend/dist is deleted and rebuilt every time. The Go binary embeds whatever is in

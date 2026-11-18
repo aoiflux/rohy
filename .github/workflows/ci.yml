@@ -1,4 +1,4 @@
-# rohy pull-request validation (Phase 16.5).
+# rohy pull-request validation.
 #
 # This is the gate, not the release. It answers one question — does the change build and
 # pass its tests on every platform rohy ships to — and produces no artefacts.

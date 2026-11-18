@@ -1,4 +1,4 @@
-// Package dbsource reads EVTX event data out of a SQLite .db file (P17).
+// Package dbsource reads EVTX event data out of a SQLite .db file.
 //
 // There is no universal standard for "EVTX stored in SQLite", so this package does NOT try
 // to auto-detect an arbitrary schema — mis-mapping columns would silently corrupt forensic
@@ -63,7 +63,7 @@ type Row struct {
 	Computer  string
 	User      string
 	RawXML    string
-	// Message is the human-readable description from a catalogue database (P22); empty for
+	// Message is the human-readable description from a catalogue database; empty for
 	// the events schema.
 	Message string
 }
@@ -73,9 +73,9 @@ type Row struct {
 type Kind string
 
 const (
-	// KindEvents is the P17 events table: real, dated event records.
+	// KindEvents is the events table: real, dated event records.
 	KindEvents Kind = "events"
-	// KindMessageCatalogue is the P22 messages+providers pair: undated descriptions of what
+	// KindMessageCatalogue is the messages+providers pair: undated descriptions of what
 	// event ids mean.
 	KindMessageCatalogue Kind = "message_catalogue"
 )
@@ -263,7 +263,7 @@ func (s *Source) mapRow(selected []string, vals []any) (Row, error) {
 	}, nil
 }
 
-// eventsMatch is the outcome of testing a database against the P17 events shape. It carries
+// eventsMatch is the outcome of testing a database against the events shape. It carries
 // the near-miss detail (table present, columns missing) so a file that clearly MEANT to be
 // an events database gets a precise diagnostic instead of a generic "unrecognized" — a
 // missing column is a far more actionable message than "no known schema".
@@ -276,7 +276,7 @@ type eventsMatch struct {
 
 func (m eventsMatch) ok() bool { return m.found && len(m.missing) == 0 }
 
-// resolveEventsSchema tests the database against the P17 events shape.
+// resolveEventsSchema tests the database against the events shape.
 func resolveEventsSchema(db *sql.DB, tables []string) eventsMatch {
 	table, ok := pickTable(tables)
 	if !ok {

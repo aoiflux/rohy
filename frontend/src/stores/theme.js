@@ -1,4 +1,4 @@
-// Theme store (P5.2/P5.5). Owns the active theme, applies its tokens globally, and
+// Theme store. Owns the active theme, applies its tokens globally, and
 // persists the choice. Applying a theme swaps CSS custom properties on :root so the
 // change reaches every component and (later) the canvas uniformly.
 import { writable, get } from 'svelte/store';

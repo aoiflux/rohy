@@ -1,9 +1,9 @@
-// Client-side export of the currently loaded event set (P6.3 export flow). Runs in
+// Client-side export of the currently loaded event set (export flow). Runs in
 // the WebView2 runtime via a Blob download. NOTE: this exports the events currently
 // held in the store (the loaded/filtered page), not a full streamed dump of the DB —
 // a backend streaming export is a larger, separate concern.
 //
-// Exports carry the analyst's findings alongside the evidence (P25). Handing back events
+// Exports carry the analyst's findings alongside the evidence. Handing back events
 // stripped of the conclusions drawn about them defeats the point of having drawn them — but
 // the two are kept structurally separate in the output, never merged into the event's own
 // fields, so a reader of the file can always tell what was ingested from what was authored.

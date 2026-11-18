@@ -13,7 +13,7 @@ import (
 	"rohy/backend/redaction"
 )
 
-// Redaction through the bindings (plan §14.5, item 40).
+// Redaction through the bindings.
 
 // ingestFixture runs one file ingest to the end and returns its summary.
 func ingestFixture(t *testing.T, api *EventsAPI, em *captureEmitter) evtx.Summary {

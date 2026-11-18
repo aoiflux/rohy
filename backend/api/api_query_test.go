@@ -12,7 +12,7 @@ import (
 	"rohy/backend/query"
 )
 
-// 🔒 plan §4.7: the console exposes reads only. A method added to the binding fails here until
+// 🔒 The console exposes reads only. A method added to the binding fails here until
 // someone has decided, out loud, that it belongs.
 func TestTheQueryBindingExposesOnlyDescribeAndRun(t *testing.T) {
 	rt := reflect.TypeFor[*QueryAPI]()

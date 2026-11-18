@@ -1,7 +1,7 @@
 package graphene
 
-// What #41 costs (PERFORMANCE.md). A/B within one binary: the "before" shape is the engine call rohy
-// made until item 41, so the comparison needs no other build.
+// What signing costs (PERFORMANCE.md). A/B within one binary: the "before" shape is the engine call rohy
+// made before signing, so the comparison needs no other build.
 //
 //	go test ./backend/graphene/ -run XXX -bench 'InsertShape|SealShape' -benchtime 20x -count 3
 
@@ -42,7 +42,7 @@ func benchSigned(b *testing.B) disk.Options {
 }
 
 // BenchmarkInsertShape is one ingest batch written three ways: the engine's batch insert (actor 0,
-// what rohy did before item 41), an attributed transaction, and an attributed signed transaction.
+// what rohy did before signing), an attributed transaction, and an attributed signed transaction.
 func BenchmarkInsertShape(b *testing.B) {
 	for _, tc := range []struct {
 		name string
@@ -82,7 +82,7 @@ func BenchmarkInsertShape(b *testing.B) {
 	}
 }
 
-// BenchmarkSealShape is one seal of a 10k-event case: without the audit log (before item 41), with
+// BenchmarkSealShape is one seal of a 10k-event case: without the audit log (before signing), with
 // it, and with it and the seal signed.
 func BenchmarkSealShape(b *testing.B) {
 	for _, tc := range []struct {

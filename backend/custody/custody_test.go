@@ -12,7 +12,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// Case-fingerprint history (plan §14.2).
+// Case-fingerprint history.
 //
 // The invariant most of these defend is a naming one that is really a truthfulness one: rohy records
 // that a copy was EXPORTED, never that one is RETAINED. It cannot observe whether the copy survives,
@@ -374,7 +374,7 @@ func TestACorruptHistoryThatCannotBeMovedIsHeld(t *testing.T) {
 	}
 }
 
-// A history written before item 41 (format 1) is this build's history: it reads as it is, and the
+// A history written before v0.3.0 (format 1) is this build's history: it reads as it is, and the
 // next write records it at the current format with the new fields kept.
 func TestAVersionOneHistoryReadsAndIsCarriedForward(t *testing.T) {
 	dir := t.TempDir()
@@ -437,7 +437,7 @@ func TestADeferredOpenMovesNothingUntilSettled(t *testing.T) {
 }
 
 // SealCounts counts every recorded seal and those without a signature, including seals recorded
-// before signing existed (item 43).
+// before signing existed.
 func TestSealCountsCountTheUnsignedSeals(t *testing.T) {
 	s, _ := openStore(t)
 	if n, u := s.SealCounts(); n != 0 || u != 0 {

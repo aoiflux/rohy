@@ -1,5 +1,5 @@
-// Selection/detail store (P5.2). Tracks the event opened in the detail view and the
-// queue of events the user has marked "Add to Graph" (consumed by the canvas in P7).
+// Selection/detail store. Tracks the event opened in the detail view and the
+// queue of events the user has marked "Add to Graph" (consumed by the canvas).
 import { writable } from 'svelte/store';
 import { UI } from '../lib/consts/index.js';
 import { errorMessage } from '../lib/api/errors.js';

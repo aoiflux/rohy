@@ -7,7 +7,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// srcEvent builds an event carrying source-tracking + dedup metadata (P11).
+// srcEvent builds an event carrying source-tracking + dedup metadata.
 func srcEvent(eventID, hash, sourceType, sourceID string, dedup int, ts time.Time) *Event {
 	return &Event{
 		EventID:            eventID,
@@ -137,7 +137,7 @@ func TestLegacyDedupDefault(t *testing.T) {
 
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	ids, err := s.InsertEvents([]*Event{
-		srcEvent("1", "h1", consts.SourceTypeSingleEVTX, `C:\a.evtx`, 0, base), // 0 = pre-P11 shape
+		srcEvent("1", "h1", consts.SourceTypeSingleEVTX, `C:\a.evtx`, 0, base), // 0 = legacy shape
 	})
 	if err != nil {
 		t.Fatalf("insert: %v", err)

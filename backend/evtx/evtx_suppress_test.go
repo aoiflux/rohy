@@ -10,7 +10,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Suppression (plan §14.5, item 40): a redacted record does not come back with a re-ingest.
+// Suppression: a redacted record does not come back with a re-ingest.
 
 type fakeSuppressor struct {
 	err        error

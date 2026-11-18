@@ -12,7 +12,7 @@ import (
 	"rohy/backend/query"
 )
 
-// The query console (item 33) over the real case: what it counts is what the golden file says the
+// The query console over the real case: what it counts is what the golden file says the
 // pipeline produced, through the binding the page calls.
 func TestTheConsoleAgreesWithTheGoldenCase(t *testing.T) {
 	c := newCase(t)

@@ -1,6 +1,6 @@
 <script>
   // Material linear progress. Determinate when `value` (0..1) is a number; otherwise
-  // an indeterminate sweep. Used for large-ingestion feedback (P2-L.5).
+  // an indeterminate sweep. Used for large-ingestion feedback.
   let { value = null } = $props();
   const indeterminate = $derived(value === null || value === undefined);
   const pct = $derived(indeterminate ? 0 : Math.max(0, Math.min(1, value)) * 100);

@@ -1,6 +1,6 @@
 package graphene
 
-// The engine's half of redacting an event (plan §14.5, item 40).
+// The engine's half of redacting an event.
 //
 // These are primitives, each one step, each safe to repeat. The order they run in — and the
 // journal that makes a redaction stopped part-way finishable — belongs to backend/redaction, which

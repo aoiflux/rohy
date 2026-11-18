@@ -15,7 +15,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 )
 
-// Forensic integrity tests (§14.2).
+// Forensic integrity tests.
 //
 // These need a REAL DIRECTORY. Nearly every other test in this package runs on OpenInMemory,
 // which has no image to hash and therefore no forensic machinery at all — and the first test
@@ -312,7 +312,7 @@ func TestDefaultPostureClaimsNothingItHasNotGot(t *testing.T) {
 	if st.Retention || st.RetentionReason == "" {
 		t.Error("retention reported on, or off without saying why")
 	}
-	// The redaction ledger and the audit log are always on for a disk case (items 40 and 41): without
+	// The redaction ledger and the audit log are always on for a disk case: without
 	// the first the only removal left is the unattributed one, without the second no seal or rohy
 	// action is recorded.
 	if !st.Redaction || !st.Audit {
@@ -364,7 +364,7 @@ func TestAnExistingCaseOpensUnchangedWithTheAuditLog(t *testing.T) {
 }
 
 // A case written before the ledger existed — opened by the engine's plain Open, as every case was
-// until item 40 — loads to the same image under the ledger, and gains only an empty ledger file.
+// until v0.3.0 — loads to the same image under the ledger, and gains only an empty ledger file.
 func TestAnExistingCaseOpensUnchangedWithTheLedger(t *testing.T) {
 	dir := t.TempDir()
 	g, err := gr.Open(dir)

@@ -10,7 +10,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 )
 
-// The query console's reads (item 33). Both stay here, beside EventFilter, so the console knows
+// The query console's reads. Both stay here, beside EventFilter, so the console knows
 // fields and never which of them are indexed.
 
 // EventGroupFields are the fields CountEventsBy counts by: the short scalars of eventSortView.

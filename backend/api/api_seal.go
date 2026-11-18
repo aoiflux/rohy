@@ -13,7 +13,7 @@ import (
 	"rohy/backend/version"
 )
 
-// Sealing a case: one place for every seal, so every seal is recorded (plan §14.2, §15.5).
+// Sealing a case: one place for every seal, so every seal is recorded.
 //
 // A case is sealed after an ingest or a correlation backfill, from the Maintenance page, and on
 // close. The seals used to call Compact each on its own. Only the fingerprint export recorded
@@ -163,7 +163,7 @@ func fingerprintRecord(store *graphene.Store, roots *graphene.SnapshotRoots) cus
 	if nodes, _, err := store.Stats(); err == nil {
 		rec.Events = int(nodes)
 	}
-	// Who sealed, and the signature the image carries (item 41). The signature is the one on the
+	// Who sealed, and the signature the image carries. The signature is the one on the
 	// image this session holds, which is the image whose roots these are.
 	if p, ok := store.Session(); ok {
 		rec.ActorID = p.Actor
@@ -192,7 +192,7 @@ func AttachSealHistory(e *EventsAPI, hist *custody.Store) *EventsAPI {
 }
 
 // AttachRedactionJournal gives the ingest binding the journal whose entries it must not ingest
-// again (plan §14.5). A package function for the reason AttachSealHistory is one.
+// again. A package function for the reason AttachSealHistory is one.
 func AttachRedactionJournal(e *EventsAPI, j *redaction.Journal) *EventsAPI {
 	e.mu.Lock()
 	defer e.mu.Unlock()

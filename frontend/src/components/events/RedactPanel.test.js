@@ -5,7 +5,7 @@ import RedactPanel from './RedactPanel.svelte';
 import GraphNode from '../graph/GraphNode.svelte';
 import { UI } from '../../lib/consts/index.js';
 
-// The redaction panel in the drawer (plan §14.5, item 40).
+// The redaction panel in the drawer.
 
 const live = { id: 7, event_id: '4624', hash_raw: 'a', hash_normalized: 'b', timestamp: '2026-08-09T10:00:00Z' };
 

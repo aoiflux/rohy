@@ -1,4 +1,4 @@
-// The session step's rules (item 41), apart from the component so they are tested on their own.
+// The session step's rules, apart from the component so they are tested on their own.
 //
 // 🔒 The passphrase is only ever placed in the one request that needs it, and nothing here keeps it.
 import {

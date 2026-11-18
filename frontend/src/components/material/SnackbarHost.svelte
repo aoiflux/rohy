@@ -1,5 +1,5 @@
 <script>
-  // Renders the central snackbar queue (P5.4). Mounted once at the app root. Each
+  // Renders the central snackbar queue. Mounted once at the app root. Each
   // item's kind maps to a token colour; an optional action button runs and dismisses.
   import { fly } from 'svelte/transition';
   import { snackbar, SNACK_KIND } from '../../stores/snackbar.js';

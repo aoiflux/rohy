@@ -5,7 +5,7 @@ import (
 	"log/slog"
 )
 
-// SafeLogHandler keeps call arguments and results out of the log (item 41).
+// SafeLogHandler keeps call arguments and results out of the log.
 //
 // 🔒 Wails logs every binding call at Debug with its arguments and its result, each as an
 // attribute ("Binding call complete:" ... "args", "result"), and every other runtime call with

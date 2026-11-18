@@ -1,5 +1,5 @@
 /**
- * Checkpoints on the Maintenance page (plan §14.7, item 42).
+ * Checkpoints on the Maintenance page.
  *
  * The checks run and are worded in Go; what lives here is how their answers are laid out.
  *

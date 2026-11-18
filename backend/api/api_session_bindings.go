@@ -8,7 +8,7 @@ import (
 	"rohy/backend/keyfile"
 )
 
-// The session's bindings (item 41). The session step lives on SystemAPI, which the splash already
+// The session's bindings. The session step lives on SystemAPI, which the splash already
 // talks to; the signing actions on MaintenanceAPI, beside the rest of the case's integrity.
 //
 // 🔒 A binding that takes a passphrase recovers its own panic. Wails would otherwise recover it and

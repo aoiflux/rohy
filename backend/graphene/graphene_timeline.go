@@ -9,7 +9,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// Timeline data (P24).
+// Timeline data.
 //
 // The timeline must stay responsive on a case with hundreds of thousands of events, which
 // rules out shipping every event to the frontend to be drawn. Instead the backend answers
@@ -43,7 +43,7 @@ type TimelineSummary struct {
 	To   time.Time `json:"to"`
 	// Dated is how many matching events can be placed on a timeline; Undated is how many
 	// cannot. Undated is reported rather than hidden — the timeline states what it is
-	// leaving out (P22/P23).
+	// leaving out.
 	Dated   int `json:"dated"`
 	Undated int `json:"undated"`
 	// Buckets partition [From, To] into equal slices. Empty when nothing is dated.

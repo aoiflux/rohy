@@ -9,9 +9,9 @@ import (
 	"rohy/backend/graphene"
 )
 
-// Layout cost (plan §11.2, PERFORMANCE.md §21).
+// Layout cost (PERFORMANCE.md §21).
 //
-// WHAT THIS DECIDES. The plan asks whether layout is the bottleneck at 5k nodes. This measures the
+// WHAT THIS DECIDES. Whether layout is the bottleneck at 5k nodes. This measures the
 // arrangement alone, per profile, at 5k and at the cap (consts.LayoutMaxNodes), so the largest
 // canvas Compute accepts has a number. The read that feeds it is measured beside the binding
 // (backend/api BenchmarkComputeLayoutBinding5k): the difference between the two is where the

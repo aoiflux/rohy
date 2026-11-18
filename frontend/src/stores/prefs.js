@@ -1,4 +1,4 @@
-// Persisted UI preferences (P9). Small, non-forensic view state — panel open/closed, the
+// Persisted UI preferences. Small, non-forensic view state — panel open/closed, the
 // last filter the user typed — kept in localStorage so it survives navigation AND a restart.
 //
 // Nothing here is case data: losing it costs a reopened panel, never evidence. Every access
@@ -10,13 +10,13 @@ import { emptyForm } from '../lib/filter.js';
 
 function defaults() {
   return {
-    searchOpen: PREFS.SEARCH_OPEN_DEFAULT, // the search panel starts collapsed (P9)
+    searchOpen: PREFS.SEARCH_OPEN_DEFAULT, // the search panel starts collapsed
     filterForm: emptyForm(),
     // Timeline window as fractions of the full extent, so a zoomed-in investigation
-    // survives navigation and restart (P24).
+    // survives navigation and restart.
     timelineView: { start: 0, end: 1 },
     timelineGroupBy: '', // lane grouping; '' = no grouping
-    // The rule editor reformats a rule in the house style as it saves it (plan §7.6). Off
+    // The rule editor reformats a rule in the house style as it saves it. Off
     // by default: a rule is the author's text, and rewriting it unasked is not the editor's call.
     formatOnSave: PREFS.FORMAT_ON_SAVE_DEFAULT,
   };

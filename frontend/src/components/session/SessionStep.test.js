@@ -5,7 +5,7 @@ import SigningCard from '../maintenance/SigningCard.svelte';
 import StatusBar from '../material/StatusBar.svelte';
 import { UI } from '../../lib/consts/index.js';
 
-// The session step and the signing card (item 41). Rendered on the server, before the backend has
+// The session step and the signing card. Rendered on the server, before the backend has
 // answered: what shows then must ask nothing and claim nothing.
 
 describe('components/session / SessionStep', () => {

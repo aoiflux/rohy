@@ -11,7 +11,7 @@ const event = (over = {}) => ({
 
 const finding = (over = {}) => ({ key: 'hash-a', flagged: true, tags: ['recon'], note: 'pivot', ...over });
 
-describe('export carries analyst findings (P25)', () => {
+describe('export carries analyst findings', () => {
   it('attaches a finding under its own key, never merged into the event fields', () => {
     const [row] = withFindings([event()], { 'hash-a': finding() });
     expect(row.finding.note).toBe('pivot');

@@ -10,7 +10,7 @@ import (
 	"rohy/backend/graphene"
 )
 
-// The custody report for a redacted event (plan §14.5, item 40).
+// The custody report for a redacted event.
 
 var redactedAt = time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
 

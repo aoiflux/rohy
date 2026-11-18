@@ -19,7 +19,7 @@ import (
 
 // --- verify-proof ---
 //
-// The recipient's side of an event proof (plan §14.3): a file from rohy's event drawer and a
+// The recipient's side of an event proof: a file from rohy's event drawer and a
 // fingerprint the recipient kept, and nothing else — no case, no application, no store.
 //
 // 🔒 The root comes from --root and from nowhere else. Not from the file, which names the snapshot

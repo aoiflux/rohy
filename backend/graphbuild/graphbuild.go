@@ -1,4 +1,4 @@
-// Package graphbuild is the rule-driven graph creation workflow (P6): it is the only
+// Package graphbuild is the rule-driven graph creation workflow: it is the only
 // place where rules, events, the auto-graphing engine, and persistence meet. Given a rule
 // selection and a dataset scope (all events or the active forensic filter), it runs each
 // rule's algorithm and writes the resulting edges into that rule's own graph — "one rule =
@@ -64,7 +64,7 @@ type Result struct {
 	Events   int           `json:"events"`
 	// SkippedUndated is how many events matching the filter were left out because they have
 	// no timestamp and so cannot take part in time-ordered correlation. Reported so a run
-	// that "missed" events can explain itself instead of looking arbitrary (P23.5).
+	// that "missed" events can explain itself instead of looking arbitrary.
 	SkippedUndated int `json:"skipped_undated"`
 	// RepairedRelations is how many relations this run had to re-index before it could
 	// start, because a previous run was interrupted between committing its edges and
@@ -172,7 +172,7 @@ func (b *Builder) RunWithProgress(ctx context.Context, req Request, now time.Tim
 	// matching set, never just the page the UI happens to be showing.
 	//
 	// Undated events are excluded EXPLICITLY rather than relying on the caller's filter.
-	// The events view now includes them by default (P23), so a filter arriving from the UI
+	// The events view now includes them by default, so a filter arriving from the UI
 	// would otherwise feed timeless records into a time-ordered matcher. The exclusion is
 	// stated here, and the algorithm guards it again independently.
 	filter := req.Filter

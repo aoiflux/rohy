@@ -126,7 +126,7 @@ func TestUndatedComposesWithOtherFilters(t *testing.T) {
 func TestUndatedSortToTheEndInBothDirections(t *testing.T) {
 	// An undated event has no chronological position, so it must never be ordered as if it
 	// happened at the zero time — which, ascending, would put it ahead of every real record
-	// and read as a date rather than the absence of one (P23).
+	// and read as a date rather than the absence of one.
 	s := OpenInMemory()
 	defer s.Close()
 

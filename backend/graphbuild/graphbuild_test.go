@@ -229,7 +229,7 @@ func TestRunSpecificRuleIgnoresEnabledState(t *testing.T) {
 }
 
 func TestRunExcludesUndatedEventsAndReportsThem(t *testing.T) {
-	// The events page includes undated events by default (P23), so a filter arriving from
+	// The events page includes undated events by default, so a filter arriving from
 	// the UI would otherwise feed timeless records into a time-ordered matcher. The build
 	// must exclude them regardless of what the caller asked for — and say how many.
 	b, store, _, _ := harness(t, map[string]string{

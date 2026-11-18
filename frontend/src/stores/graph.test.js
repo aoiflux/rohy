@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { UI } from '../lib/consts/index.js';
 
 // Save layout writes the whole canvas over the graph's saved positions. A canvas whose mapping
-// never loaded is empty or partial, so saving it would erase what was kept (plan §15.15). The
+// never loaded is empty or partial, so saving it would erase what was kept. The
 // store refuses until the active graph's mapping has been read in full.
 
 const state = { relations: [], layout: { nodes: {} }, failLayout: false, failRelations: false, saved: [] };
@@ -121,7 +121,7 @@ describe('saving a canvas that has not loaded', () => {
   });
 });
 
-// Deleting an event moves a damaged saved canvas aside instead of failing (plan §15.16). The store
+// Deleting an event moves a damaged saved canvas aside instead of failing. The store
 // still drops the card, and hands back the kept names so the canvas can say where the file went.
 describe('deleting an event', () => {
   it('drops the card and returns the canvases set aside', async () => {

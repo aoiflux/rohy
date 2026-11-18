@@ -1,5 +1,5 @@
 // Package keyfile keeps an analyst's Ed25519 signing key in a file, encrypted under their
-// passphrase (plan §14.6, item 41).
+// passphrase.
 //
 // The key signs each seal of a case, so a recipient holding the public key can check who asserted
 // an image. That holds only if the key is somewhere the case's holder cannot reach: 🔒 a key file

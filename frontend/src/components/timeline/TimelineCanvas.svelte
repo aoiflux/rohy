@@ -1,5 +1,5 @@
 <script>
-  // Timeline density canvas (P24).
+  // Timeline density canvas.
   //
   // Drawn on a <canvas> rather than as DOM nodes: one element per event collapses long
   // before the dataset sizes this app targets. What is drawn is the backend's density

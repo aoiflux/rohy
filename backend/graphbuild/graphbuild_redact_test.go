@@ -12,7 +12,7 @@ import (
 	"rohy/backend/rules"
 )
 
-// 🔒 A build never sees a redacted event (plan §14.5, item 40): it reads through the timestamp
+// 🔒 A build never sees a redacted event: it reads through the timestamp
 // index, which a stripped event has left, so it neither relates the event again nor copies a value
 // back into a basis.
 func TestABuildLeavesARedactedEventOut(t *testing.T) {

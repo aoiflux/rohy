@@ -13,7 +13,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// The ledger and checkpoint readers behind detectors 16 and 17 (item 43).
+// The ledger and checkpoint readers behind detectors 16 and 17.
 
 func ledgerSigs(t *testing.T, s *Store, ring *signing.Keyring) []string {
 	t.Helper()

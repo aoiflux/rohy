@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Scrubbing the descriptor copies a redaction removes (plan §14.5, item 40).
+// Scrubbing the descriptor copies a redaction removes.
 
 const redactedMark = "(redacted event)"
 

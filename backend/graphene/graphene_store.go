@@ -584,7 +584,7 @@ func (s *Store) InsertEvents(events []*Event) ([]uint64, error) {
 		nodes[i] = n
 	}
 
-	// One attributed commit for the batch (item 41), records and index entries together: an event
+	// One attributed commit for the batch, records and index entries together: an event
 	// is never committed without the keys it is found by.
 	tx := s.tx(g)
 	ids := make([]store.NodeID, len(nodes))

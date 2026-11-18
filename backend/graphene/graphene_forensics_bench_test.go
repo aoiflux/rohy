@@ -6,7 +6,7 @@ import (
 	"rohy/backend/consts"
 )
 
-// Forensic verification cost (§14.2) — the 🟡 gate.
+// Forensic verification cost — the 🟡 gate.
 //
 // WHAT THESE DECIDE. Two questions, and neither should be answered from a sentence:
 //
@@ -126,8 +126,8 @@ func benchmarkProveEvent(b *testing.B, n int) {
 func BenchmarkProveEvent10k(b *testing.B)  { benchmarkProveEvent(b, 10000) }
 func BenchmarkProveEvent100k(b *testing.B) { benchmarkProveEvent(b, 100000) }
 
-// benchmarkUnsealed is what closing an unchanged case now costs instead of a compaction (plan
-// §15.5): the question "was anything written since the last seal", asked of a sealed case.
+// benchmarkUnsealed is what closing an unchanged case now costs instead of a compaction:
+// the question "was anything written since the last seal", asked of a sealed case.
 func benchmarkUnsealed(b *testing.B, n int) {
 	dir := seedDiskStore(b, n, true)
 	s, err := Open(dir)

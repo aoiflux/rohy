@@ -1,6 +1,6 @@
-// Package rules is rohy's correlation-rule engine (P2). A rule is a single portable JSON
+// Package rules is rohy's correlation-rule engine. A rule is a single portable JSON
 // file — "1 file = 1 rule, 1 rule = 1 graph" — whose body is an ordered sequence of event
-// IDs; the auto-graphing algorithm (P3) emits edges between consecutive matched events.
+// IDs; the auto-graphing algorithm emits edges between consecutive matched events.
 // A connection between two steps may be untagged or carry an optional custom label. The
 // format reserves room for additional field matchers later. This package parses +
 // validates rule files and owns the rule registry; it depends only on consts and never
@@ -174,7 +174,7 @@ type Rule struct {
 	Enabled bool   `json:"enabled"`
 	Path    string `json:"path,omitempty"`
 	// File is the name of the file this rule was defined in — the embedded file for a
-	// builtin, the on-disk file name for a user rule. It is what lets the inspector (P19)
+	// builtin, the on-disk file name for a user rule. It is what lets the inspector
 	// read the rule back exactly as authored.
 	File string `json:"file,omitempty"`
 }

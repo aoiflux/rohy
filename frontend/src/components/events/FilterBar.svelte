@@ -1,5 +1,5 @@
 <script>
-  // Forensic filter bar (P6.3 + P9). Collapsed by default: the header alone tells the user
+  // Forensic filter bar. Collapsed by default: the header alone tells the user
   // whether the view is filtered, and the full form expands on demand.
   //
   // Local field state is pushed to the events store on Apply (so typing doesn't spam
@@ -61,7 +61,7 @@
     prefs.setSearchOpen(open);
   }
 
-  // Relation quick filters (P11). They live in the header rather than inside the collapsed
+  // Relation quick filters. They live in the header rather than inside the collapsed
   // body, because their whole value is being one click away — burying them behind the
   // expand toggle would defeat the point.
   const QUICK = [
@@ -70,14 +70,14 @@
     { value: RELATION_FILTERS.USER, label: UI.FILTER_MANUALLY_MAPPED },
   ];
 
-  // Timeline-participation chips (P23). The list shows everything by default; these isolate
+  // Timeline-participation chips. The list shows everything by default; these isolate
   // one group or the other. UNDATED.INCLUDE is "no filter" here, not a third state.
   const TIMELINE_QUICK = [
     { value: UNDATED.EXCLUDE, label: UI.FILTER_ON_TIMELINE },
     { value: UNDATED.ONLY, label: UI.FILTER_NO_TIMELINE },
   ];
 
-  // Analyst-findings chips (P25). Flagged is the one an analyst reaches for constantly
+  // Analyst-findings chips. Flagged is the one an analyst reaches for constantly
   // mid-investigation, so it earns a place in the header; the rest of the finding states live
   // in the expanded form.
   const FINDING_QUICK = [{ value: FINDING_FILTERS.FLAGGED, label: UI.FILTER_FINDING_FLAGGED }];
@@ -130,7 +130,7 @@
   }
 
   // Ctrl+F opens the panel and focuses the search box — the shortcut is what keeps a
-  // collapsed-by-default panel fast to reach (R-SC1).
+  // collapsed-by-default panel fast to reach.
   let searchEl = $state(/** @type {any} */ (null));
   let panelEl = $state(/** @type {any} */ (null));
 

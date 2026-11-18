@@ -1,5 +1,5 @@
 <script>
-  // Fixed-height windowed list (P6.1). Renders only the rows intersecting the scroll
+  // Fixed-height windowed list. Renders only the rows intersecting the scroll
   // viewport (± overscan), with spacer divs preserving total scroll height, so tens of
   // thousands of events stay smooth. The parent supplies a `row` snippet per item.
   import { EVENTS_LIST } from '../../lib/consts/index.js';
@@ -26,7 +26,7 @@
   function onscroll(e) {
     const el = e.currentTarget;
     scrollTop = el.scrollTop;
-    // Ask the parent to load more when the user nears the end (P1 progressive loading).
+    // Ask the parent to load more when the user nears the end (progressive loading).
     // The parent's loader is guarded, so firing repeatedly is safe.
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - rowHeight * EVENTS_LIST.LOAD_MORE_ROWS) {
       onEndReached?.();

@@ -1,5 +1,5 @@
 <script>
-  // Graph view (P7). Hosts the canvas plus a side panel for adding ingested events as
+  // Graph view. Hosts the canvas plus a side panel for adding ingested events as
   // nodes and loading/clearing the persisted mapping. Node/edge state lives in the
   // graph store; all persistence goes through the API wrapper.
   import { onMount } from 'svelte';
@@ -34,7 +34,7 @@
 
   const onCanvas = $derived(new Set(Object.keys($graph.nodes).map(Number)));
 
-  // Multiple graphs (P15): the switcher options + the active graph's counts.
+  // Multiple graphs: the switcher options + the active graph's counts.
   const graphOptions = $derived(($graph.graphs || []).map((g) => ({ value: g.id, label: g.name })));
   const activeGraph = $derived(($graph.graphs || []).find((g) => g.id === $graph.activeGraphId) || null);
 
@@ -187,7 +187,7 @@
     }
   }
 
-  // Progressively load more events into the picker as the panel scrolls (P1.4 parity),
+  // Progressively load more events into the picker as the panel scrolls (parity),
   // so every event is reachable here — the canvas only shows placed nodes by design.
   function panelScroll(e) {
     const el = e.currentTarget;

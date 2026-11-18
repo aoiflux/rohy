@@ -1,5 +1,5 @@
 // Package snapshot records what a graph looked like at a moment, and works out what can honestly
-// be put back later (P29).
+// be put back later.
 //
 // It is a sidecar for the same reason findings are: a snapshot is a record of the analyst's
 // working state, not of the evidence, and evidence must read back exactly as it was ingested.

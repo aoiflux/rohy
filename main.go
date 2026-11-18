@@ -31,7 +31,7 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		// Withholds every call's arguments and result from the log: a passphrase crosses a call as
-		// an argument (item 41).
+		// an argument.
 		Logger: slog.New(api.NewSafeLogHandler(slog.NewTextHandler(os.Stderr, nil))),
 		// Sends a failed call's code with its message; the frontend's call() reads it.
 		MarshalError: api.MarshalError,

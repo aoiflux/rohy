@@ -13,7 +13,7 @@ import (
 // errRunInProgress guards against two concurrent builds racing on the same graphs.
 var errRunInProgress = errors.New(consts.MsgRuleRunInProgress)
 
-// BuildAPI is the Wails binding for the rule-driven graph creation workflow (P6). It is a
+// BuildAPI is the Wails binding for the rule-driven graph creation workflow. It is a
 // thin adapter: request validation and the actual composition of rules + events + graphs
 // live in the graphbuild package. One run may build several graphs, so the result is a
 // per-rule summary the frontend can report and navigate from.

@@ -1,5 +1,5 @@
 <script>
-  // Redacting one event (plan §14.5, item 40).
+  // Redacting one event.
   //
   // Three steps, each its own state: the preview (what goes, what stays, what rohy cannot reach),
   // the reason, and the outcome step by step. Everything belongs to the event it was asked about;

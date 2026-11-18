@@ -20,7 +20,7 @@ import (
 	"rohy/backend/snapshot"
 )
 
-// A redaction end to end, on a disk case laid out as the app lays one out (plan §14.5, item 40).
+// A redaction end to end, on a disk case laid out as the app lays one out.
 //
 // What it proves is the definition of done: the content is gone from every file rohy wrote under
 // the case folder except the analyst's own words, the removal is recorded and bound into the seal,

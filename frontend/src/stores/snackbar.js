@@ -1,4 +1,4 @@
-// Central snackbar service (P5.4). A single queue of transient messages rendered by
+// Central snackbar service. A single queue of transient messages rendered by
 // SnackbarHost. Permission warnings and ingestion errors are routed here so there is
 // one notification surface for the whole app.
 import { writable } from 'svelte/store';

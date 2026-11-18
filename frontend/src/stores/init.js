@@ -1,4 +1,4 @@
-// Application initialization state (P21).
+// Application initialization state.
 //
 // The window now opens before the case store is ready, so the UI has to know when the
 // backend can actually answer. State arrives two ways on purpose: an event stream for

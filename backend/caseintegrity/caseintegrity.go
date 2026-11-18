@@ -1,5 +1,5 @@
 // Package caseintegrity checks a case for the ways it can quietly go wrong, and says what it
-// found (P30).
+// found.
 //
 // 🔒 It READS and REPORTS. It repairs nothing on its own and deletes nothing, ever — the same
 // principle that keeps orphaned findings on disk. A checker that tidied up as it went would
@@ -77,7 +77,7 @@ type Options struct {
 	Deep bool
 }
 
-// ForensicStore is the slice of the store the posture checks read (plan §14.8).
+// ForensicStore is the slice of the store the posture checks read.
 //
 // It is a SEPARATE interface from EventStore, and deliberately optional, because the questions
 // differ in kind: EventStore answers "is this case broken", this answers "what can this case
@@ -102,7 +102,7 @@ type RootHistory interface {
 	Chain(current *graphene.SnapshotRoots) ChainCheck
 }
 
-// ChainCheck is where the case's current image sits against its history of seals (plan §15.5),
+// ChainCheck is where the case's current image sits against its history of seals,
 // reduced to what the findings say.
 type ChainCheck struct {
 	// State is one of consts.Chain*.
@@ -180,7 +180,7 @@ type Deps struct {
 	PayloadSize uint64
 	PayloadUsed uint64
 
-	// Redaction (plan §14.5). Redacted reports whether a finding's key names a redacted event; nil
+	// Redaction. Redacted reports whether a finding's key names a redacted event; nil
 	// means none is. RedactedPayloadEnd is how far the furthest tombstoned payload record extends:
 	// a redacted event no longer references its record, so without it a tombstone at the end of
 	// the log reads as an interrupted ingest's tail. RedactionsPending counts redactions that did
@@ -190,9 +190,9 @@ type Deps struct {
 	RedactionsPending   int
 	RedactionJournalErr error
 
-	// Signing is what the case records about who signs it, and what this session did about it
-	// (item 41). Ledger is the redaction ledger read under the case's keys, Checkpoints the case's
-	// local checkpoint chain (plan §14.8, detectors 16 and 17). 🔒 Each nil is reported as not read,
+	// Signing is what the case records about who signs it, and what this session did about it.
+	// Ledger is the redaction ledger read under the case's keys, Checkpoints the case's
+	// local checkpoint chain (detectors 16 and 17). 🔒 Each nil is reported as not read,
 	// never as fine; LedgerErr and CheckpointErr say why one could not be read.
 	Signing       *SigningPosture
 	Ledger        *graphene.LedgerState
@@ -201,8 +201,8 @@ type Deps struct {
 	CheckpointErr error
 }
 
-// Anchoring is what the case's checkpoints, its receipts and the analyst's profile say (detector 17;
-// items 42, 43). All of it except Missing is the case's own record.
+// Anchoring is what the case's checkpoints, its receipts and the analyst's profile say (detector 17).
+// All of it except Missing is the case's own record.
 type Anchoring struct {
 	graphene.CheckpointState
 	// Last is the newest checkpoint, and LastHeld each history checked against it. Nil while the
@@ -760,7 +760,7 @@ func (r *Report) add(f Finding) { r.Findings = append(r.Findings, f) }
 // silently would leave a clean-looking report that had not actually looked.
 func (r *Report) note(msg string) { r.Errors = append(r.Errors, msg) }
 
-// checkForensicPosture reports what the case can and cannot prove (plan §14.8).
+// checkForensicPosture reports what the case can and cannot prove.
 //
 // 🔒 THESE ARE POSTURES, NOT FAULTS. Every one of them is the honest consequence of when and how
 // the case was written, and most of them are the state of every case rohy has ever produced. They
@@ -828,7 +828,7 @@ func checkForensicPosture(rep *Report, deps Deps, opts Options) (readOnly string
 }
 
 // checkSession reports how this session opened the case: what it cannot do, and what it did not
-// record (item 41). None of it is about the image.
+// record. None of it is about the image.
 func checkSession(rep *Report, deps Deps, st graphene.ForensicStatus) {
 	switch {
 	case st.Mode == consts.CaseModeRecovery:
@@ -936,7 +936,7 @@ func checkSigning(rep *Report, deps Deps, st graphene.ForensicStatus) {
 
 // checkLedger reports what the redaction ledger's records can show about who made them (detector 16).
 //
-// 🔒 graphene's ledger chain does not cover signatures (plan §15.8), so a record whose signature was
+// 🔒 graphene's ledger chain does not cover signatures, so a record whose signature was
 // removed still chains. An unsigned record is therefore judged by the interval it was written in:
 // inside a signed one it is a fault, outside it a posture.
 func checkLedger(rep *Report, deps Deps) {
@@ -1008,7 +1008,7 @@ func actionIf(fault bool) string {
 }
 
 // checkCheckpoints reports how much of the case's history something outside it vouches for (detector
-// 17; items 42, 43).
+// 17).
 //
 // 🔒 Everything read here is the case's own record, the receipts included: a rewriter can write them
 // all. What this detector can catch is a careless rewrite — a chain edited or removed, a history
@@ -1175,7 +1175,7 @@ func withholdWrites(rep *Report) {
 	}
 }
 
-// checkRootChain places the current image against the history of seals (plan §15.5).
+// checkRootChain places the current image against the history of seals.
 //
 // 🔒 This is the one check that catches an image which is internally perfect but is not the latest
 // one rohy sealed: a database restored from a backup, or copied in from another case. Every other

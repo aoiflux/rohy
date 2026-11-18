@@ -80,7 +80,7 @@ func TestSourceOfUnknownRule(t *testing.T) {
 
 func TestSourceRefusesAnOversizedFile(t *testing.T) {
 	// A rule file can only get this large by being written outside the import path; the
-	// inspector must not pull it into memory to display it (R-RI1).
+	// inspector must not pull it into memory to display it.
 	dir := t.TempDir()
 	body := `{"name":"Big Rule","sequence":["1","2"],"description":"` +
 		strings.Repeat("x", consts.RuleMaxFileBytes) + `"}`
@@ -115,7 +115,7 @@ func TestFindReturnsACopy(t *testing.T) {
 	}
 }
 
-// --- Reading a file by path (P26 repair flow) ---
+// --- Reading a file by path (repair flow) ---
 
 func TestReadFileReturnsARuleFileByPath(t *testing.T) {
 	dir := t.TempDir()

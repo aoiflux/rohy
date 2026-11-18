@@ -22,11 +22,11 @@ type EventSink interface {
 }
 
 // PositionStore is the durable per-channel bookmark surface used by continuous live
-// capture (P7). It is satisfied by *capture.Store. The pipeline only ever advances a
+// capture. It is satisfied by *capture.Store. The pipeline only ever advances a
 // position AFTER the events up to it are durably persisted, so a crash re-reads a little
 // (harmless under hash idempotency) and can never skip.
-// Suppressor names the records a redaction removed, which an ingest must not bring back (plan
-// §14.5). It is satisfied by *redaction.Journal.
+// Suppressor names the records a redaction removed, which an ingest must not bring back.
+// It is satisfied by *redaction.Journal.
 type Suppressor interface {
 	// Err reports why the list cannot be consulted. While it is not nil nothing is ingested: the
 	// list is what keeps redacted content out.
@@ -52,7 +52,7 @@ type Progress struct {
 	LastRecordID     uint64 `json:"last_record_id"`
 	// RecordsUndated counts stored records that carry no timestamp. They cannot be placed
 	// on a timeline, so they are excluded from timeline analysis — and this count is what
-	// lets the UI say so instead of hiding them silently (P22).
+	// lets the UI say so instead of hiding them silently.
 	RecordsUndated int `json:"records_undated"`
 	// RecordsDivergent counts duplicates whose identity matched an existing event but whose
 	// RAW payload did not. Identity deliberately excludes the payload, so this is the one
@@ -61,8 +61,8 @@ type Progress struct {
 	// canonical is already in memory; catching it against already-persisted events would
 	// cost a fetch per duplicate.
 	RecordsDivergent int `json:"records_divergent"`
-	// RecordsSuppressed counts records skipped because a redaction removed them from the case
-	// (plan §14.5). They are read, and not stored or counted as duplicates.
+	// RecordsSuppressed counts records skipped because a redaction removed them from the case.
+	// They are read, and not stored or counted as duplicates.
 	RecordsSuppressed int `json:"records_suppressed"`
 }
 
@@ -73,7 +73,7 @@ type Summary struct {
 }
 
 // Checkpoint records how far a run progressed so a later run can resume. Safe
-// skip-ahead resume (dropping already-persisted RecordIDs) is a P2-L guarantee; in
+// skip-ahead resume (dropping already-persisted RecordIDs) is a large-input guarantee; in
 // this iteration correctness on resume comes from hash idempotency, and the
 // checkpoint's LastRecordID is the highest persisted id (informational).
 type Checkpoint struct {
@@ -81,7 +81,7 @@ type Checkpoint struct {
 }
 
 // Reporter receives lifecycle, progress, and per-record error callbacks. The API
-// layer (P4) adapts these to Wails events; tests use a capturing implementation.
+// layer adapts these to Wails events; tests use a capturing implementation.
 // All methods are invoked from a single goroutine, so implementations need not be
 // safe for concurrent use.
 type Reporter interface {
@@ -119,14 +119,14 @@ type Options struct {
 	// also makes resume safe (re-ingesting a file adds no new nodes, only counts).
 	Idempotent bool
 	// Continuous turns a live run from drain-once into an open-ended capture: drained
-	// channels keep polling for new records until the run is cancelled (P7). Ignored by
+	// channels keep polling for new records until the run is cancelled. Ignored by
 	// the file source, which always terminates.
 	Continuous bool
 	// Positions supplies durable per-channel bookmarks for live capture. When set, each
 	// channel resumes after its recorded position and the position advances only after a
 	// durable write. Nil disables bookmarking (the run reads from the beginning).
 	Positions PositionStore
-	// Gate pauses/resumes the run (P8). Nil means the run can never pause.
+	// Gate pauses/resumes the run. Nil means the run can never pause.
 	Gate *Gate
 	// Suppress skips records a redaction removed. Nil suppresses nothing.
 	Suppress Suppressor
@@ -190,7 +190,7 @@ func Ingest(ctx context.Context, opts Options, sink EventSink, reporter Reporter
 	case consts.SourceFile:
 		// Dispatch on the file's kind, not on a separate source enum: a .db carrying EVTX
 		// data is still "a file ingest" to every caller, and both readers feed the same
-		// normalizer and sink (P17).
+		// normalizer and sink.
 		if IsDBPath(opts.Path) {
 			return ingestDB(ctx, opts, sink, reporter)
 		}
@@ -426,7 +426,7 @@ func runSink(ctx context.Context, opts Options, sink EventSink, reporter Reporte
 	// the source it actually came from rather than being folded into a bare total.
 	dbInc := make(map[uint64]map[string]int)
 
-	// Live capture bookmarks (P7). staged holds the highest record id seen per channel for
+	// Live capture bookmarks. staged holds the highest record id seen per channel for
 	// chunks whose events have all been handed to the batch; a position is committed only
 	// once nothing is left unwritten, i.e. strictly AFTER the durable write that covers it.
 	// That ordering is what makes a crash re-read rather than skip.
@@ -555,7 +555,7 @@ loop:
 				if !ev.Timestamp.IsZero() {
 					ev.StampIdentity()
 				}
-				// A redacted record stays out (plan §14.5). Checked on the stamped identity, and
+				// A redacted record stays out. Checked on the stamped identity, and
 				// whether or not this run deduplicates: a non-idempotent run would otherwise store
 				// it again as a new event. hash_raw catches the same record read from another path,
 				// which hash_normalized, carrying the source, does not.

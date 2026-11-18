@@ -1,5 +1,5 @@
 <script>
-  // Permission check step (P5.1, P1 frontend). Refreshes privilege state on mount,
+  // Permission check step (frontend). Refreshes privilege state on mount,
   // shows whether protected channels are available, and advances to the dashboard.
   import { onMount, onDestroy } from 'svelte';
   import { route } from '../stores/router.js';

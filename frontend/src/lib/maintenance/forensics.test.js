@@ -4,7 +4,7 @@ import MaintenanceView from '../../routes/MaintenanceView.svelte';
 import { ACTION, runnable, actionsIn } from './report.js';
 import { UI } from '../consts/index.js';
 
-// Forensic posture in the UI (plan §14.8 / §14.2).
+// Forensic posture in the UI.
 //
 // The assertions here are almost all about COPY and about which of four states is shown, because
 // that is where this feature can actually do harm. A wrong number in a chart is a wrong number; a
@@ -72,7 +72,7 @@ describe('lib/maintenance / forensic actions', () => {
   });
 
   it('no longer says writes are unattributed: they name the analyst, unchecked', () => {
-    // Since item 41 every write names its analyst. What an unsigned session lacks is anything
+    // Since v0.3.0 every write names its analyst. What an unsigned session lacks is anything
     // that checks the name, and the copy says exactly that.
     const text = UI.MAINT_FORENSIC_UNSIGNED.toLowerCase();
     expect(text).not.toMatch(/cannot be attributed|unattributed/);

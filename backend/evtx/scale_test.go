@@ -92,7 +92,7 @@ func peakHeapDelta(fn func()) uint64 {
 	return peak - baseline
 }
 
-// TestBoundedMemoryStreaming is the R-L1 gate: peak memory must NOT scale with input size.
+// TestBoundedMemoryStreaming is the bounded-memory gate: peak memory must NOT scale with input size.
 //
 // Two things about HOW it measures, both learned by this test failing a release build:
 //
@@ -162,7 +162,7 @@ func TestBoundedMemoryStreaming(t *testing.T) {
 		smallSink.count, largeSink.count, smallPeak>>20, largePeak>>20)
 }
 
-// TestBatchedWritesNoLargeTransaction is the R-D1 gate: the sink must only ever
+// TestBatchedWritesNoLargeTransaction is the batched-writes gate: the sink must only ever
 // receive batches bounded by the configured batch size — never one giant write.
 func TestBatchedWritesNoLargeTransaction(t *testing.T) {
 	dir := t.TempDir()
@@ -213,7 +213,7 @@ func (s *cancelSink) IncrementDedupCounts(deltas map[uint64]map[string]int) erro
 	return s.store.IncrementDedupCounts(deltas)
 }
 
-// TestCancelThenResumeNoLossNoDup is the R-L2 gate: cancel partway through, then
+// TestCancelThenResumeNoLossNoDup is the resume gate: cancel partway through, then
 // resume with idempotency on, and confirm the final store holds every distinct event
 // exactly once — no loss, no duplication. Uses the real fixture (distinct records).
 func TestCancelThenResumeNoLossNoDup(t *testing.T) {

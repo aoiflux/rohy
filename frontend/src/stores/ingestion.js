@@ -1,4 +1,4 @@
-// Ingestion store (P5.2 + P2-L.5 UI feedback). Subscribes once to the backend
+// Ingestion store. Subscribes once to the backend
 // ingestion event channels and reduces them into a single reactive state: lifecycle
 // status, live progress, and last error. Also exposes start/cancel actions and pure
 // helpers for percent/ETA so the async pipeline never blocks the UI.
@@ -46,7 +46,7 @@ function initialState() {
   return {
     state: INGEST_STATE.IDLE,
     // lifecycle is the BACKEND's state (idle/active/paused/stopping). It is reported, not
-    // inferred: pause/resume is owned by the pipeline, so the UI must not guess (P8).
+    // inferred: pause/resume is owned by the pipeline, so the UI must not guess.
     lifecycle: INGEST_LIFECYCLE.IDLE,
     progress: { ...EMPTY_PROGRESS },
     path: '',
@@ -61,7 +61,7 @@ function initialState() {
     startedAt: 0,
     finishedAt: 0,
     lastError: null,
-    // The seal after the request (plan §14.2): true from case:sealing to case:sealed. The ingest
+    // The seal after the request: true from case:sealing to case:sealed. The ingest
     // is over by then, but the run is not, and on a large case this takes seconds — a silent gap
     // after "complete" reads as a hang.
     sealing: false,
@@ -127,7 +127,7 @@ function create() {
         };
       });
       // Undated rows are stored but kept out of timeline analysis; say so at the moment
-      // they are ingested, so the counts never look like data went missing (P22). Said once
+      // they are ingested, so the counts never look like data went missing. Said once
       // for the whole job rather than once per file, or a folder would produce a burst of
       // near-identical notices.
       if (lastFile && jobUndated > 0) snackbar.info(`${jobUndated} ${UI.UNDATED_INGESTED_SUFFIX}`);
@@ -174,7 +174,7 @@ function create() {
 
   // startLive begins a live event-log capture. In continuous mode the run stays open,
   // streaming new records until cancel() stops it, and each channel resumes from its
-  // durable bookmark rather than re-reading from the beginning (P7).
+  // durable bookmark rather than re-reading from the beginning.
   async function startLive(channels, { idempotent = true, continuous = true } = {}) {
     wire();
     try {

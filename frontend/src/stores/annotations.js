@@ -1,4 +1,4 @@
-// Annotation state (P29).
+// Annotation state.
 //
 // Unlike the cluster and replay stores, this one holds DATA rather than a reading posture: the
 // analyst's own marks on a graph, mirrored from the sidecar. Every mutation goes to the backend

@@ -13,7 +13,7 @@ import (
 	"rohy/backend/layout"
 )
 
-// The case lock (plan §14.5, item 40).
+// The case lock.
 //
 // A redaction strips an event while nothing else may read it back and write it again. Every write
 // to the case shares the lock; a redaction takes it alone. Both sides only try: a refusal says
@@ -223,7 +223,7 @@ func TestEveryCaseWriteIsRefusedDuringARedaction(t *testing.T) {
 	}
 }
 
-// 🔒 A session that cannot write refuses every write binding, with the reason (item 41) — and still
+// 🔒 A session that cannot write refuses every write binding, with the reason — and still
 // runs the image check, which writes nothing.
 func TestEveryCaseWriteIsRefusedInAReadOnlySession(t *testing.T) {
 	store, events, ev, calls := everyCaseWrite(t)

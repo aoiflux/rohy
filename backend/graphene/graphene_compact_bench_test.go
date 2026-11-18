@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Compaction at the ingest boundary (plan §14.2) — the 🟡 gate.
+// Compaction at the ingest boundary — the 🟡 gate.
 //
 // WHAT THIS DECIDES. Compaction is what computes the snapshot roots, so until it runs nothing in a
 // case can be proven. rohy currently compacts in exactly one place — clean shutdown — which means a

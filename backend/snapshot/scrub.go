@@ -20,7 +20,7 @@ type ScrubResult struct {
 }
 
 // Scrub removes, from every snapshot of every graph, the copies of content belonging to the
-// events whose hash_normalized is in hashes (plan §14.5): each such node's descriptor becomes
+// events whose hash_normalized is in hashes: each such node's descriptor becomes
 // replacement, and each relation touching one loses its basis, the field values a rule copied
 // from the event. What the edge was — its type, rule, endpoints by hash — stays.
 //

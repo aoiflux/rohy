@@ -11,7 +11,7 @@ import (
 	"github.com/aoiflux/graphene/store"
 )
 
-// Case inventory (P30).
+// Case inventory.
 //
 // The integrity checks need to know what a case actually CONTAINS — which channels were ingested,
 // how many events carry each correlation field, how many relations point at nothing. Answering
@@ -41,7 +41,7 @@ type Inventory struct {
 	// is written BEFORE the record that references it, so a crash between the two leaves bytes
 	// nothing points at (PERFORMANCE.md §14).
 	PayloadUsed uint64 `json:"payload_used"`
-	// Redacted is how many events had their content removed by a redaction (plan §14.5). They
+	// Redacted is how many events had their content removed by a redaction. They
 	// are counted in Events and in nothing else: an empty record is not undated, unprojected, or
 	// on any channel, and counting it as any of those would report work that can never be done.
 	Redacted int `json:"redacted"`

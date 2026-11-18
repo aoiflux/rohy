@@ -11,7 +11,7 @@ import (
 	"rohy/backend/layout"
 )
 
-// The layout binding end to end (plan §11.2, PERFORMANCE.md §21).
+// The layout binding end to end (PERFORMANCE.md §21).
 //
 // graphlayout's own benchmark measures the arrangement. This measures what the analyst waits for
 // when they press a profile: the graph's relations, the canvas's events, then the arrangement, on

@@ -1,5 +1,5 @@
 /**
- * Replay: watching a graph assemble itself in the order the evidence says it happened (P29).
+ * Replay: watching a graph assemble itself in the order the evidence says it happened.
  *
  * 🔒 The whole feature turns on one decision. Replay is ordered by EVENT TIMESTAMPS, never by
  * `created_at`. `created_at` is when the rule build ran — a few milliseconds of one afternoon —

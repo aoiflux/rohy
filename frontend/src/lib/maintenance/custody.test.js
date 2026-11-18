@@ -4,9 +4,9 @@ import EventDetail from '../../components/events/EventDetail.svelte';
 import { CUSTODY_STATE, CUSTODY_FORM, CUSTODY_PRESENCE, custodyView, custodyFailure, caseMark } from './custody.js';
 import { UI } from '../consts/index.js';
 
-// The custody report in the UI (plan §14.4, item 39).
+// The custody report in the UI.
 //
-// The risk is the one §14.4 names: a report read as a verdict. These tests are about what the
+// The risk is a report read as a verdict. These tests are about what the
 // drawer can and cannot be made to say.
 
 const layer = (name, state, extra = {}) => ({ layer: name, state, message: `${name} says ${state}`, ...extra });
@@ -81,7 +81,7 @@ describe('lib/maintenance / custody view', () => {
     expect(v.counts).toContain('not a verdict');
   });
 
-  // 🔒 §14.4: "a 'custody accounted for' badge on the unanchored form would be the single most
+  // 🔒 "a 'custody accounted for' badge on the unanchored form would be the single most
   // misleading thing this feature could produce." No copy in the frame says it, in any form.
   it('no custody copy claims custody is accounted for', () => {
     const copy = Object.entries(UI)

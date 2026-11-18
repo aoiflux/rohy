@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { reasonProblem, previewView, outcomeView, redactionFailure, redactedLine, pendingLine } from './redaction.js';
 import { UI, REDACT_STEP, REDACT_STEP_STATE, MAX_REDACTION_REASON_BYTES } from '../consts/index.js';
 
-// Redaction in the UI (plan §14.5, item 40). The risk is a false statement about evidence: a
+// Redaction in the UI. The risk is a false statement about evidence: a
 // redaction shown as done that did not finish, or a preview that hides what it cannot reach.
 
 const preview = {
