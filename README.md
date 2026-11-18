@@ -9,7 +9,7 @@
 Ingest EVTX logs, map how events relate, and correlate them with rules you
 control — entirely on your own machine.
 
-`v0.3.0` "Perseus" (in development; current release `v0.2.0` "Andromeda") · Windows / Linux / macOS · Go + Wails + Svelte
+`v0.3.0` "Perseus" · Windows / Linux / macOS · Go + Wails + Svelte
 
 </div>
 
@@ -89,6 +89,13 @@ shasum -a 256 rohy_0.3.0_darwin_arm64.zip        # macOS: compare with its line 
 > v0.3.0 — signing and notarization are
 > planned, and this note will go away when they land rather than being quietly
 > dropped.
+
+> **Upgrading from v0.2.0?** Copy each case folder before you open it in v0.3.0.
+> A case's first seal in v0.3.0 converts it to a format v0.2.0 cannot open, and
+> v0.3.0 seals when you run the correlation backfill or close the app after any
+> change. The fingerprint you kept still matches the case. Run the backfill on
+> the Maintenance page before you trust a field, temporal or lineage rule's
+> result. [RELEASE_NOTES.md](RELEASE_NOTES.md) has the details.
 
 ### Build from source
 
@@ -371,14 +378,15 @@ rule bundle export, auto-layout profiles, clusters, the relationship heatmap,
 replay, snapshots, annotation layers, the case check on the Maintenance page,
 `rohyctl`, and the algorithms explainer page.
 
-**Coming in v0.3.0** (not yet released) — forensic integrity: every seal recorded and its
+**Delivered in v0.3.0** — forensic integrity: every seal recorded and its
 history checked, per-event proofs checked with `rohyctl verify-proof`, a custody
 report per event, attributable redaction, analyst attribution and signed seals,
 checkpoints published outside the case, and an integrity check that states what
 the case cannot prove. Also three network correlation fields, the read-only
 query console, error codes that reach the screen, file-order ingest and the
 integration suite, bracket pairing and format-on-save in the raw editor, and a
-VS Code extension for rule files.
+VS Code extension for rule files. Underneath, rohy moved to Wails v3 and
+GrapheneDB 0.10.
 
 **Next**
 

@@ -8,9 +8,7 @@
 
 ---
 
-## v0.3.0 — "Perseus" (unreleased)
-
-_Not yet tagged. The current release is v0.2.0 "Andromeda", below._
+## v0.3.0 — "Perseus"
 
 _The release that can show its work to someone who was not there._
 
