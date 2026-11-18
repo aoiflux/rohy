@@ -81,13 +81,35 @@ go test ./cmd/rohyctl/ -run TestValidateJSONMatchesTheExtensionFixtures -update-
 
 Then check the diff, and that `npm test` still passes.
 
-To build an installable package (this fetches `@vscode/vsce` at packaging time; it is not a
-dependency of the extension):
+### Packaging and publishing
+
+`npm run package` builds the installable package, `rohy-rules-<version>.vsix`. It needs Go
+and Node 22 or later, and runs from this folder in a checkout of rohy. It stops at the first
+failure:
+
+1. The version must be plain `x.y.z`. The Marketplace takes no pre-release labels.
+2. `go run ./tools/genschema -check` must pass. The schema-only check uses the bundled schema,
+   so a stale schema would check rules against an old format.
+3. `npm test` must pass.
+
+It then packages with a pinned `@vscode/vsce` (fetched by `npx`; it is not a dependency of the
+extension). It points the README's relative links at this folder on GitHub, and prints the
+package's SHA-256. It warns if this folder has uncommitted changes.
 
 ```sh
-npx @vscode/vsce package
-code --install-extension rohy-rules-0.1.0.vsix
+npm run package
+code --install-extension rohy-rules-0.1.0.vsix    # try it locally first
 ```
+
+The script never publishes, so it never handles the publisher's token. It prints the command to
+run:
+
+```sh
+npx @vscode/vsce@4.1.0 publish --packagePath rohy-rules-0.1.0.vsix
+```
+
+Raise `version` in `package.json` before each release; the Marketplace refuses a version it
+already has.
 
 ### Checked by hand
 
