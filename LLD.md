@@ -174,7 +174,7 @@ rohy/
 
 Roughly 34,300 lines of non-test Go, plus the Svelte frontend. The tests are
 **1,253 Go test functions**, with 10 fuzz targets and 66 benchmarks beside them,
-**880 frontend test cases** and **64 extension tests**.
+**880 frontend test cases** and **74 extension tests**.
 
 ---
 
@@ -1175,7 +1175,11 @@ calls `ValidateSource` and prints each problem as `file:line:col`; with `--json`
 it prints them as one report for a program to place. The VS Code extension in
 [tools/rohy-vi](tools/rohy-vi/README.md) is that program: it sends the
 buffer on stdin as it is typed and underlines what comes back. It is a reader,
-not a fourth validator. When `rohyctl` is absent it falls back to the generated
+not a fourth validator. The package carries a `rohyctl` for each of Windows,
+Linux and macOS on x64 and arm64 (`bin/<platform>-<arch>/`), built from the same
+commit, so the report it reads is the one this tree prints; a
+`rohy.rohyctlPath` setting overrides it, and `PATH` is the last resort. When no
+`rohyctl` can run it falls back to the generated
 JSON Schema and says so in the status bar, because the schema cannot express what
 depends on the algorithm.
 
@@ -2953,7 +2957,7 @@ The cost model in one table — know what dominates before optimising anything:
 ## 20. Testing strategy
 
 **1,253 Go test functions**, 10 fuzz targets, 66 benchmarks, **880 frontend test
-cases** in 57 files, and **64 extension tests**.
+cases** in 57 files, and **74 extension tests**.
 
 Where each runs:
 
@@ -3020,8 +3024,10 @@ Every build job runs `go test ./backend/...` **and** `npm test` before it builds
 
 The VS Code extension is not part of this matrix. It is a separate package with no
 dependencies and its own version (0.1.0 first, independent of rohy's), built by hand
-with `npm run package` in `tools/rohy-vi`, which checks the schema and the tests
-before a pinned vsce packages it, and never publishes;
+with `build-extension.ps1` or `build-extension.sh`, which run
+`tools/rohy-vi/scripts/package.js`: it checks the schema and the tests,
+cross-builds `rohyctl` (no cgo) for Windows, Linux and macOS on x64 and arm64, and
+has a pinned vsce package them all into one `.vsix`; it never publishes;
 its tests run in the local gate, and a CI job for it is deferred with the other CI
 additions.
 

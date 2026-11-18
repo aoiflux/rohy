@@ -290,7 +290,9 @@ test('the entry point wires the real modules to the API it is given', async () =
   try {
     delete require.cache[require.resolve('../src/extension.js')];
     const extension = require('../src/extension.js');
-    const context = { extension: { packageJSON: manifest }, subscriptions: [] };
+    // An installed extension with no packaged rohyctl in it.
+    const extensionPath = path.join(__dirname, 'no-such-extension');
+    const context = { extensionPath, extension: { packageJSON: manifest }, subscriptions: [] };
     extension.activate(context);
     await settle();
     assert.equal(context.subscriptions.length, 1);

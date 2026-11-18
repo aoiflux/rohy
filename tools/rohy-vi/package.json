@@ -53,7 +53,7 @@
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "The absolute path of the `rohyctl` to check rule files with. Empty means the first `rohyctl` on `PATH`. Read from user settings only, so an opened folder cannot choose the program that is run over its files."
+          "markdownDescription": "The absolute path of a `rohyctl` to check rule files with, instead of the one packaged with the extension. Empty means the packaged one, or, where there is none, the first `rohyctl` on `PATH`. Read from user settings only, so an opened folder cannot choose the program that is run over its files."
         },
         "rohy.ruleFiles": {
           "type": "array",

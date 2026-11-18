@@ -194,11 +194,12 @@ redaction and checkpoint reads back, and every event can still be proven.
   saved. It is off unless you turn it on, a rule that fails its check is never rewritten, and field
   order and fields this version does not read are kept.
 - **A VS Code extension for rule files**, Rohy VI (`tools/rohy-vi`, version 0.1.0; the extension is
-  versioned on its own, not with rohy). With `rohyctl` installed, it
-  underlines problems as you type, using the check the application loads rules with, and **Format
-  Document** lays a rule out in the house style. Without it, files are checked against the rule
-  schema, and the status bar says that check is partial. It has no dependencies, and it runs only a
-  `rohyctl` named in your user settings or found on `PATH`, never one an opened folder points to.
+  versioned on its own, not with rohy). It carries `rohyctl` for Windows, Linux and macOS (x64 and
+  arm64), built from the same commit, so it underlines problems as you type, using the check the application loads rules
+  with, and **Format Document** lays a rule out in the house style, with nothing else installed.
+  Where no `rohyctl` can run, files are checked against the rule schema, and the status bar says
+  that check is partial. It has no dependencies, and it runs only a `rohyctl` named in your user
+  settings, its own, or one found on `PATH`, never one an opened folder points to.
 - **`rohyctl validate --json`** prints one report for a program to read: every file, with each error
   and warning's code, field, line and column.
 
@@ -461,7 +462,7 @@ redaction and checkpoint reads back, and every event can still be proven.
 - **A canvas reads node records only.** *Arrange*, *Group*, snapshots and the canvas cards no longer
   read raw records. The layout binding at 5 000 events drops from 133–165 ms to about 25–40 ms, and
   from 46–50 MB to 8–12 MB allocated, on the same machine.
-- **1,253 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 64 extension tests.**
+- **1,253 Go tests, 10 fuzz targets and 66 benchmarks; 880 frontend tests; 74 extension tests.**
   The new benchmarks measure auto-layout, the relationship heatmap, the backfill on the disk
   backend (PERFORMANCE.md §21) and the whole-case scans (§10).
 

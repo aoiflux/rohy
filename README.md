@@ -128,6 +128,11 @@ target the host can and write the release archives to `artefacts/`. The clean-fr
 step is deliberate: the Go binary embeds whatever is in `dist`, so reusing a
 stale build ships an old UI behind a new backend.
 
+`build-extension.ps1` and `build-extension.sh` build the VS Code extension
+(`tools/rohy-vi/rohy-vi-<version>.vsix`), with `rohyctl` for Windows, Linux and macOS
+inside it. They need Go and Node 22 or later, and take no arguments: the extension
+has its own version, and `rohyctl` is stamped with the one in `build/config.yml`.
+
 Two more checks sit outside the build, because they are slower:
 
 ```bash
@@ -286,8 +291,8 @@ could not consider — without writing an edge.
 
 Outside the application, `rohyctl validate` and `rohyctl format --check` run the
 same check and the same layout from a terminal or a CI job. The
-[VS Code extension](tools/rohy-vi/README.md) runs that check as you type,
-and falls back to the rule schema when `rohyctl` is not installed.
+[VS Code extension](tools/rohy-vi/README.md) carries its own `rohyctl` and runs
+that check as you type; nothing else needs installing.
 
 See [RULES.md](RULES.md) for the complete format — every field, the validation
 rules, the format-version and extensibility contract, and what a rule match does

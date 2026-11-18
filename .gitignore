@@ -29,3 +29,4 @@ __pycache__/
 
 # The VS Code extension package, built by npx @vscode/vsce package.
 tools/rohy-vi/*.vsix
+tools/rohy-vi/bin/

@@ -1,7 +1,12 @@
 // @ts-check
 'use strict';
 
-// Finding rohyctl: the `rohy.rohyctlPath` setting when it is set, otherwise PATH.
+// Finding rohyctl: the `rohy.rohyctlPath` setting when it is set, otherwise the rohyctl packaged
+// with the extension, otherwise PATH.
+//
+// The packaged one comes before PATH because it is built from the same commit as the extension
+// and its schema, so it is known to speak the report this extension reads. PATH remains for a
+// machine the package carries no rohyctl for, such as a 32-bit one.
 //
 // PATH is read here and nowhere else. It is the operating system's own answer to "which
 // program is rohyctl", which is the question being asked — not configuration smuggled in
@@ -50,11 +55,23 @@ function findOnPath({ platform, pathVar, isExecutable }) {
 }
 
 /**
- * resolveRohyctl decides which rohyctl to run, or says why there is none.
- * @param {SearchOptions & {configured: string | undefined}} options
- * @returns {{exe: string, from: 'setting' | 'PATH'} | {reason: string}}
+ * bundledRohyctl is where the packaged rohyctl for this machine sits inside the installed
+ * extension. A platform the package has no build for names a file that does not exist.
+ * @param {string} extensionPath
+ * @param {string} platform process.platform
+ * @param {string} arch process.arch
  */
-function resolveRohyctl({ configured, platform, pathVar, isExecutable }) {
+function bundledRohyctl(extensionPath, platform, arch) {
+  const file = platform === 'win32' ? `${NAME}.exe` : NAME;
+  return pathFor(platform).join(extensionPath, 'bin', `${platform}-${arch}`, file);
+}
+
+/**
+ * resolveRohyctl decides which rohyctl to run, or says why there is none.
+ * @param {SearchOptions & {configured: string | undefined, bundled?: string}} options
+ * @returns {{exe: string, from: 'setting' | 'extension' | 'PATH'} | {reason: string}}
+ */
+function resolveRohyctl({ configured, bundled, platform, pathVar, isExecutable }) {
   const setting = String(configured ?? '').trim();
   if (setting !== '') {
     if (!pathFor(platform).isAbsolute(setting)) {
@@ -65,8 +82,11 @@ function resolveRohyctl({ configured, platform, pathVar, isExecutable }) {
     }
     return { exe: setting, from: 'setting' };
   }
+  if (bundled && isExecutable(bundled)) return { exe: bundled, from: 'extension' };
   const found = findOnPath({ platform, pathVar, isExecutable });
-  if (found === null) return { reason: `${NAME} was not found on PATH` };
+  if (found === null) {
+    return { reason: `no ${NAME} is packaged with the extension for this platform, and none was found on PATH` };
+  }
   return { exe: found, from: 'PATH' };
 }
 
@@ -84,4 +104,23 @@ function isExecutable(file) {
   }
 }
 
-module.exports = { findOnPath, resolveRohyctl, isExecutable };
+/**
+ * restoreExecutableBit gives the packaged rohyctl back the execute permission that a package built
+ * on Windows cannot record. It touches only that file, inside the installed extension, which
+ * belongs to this user.
+ * @param {string} file
+ */
+function restoreExecutableBit(file) {
+  if (process.platform === 'win32') return;
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+  } catch {
+    try {
+      fs.chmodSync(file, 0o755);
+    } catch {
+      // Missing, or not ours to change: resolveRohyctl then falls back to PATH and says why.
+    }
+  }
+}
+
+module.exports = { findOnPath, resolveRohyctl, isExecutable, bundledRohyctl, restoreExecutableBit };
