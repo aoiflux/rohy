@@ -1,6 +1,7 @@
-# rohy rules for VS Code
+# Rohy VI for VS Code
 
-Checks and formats [rohy](../../README.md) correlation rule files while you edit them.
+Rohy VI (Virtual Intelligence) is rohy in the editor. Today it checks and formats
+[rohy](../../README.md) correlation rule files while you edit them.
 
 ## How a file is checked
 
@@ -66,7 +67,7 @@ packaged, so in that mode it checks the rule format of the rohy it was built fro
 There are no dependencies. The tests use Node's own runner and need Node 22 or later:
 
 ```sh
-cd tools/rohy-rules
+cd tools/rohy-vi
 npm test
 ```
 
@@ -83,7 +84,7 @@ Then check the diff, and that `npm test` still passes.
 
 ### Packaging and publishing
 
-`npm run package` builds the installable package, `rohy-rules-<version>.vsix`. It needs Go
+`npm run package` builds the installable package, `rohy-vi-<version>.vsix`. It needs Go
 and Node 22 or later, and runs from this folder in a checkout of rohy. It stops at the first
 failure:
 
@@ -98,14 +99,14 @@ package's SHA-256. It warns if this folder has uncommitted changes.
 
 ```sh
 npm run package
-code --install-extension rohy-rules-0.1.0.vsix    # try it locally first
+code --install-extension rohy-vi-0.1.0.vsix    # try it locally first
 ```
 
 The script never publishes, so it never handles the publisher's token. It prints the command to
 run:
 
 ```sh
-npx @vscode/vsce@4.1.0 publish --packagePath rohy-rules-0.1.0.vsix
+npx @vscode/vsce@4.1.0 publish --packagePath rohy-vi-0.1.0.vsix
 ```
 
 Raise `version` in `package.json` before each release; the Marketplace refuses a version it

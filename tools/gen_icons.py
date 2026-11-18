@@ -10,7 +10,7 @@ Outputs:
     build/appicon.png        1024x1024 — what Wails derives platform icons from
     build/windows/icon.ico   16/32/48/64/128/256 — Windows taskbar, Alt-Tab, Explorer
     build/icon-preview.png   a side-by-side sheet for eyeballing small sizes
-    tools/rohy-rules/icon.png  256x256 — the VS Code extension's Marketplace icon
+    tools/rohy-vi/icon.png  256x256 — the VS Code extension's Marketplace icon
 
 Why this exists rather than a one-off export
 --------------------------------------------
@@ -50,7 +50,7 @@ SVG = ROOT / "frontend" / "src" / "assets" / "logo.svg"
 APPICON = ROOT / "build" / "appicon.png"
 ICO = ROOT / "build" / "windows" / "icon.ico"
 PREVIEW = ROOT / "build" / "icon-preview.png"
-EXTICON = ROOT / "tools" / "rohy-rules" / "icon.png"
+EXTICON = ROOT / "tools" / "rohy-vi" / "icon.png"
 # The Marketplace shows the icon at 128 px and asks for at least that; 256 keeps it sharp on a
 # high-density screen. It must be a PNG: the Marketplace refuses an SVG icon.
 EXTICON_SIZE = 256

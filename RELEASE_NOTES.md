@@ -193,7 +193,7 @@ redaction and checkpoint reads back, and every event can still be proven.
 - **Format on save.** A checkbox in the rule editor lays the rule out in the house style as it is
   saved. It is off unless you turn it on, a rule that fails its check is never rewritten, and field
   order and fields this version does not read are kept.
-- **A VS Code extension for rule files** (`tools/rohy-rules`, version 0.1.0; the extension is
+- **A VS Code extension for rule files**, Rohy VI (`tools/rohy-vi`, version 0.1.0; the extension is
   versioned on its own, not with rohy). With `rohyctl` installed, it
   underlines problems as you type, using the check the application loads rules with, and **Format
   Document** lays a rule out in the house style. Without it, files are checked against the rule
@@ -507,7 +507,7 @@ Stated rather than left to be discovered:
 - Manual verification on Linux and macOS — both build in CI, neither has been exercised by hand.
 - `rohyctl` in the release downloads. A recipient checking a proof builds it with
   `go build ./cmd/rohyctl`.
-- The VS Code extension on the Marketplace. It is packaged by hand from `tools/rohy-rules`; its
+- The VS Code extension on the Marketplace. It is packaged by hand from `tools/rohy-vi`; its
   README says how.
 - In the query console: an expression language, saved queries, export, and conditions on findings.
 - Snapshot thumbnails, and drawing regions or arrows directly on the canvas — both render, but only

@@ -1,6 +1,6 @@
 {
-  "name": "rohy-rules",
-  "displayName": "Rohy Rules",
+  "name": "rohy-vi",
+  "displayName": "Rohy VI",
   "description": "Checks and formats rohy correlation rule files with rohyctl — the check the application loads them with — and with the rule schema when rohyctl is not installed.",
   "version": "0.1.0",
   "publisher": "aoiflux",
@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/aoiflux/rohy",
-    "directory": "tools/rohy-rules"
+    "directory": "tools/rohy-vi"
   },
   "private": true,
   "engines": {

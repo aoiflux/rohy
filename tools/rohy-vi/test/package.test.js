@@ -14,7 +14,7 @@ const option = (args, name) => args[args.indexOf(name) + 1];
 
 test('the package is named for the extension and its own version', () => {
   const p = plan(manifest);
-  assert.equal(p.out, `rohy-rules-${manifest.version}.vsix`);
+  assert.equal(p.out, `rohy-vi-${manifest.version}.vsix`);
   assert.equal(option(p.vsceArgs, '--out'), p.out);
 });
 
@@ -24,7 +24,7 @@ test('a relative link in the README lands on the file it names in the repository
   const base = option(plan(manifest).vsceArgs, '--baseContentUrl');
   assert.equal(new URL('../../README.md', `${base}/`).href, 'https://github.com/aoiflux/rohy/blob/main/README.md');
   const images = option(plan(manifest).vsceArgs, '--baseImagesUrl');
-  assert.equal(new URL('schemas/x.png', `${images}/`).href, 'https://github.com/aoiflux/rohy/raw/main/tools/rohy-rules/schemas/x.png');
+  assert.equal(new URL('schemas/x.png', `${images}/`).href, 'https://github.com/aoiflux/rohy/raw/main/tools/rohy-vi/schemas/x.png');
 });
 
 test('vsce is pinned, and never resolves dependencies', () => {

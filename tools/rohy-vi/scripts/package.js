@@ -2,7 +2,7 @@
 
 // Builds the extension's .vsix, the file that is published and installed.
 //
-// Run from tools/rohy-rules with `npm run package`. It checks before it builds, and stops at the
+// Run from tools/rohy-vi with `npm run package`. It checks before it builds, and stops at the
 // first failure:
 //   1. the version is one the Marketplace accepts (plain x.y.z; it has no pre-release labels);
 //   2. the bundled rule schema is what tools/genschema generates now, because the schema-only check
@@ -70,7 +70,7 @@ function main() {
 
   const dirty = spawnSync('git', ['status', '--porcelain', '--', '.'], { cwd: EXT, encoding: 'utf8' });
   if (dirty.status === 0 && dirty.stdout.trim() !== '') {
-    console.warn('warning: tools/rohy-rules has uncommitted changes; this package matches no commit');
+    console.warn('warning: tools/rohy-vi has uncommitted changes; this package matches no commit');
   }
 
   run('rule schema is current', 'go', ['run', './tools/genschema', '-check'], REPO);
@@ -82,7 +82,7 @@ function main() {
   const file = path.join(EXT, p.out);
   const sum = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   console.log(`\n${p.out}\nsha256 ${sum}`);
-  console.log(`\nTo publish, from tools/rohy-rules (vsce asks for the publisher's token):`);
+  console.log(`\nTo publish, from tools/rohy-vi (vsce asks for the publisher's token):`);
   console.log(`  npx ${VSCE} publish --packagePath ${p.out}`);
 }
 
