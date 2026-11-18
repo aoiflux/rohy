@@ -32,9 +32,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        # No default, deliberately. The version lives in README.md and nowhere else; a default
-        # here is a second copy, and a pre-filled box is the easiest way to ship the previous
-        # release by accident.
+        # No default, deliberately. The version is stated in README.md, and build/config.yml carries
+        # it for the packaging files; a default here would be one more copy, and a pre-filled box
+        # is the easiest way to ship the previous release by accident.
         description: "SemVer to stamp, without the leading v (the version README.md states)"
         required: true
 

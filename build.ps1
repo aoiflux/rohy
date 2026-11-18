@@ -28,8 +28,8 @@
 [CmdletBinding()]
 param(
     # SemVer for this build, without the leading "v". REQUIRED, and deliberately not defaulted:
-    # the version lives in README.md and nowhere else, so a default here would be a second copy
-    # that some release eventually ships stale.
+    # the version is stated in README.md, and build/config.yml carries it for the packaging files.
+    # A default here would be one more copy, and some release would eventually ship it stale.
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+([-+].+)?$')]
     [string]$Version,
