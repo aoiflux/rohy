@@ -52,12 +52,21 @@ once which JSON formatter to use for these files.
 This is why the extension declares full support for folders you have not trusted: it behaves
 the same in them.
 
+## Versions
+
+The extension has its own version, independent of rohy's. Its first release is 0.1.0.
+
+It works with any `rohyctl` whose `validate --json` report is in shape 1 (`output_version`). A
+`rohyctl` that reports another shape is refused, with a message naming both shapes, and is never
+read as a file with no problems. The schema it falls back to is copied in when the extension is
+packaged, so in that mode it checks the rule format of the rohy it was built from.
+
 ## Building and testing
 
 There are no dependencies. The tests use Node's own runner and need Node 22 or later:
 
 ```sh
-cd tools/vscode-rohy
+cd tools/rohy-rules
 npm test
 ```
 
@@ -77,7 +86,7 @@ dependency of the extension):
 
 ```sh
 npx @vscode/vsce package
-code --install-extension vscode-rohy-0.3.0.vsix
+code --install-extension rohy-rules-0.1.0.vsix
 ```
 
 ### Checked by hand

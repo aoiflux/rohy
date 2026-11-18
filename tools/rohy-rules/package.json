@@ -1,14 +1,14 @@
 {
-  "name": "vscode-rohy",
+  "name": "rohy-rules",
   "displayName": "rohy rules",
   "description": "Checks and formats rohy correlation rule files with rohyctl — the check the application loads them with — and with the rule schema when rohyctl is not installed.",
-  "version": "0.3.0",
+  "version": "0.1.0",
   "publisher": "rohy",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/aoiflux/rohy",
-    "directory": "tools/vscode-rohy"
+    "directory": "tools/rohy-rules"
   },
   "private": true,
   "engines": {

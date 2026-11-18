@@ -28,4 +28,4 @@ __pycache__/
 /profiles/
 
 # The VS Code extension package, built by npx @vscode/vsce package.
-tools/vscode-rohy/*.vsix
+tools/rohy-rules/*.vsix

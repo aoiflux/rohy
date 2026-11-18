@@ -13,10 +13,10 @@ import (
 // The fixtures are shared with the VS Code extension's own tests, which read the reports this
 // test pins and place them on the rules beside them. One copy of the contract, read from both
 // ends: a change to the output that the extension does not expect fails here first.
-var fixtureDir = filepath.Join("..", "..", "tools", "vscode-rohy", "test", "fixtures")
+var fixtureDir = filepath.Join("..", "..", "tools", "rohy-rules", "test", "fixtures")
 
 var updateFixtures = flag.Bool("update-extension-fixtures", false,
-	"rewrite tools/vscode-rohy/test/fixtures/reports from the current output")
+	"rewrite tools/rohy-rules/test/fixtures/reports from the current output")
 
 // decodeReport parses stdout as exactly one JSON document, so a stray summary line or a second
 // document fails rather than being skipped by a lenient reader.

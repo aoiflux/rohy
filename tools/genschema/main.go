@@ -42,7 +42,7 @@ import (
 
 // defaultOut is where the committed schema lives. The extension reads it from here, and the
 // drift check compares against it.
-const defaultOut = "tools/vscode-rohy/schemas/rohy-rule.schema.json"
+const defaultOut = "tools/rohy-rules/schemas/rohy-rule.schema.json"
 
 // schemaID identifies the format. It is a URN rather than a URL because there is nothing to
 // fetch: rohy makes no network calls, and a URL that 404s is worse than an identifier that never

@@ -6,7 +6,7 @@
 //
 // It is a fake, so it can be wrong about VS Code. What it pins is the controller's own logic —
 // which document is checked, when, and which answer is kept. The real API is exercised by hand
-// (tools/vscode-rohy/README.md, "Checked by hand").
+// (tools/rohy-rules/README.md, "Checked by hand").
 
 /** A glob as VS Code's DocumentFilter reads one, over a path with forward slashes. */
 function globToRegExp(glob) {

@@ -162,7 +162,7 @@ rohy/
 ├── tools/
 │   ├── genschema/           Writes the rule JSON Schema from the editor descriptor
 │   ├── profile/             Profiles ingest, build and open on the disk backend
-│   ├── vscode-rohy/         VS Code extension: rohyctl's check and format in the
+│   ├── rohy-rules/          VS Code extension: rohyctl's check and format in the
 │   │                        editor, the schema when rohyctl is absent (§10.3)
 │   └── gen_icons.py         Draws the application icons from the one source mark
 │
@@ -1173,7 +1173,7 @@ be located — a field absent from the file has no position in it.
 Outside the application the same function has two more readers. `rohyctl validate`
 calls `ValidateSource` and prints each problem as `file:line:col`; with `--json`
 it prints them as one report for a program to place. The VS Code extension in
-[tools/vscode-rohy](tools/vscode-rohy/README.md) is that program: it sends the
+[tools/rohy-rules](tools/rohy-rules/README.md) is that program: it sends the
 buffer on stdin as it is typed and underlines what comes back. It is a reader,
 not a fourth validator. When `rohyctl` is absent it falls back to the generated
 JSON Schema and says so in the status bar, because the schema cannot express what
@@ -1190,7 +1190,7 @@ Two details of that boundary are easy to get wrong:
   so the two never count lines differently.
 
 The report is a contract with its own version (`output_version`). The rules in
-`tools/vscode-rohy/test/fixtures/rules` and the reports beside them are read by
+`tools/rohy-rules/test/fixtures/rules` and the reports beside them are read by
 both test suites: Go pins what `rohyctl` prints, and the extension places those
 exact reports on those rules.
 
@@ -2980,8 +2980,8 @@ Where each runs:
 | Lifecycle           | `api_lifecycle_test.go`                                     | startup/shutdown ordering, including drain-before-close   |
 | Reflection          | `rules/schema_test.go`                                      | every `Spec` field is documented in the editor descriptor |
 | Crash / idempotency | `graphene_*` + `evtx_*`                                     | an interrupted build re-runs without duplicating          |
-| Contract            | `cmd/rohyctl/validatejson_test.go` + `tools/vscode-rohy/test/fixtures` | `rohyctl validate --json` prints what the extension reads |
-| Extension           | `tools/vscode-rohy/test/` (`npm test`, Node's own runner)    | which files are checked, when, and which answer is kept — through a fake VS Code API |
+| Contract            | `cmd/rohyctl/validatejson_test.go` + `tools/rohy-rules/test/fixtures` | `rohyctl validate --json` prints what the extension reads |
+| Extension           | `tools/rohy-rules/test/` (`npm test`, Node's own runner)    | which files are checked, when, and which answer is kept — through a fake VS Code API |
 | Fuzz                | 10 targets: `evtx` parse, `query` run, proof verify, the analyst profile and register, anchor receipts, the keyfile and redaction-journal decoders, fingerprint normalization, and payload redaction | untrusted bytes never panic, and what is accepted round-trips |
 | Integration         | `backend/integration/` (`-tags=integration`)                 | the real pipeline on disk over a committed EVTX fixture, against a golden summary; crash recovery; a build's memory bound |
 | Parity              | frontend tests that read backend files: `lib/api/errors.test.js`, `lib/rules/*.test.js`, `lib/query/spec.test.js`, `lib/consts/limits.test.js`, `lib/findings.test.js` | every backend error code has its JS twin; the editor and query page agree with the Go cases and vocabulary; the mirrored bounds match `consts.go`, and the findings editor counts a note as Go does |
@@ -3019,7 +3019,8 @@ flowchart TD
 Every build job runs `go test ./backend/...` **and** `npm test` before it builds.
 
 The VS Code extension is not part of this matrix. It is a separate package with no
-dependencies, built by hand with `npx @vscode/vsce package` in `tools/vscode-rohy`;
+dependencies and its own version (0.1.0 first, independent of rohy's), built by hand
+with `npx @vscode/vsce package` in `tools/rohy-rules`;
 its tests run in the local gate, and a CI job for it is deferred with the other CI
 additions.
 
