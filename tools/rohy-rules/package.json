@@ -3,7 +3,7 @@
   "displayName": "rohy rules",
   "description": "Checks and formats rohy correlation rule files with rohyctl — the check the application loads them with — and with the rule schema when rohyctl is not installed.",
   "version": "0.1.0",
-  "publisher": "rohy",
+  "publisher": "aoiflux",
   "license": "MIT",
   "repository": {
     "type": "git",
